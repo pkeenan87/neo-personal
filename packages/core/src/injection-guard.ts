@@ -45,8 +45,8 @@ const USER_INPUT_PATTERNS: readonly PatternEntry[] = [
     label: "persona_reassignment",
   },
   { pattern: /new\s+(?:system\s+)?prompt:/i, label: "system_prompt_injection" },
-  { pattern: /\[SYSTEM\]|^\s*SYSTEM:/im, label: "system_header_injection" },
-  { pattern: /^\s*(?:ASSISTANT|USER|HUMAN):/im, label: "role_header_injection" },
+  { pattern: /\[SYSTEM\]|^[ \t]*SYSTEM:/im, label: "system_header_injection" },
+  { pattern: /^[ \t]*(?:ASSISTANT|USER|HUMAN):/im, label: "role_header_injection" },
   {
     pattern: /I\s+am\s+an\s+admin|I\s+have\s+(?:elevated|admin|root|full)\s+(?:access|permissions|privileges)/i,
     label: "role_claim",
@@ -84,7 +84,9 @@ const TOOL_RESULT_PATTERNS: readonly PatternEntry[] = [
   { pattern: /\b(?:curl|wget|nc|ncat|python3?\s+-c)\s+/i, label: "exfiltration_attempt" },
   {
     // Requires base64 padding so SHA-256 hex digests and GUIDs don't match.
-    pattern: /[A-Za-z0-9+/]{20,}={1,2}/,
+    // The lookbehind anchors each attempt at the start of a run, keeping the
+    // scan linear on long attacker-supplied alphanumeric runs (no ReDoS).
+    pattern: /(?<![A-Za-z0-9+/])[A-Za-z0-9+/]{20,}={1,2}/,
     label: "encoded_payload",
   },
 ];
