@@ -1,0 +1,24 @@
+name: Security vulnerability (do not use)
+description: Security issues must be reported privately. This form only explains how.
+title: "[do not file] security report"
+labels: ["invalid"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ## Please do not report vulnerabilities in public issues
+
+        Public issues are visible to everyone, including attackers. Report privately instead:
+
+        1. Open a private advisory: this repository's **Security** tab, then **Report a vulnerability**.
+        2. Read [SECURITY.md](../blob/main/SECURITY.md) for scope, response times, and safe harbor.
+
+        Close this tab without submitting.
+
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: Acknowledgement
+      options:
+        - label: I understand this form is not for vulnerability details and I will use a private advisory instead.
+          required: true

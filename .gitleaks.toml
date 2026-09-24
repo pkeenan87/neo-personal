@@ -1,0 +1,29 @@
+# gitleaks configuration for Neo.
+# Used by CI (.github/workflows/ci.yml, blocking) and the pre-commit hook (lefthook.yml).
+# Extends the upstream default ruleset; only add allowlists here, never disable rules.
+
+title = "Neo gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Files that intentionally contain placeholder values or synthetic test data"
+paths = [
+  # Template of every env var; values are placeholders and must stay that way.
+  '''(^|/)\.env\.example$''',
+  # Synthetic fixtures (phishing samples, mock API responses) for tests.
+  '''(^|/)test/fixtures/''',
+  '''(^|/)__fixtures__/''',
+  '''(^|/)fixtures/.*\.(eml|json|txt|html)$''',
+  # Lockfiles contain integrity hashes that look like high-entropy strings.
+  '''(^|/)pnpm-lock\.yaml$''',
+]
+
+[[allowlists]]
+description = "Obvious placeholder values used in docs and CI"
+regexTarget = "match"
+regexes = [
+  '''(?i)ci-only-placeholder-not-a-secret''',
+  '''(?i)(changeme|replace[-_]?me|your[-_].*[-_]here|xxxxxxxx+)''',
+]

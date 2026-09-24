@@ -1,0 +1,32 @@
+version: 2
+updates:
+  # pnpm workspace: Dependabot reads the root pnpm-lock.yaml and updates every
+  # workspace package from the root directory.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "⬆️ deps"
+    groups:
+      # One PR per week for all non-breaking bumps.
+      minor-and-patch:
+        update-types: [minor, patch]
+      # React and its types must move together or install fails on peer deps.
+      react:
+        patterns: [react, react-dom, "@types/react", "@types/react-dom"]
+        update-types: [major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "⬆️ ci"
+    groups:
+      actions:
+        patterns: ["*"]
