@@ -24,6 +24,8 @@ export type Verdict = {
 export const verdictJsonSchema: Record<string, unknown>; // JSON schema for Claude structured outputs / tool input
 ```
 
+Shipped additions: `verdictJsonSchema` is strict (every object `additionalProperties: false`) and has no `minimum`/`maximum`/length keywords (validate with `VerdictSchema`, which enforces them). Also exported: `summarizeVerdict(v)` (one-line text), `verdictSeverityRank`, and the literal lists `SUBJECT_TYPES`, `VERDICTS`, `SEVERITIES`, `URGENCIES` with types `SubjectType`, `VerdictLabel`, `Severity`, `Urgency`. `VerdictSchema` is `.strict()`: unknown keys are rejected.
+
 ## @neo/core  (lifted from ../Neo/web/lib, Azure-free)
 
 ```ts
@@ -77,6 +79,16 @@ export interface ConversationStore {
 }
 ```
 
+Shipped additions (all additive; nothing above changed):
+- `RunAgentOptions` also takes `client?: Anthropic` (inject a client; tests and `MOCK_MODE` pass a scripted fake), `enableFallbacks?` (server-side refusal fallbacks via the beta namespace; default env `NEO_ENABLE_FALLBACKS`, on; a fake client without `beta` needs `false`), `maxIterations?` (default 20), `retry?`.
+- `AgentResult` also has `newMessages` (only what this run appended: persist these with `appendTurn`), `stopReason` (API stop reason, or `confirmation_required` | `interrupted` | `error` | `max_iterations`), and `error?` (user-safe text). `usage` includes `cache_read_input_tokens` / `cache_creation_input_tokens`. `pendingConfirmation` is persisted as is.
+- `runAgentLoop` / `resumeAfterConfirmation` never throw; `done` is always the last event.
+- `createEventStream(): { readable, send, close }` for NDJSON responses (pass `onEvent: send`, `close()` when finished), `NDJSON_CONTENT_TYPE`, `decodeEvent`.
+- `scanUserInput` also accepts content blocks; `shouldBlock` is true only in `INJECTION_GUARD_MODE=block` with >= 2 pattern matches.
+- `logger.<level>(message, component, metadata?)`; metadata keys are allowlisted (`SAFE_METADATA_FIELDS`); the only safe user identifier is `userIdHash` from `hashPii`.
+- `export type { MessageParam }` (re-exported from the SDK so dependants need not import it), config helpers `agentModel()`, `compressionModel()`, `fallbacksEnabled()`, `DEFAULT_*`.
+- Env: `NEO_AGENT_MODEL`, `NEO_COMPRESSION_MODEL`, `NEO_ENABLE_FALLBACKS`, `NEO_CONTEXT_MAX_INPUT_TOKENS`, `NEO_TOOL_RESULT_MAX_TOKENS`, `INJECTION_GUARD_MODE`, `LOG_LEVEL`.
+
 ## @neo/tools
 
 ```ts
@@ -85,6 +97,8 @@ export function analyzeUrl(url: string, opts?: { deps?: Partial<UrlAnalysisDeps>
 export type UrlAnalysis = { normalized_url: string; final_url?: string; redirect_chain: string[]; domain: { registrable: string; age_days?: number; registrar?: string; created?: string }; reputation: { safe_browsing?: {...}; virustotal?: {...}; urlscan?: {...} }; tls?: {...}; lookalike?: { brand: string; technique: string } | null; heuristics: string[]; errors: string[] };
 ```
 Every external client reads its key from env and returns `{ skipped: "no_api_key" }` when unset. `MOCK_MODE=true` returns deterministic fixtures for a fixed set of test URLs. The agent (not this package) produces the Verdict from `UrlAnalysis`.
+
+Shipped additions: `createCheckUrlTool({ deps })` builds `check_url` with injected dependencies (apps/web passes a process-wide `cache`); `URL_ANALYSIS_GUIDANCE` is the system-prompt fragment for weighing results into a Verdict; `extractUrlIocs(analysis)` returns Verdict `iocs`; `MOCK_URLS` lists the fixture URLs (any other URL gets a plausible clean mock result). `UrlAnalysis` also carries `input`, `display_url`, `page`, `final_domain`, `analyzed_at`, `cached?`, `mock?`. Node runtime only (tls, dns, undici); worst case per call ~15 s, ~40 s with urlscan. `VIRUSTOTAL_SUBMIT` (default true) controls submitting unknown URLs to VirusTotal; `URLSCAN_ENABLED` (default false) enables urlscan.io.
 
 ## @neo/db
 
@@ -101,8 +115,37 @@ export function createTenantForUser(db: Db, input: { userId: string; name: strin
 ```
 Caps come from env: `USAGE_CAP_MONTHLY_CHECKS` (default 50), `USAGE_CAP_DAILY_TOKENS` (default 300000). RLS policies in a migration keyed on `current_setting('app.tenant_id', true)`.
 
+Shipped differences and additions:
+- `usage.checkCaps` returns `{ allowed, reason?, remaining, used, limits, resetAt: { monthlyChecks, dailyTokens } }` (`resetAt` = start of the next UTC month / day). It counts only `kind = 'check'` rows as checks.
+- `usage.recordCheck` also takes `cacheReadTokens?`, `cacheCreationTokens?` and `kind?: "check" | "resume"` (default `check`; confirm resumptions record `resume`, which counts tokens but not checks). Column `usage_events.kind` (migration `0002_usage_kind`).
+- `usage.recordCapHit(db, { tenantId, userId, reason, limit, used, resetAt })` writes at most one `usage.cap_hit` audit event per tenant, reason and period; returns whether it wrote.
+- `findTenantForUser(db, userId) → { tenantId, role } | undefined` (for the Auth.js session). `createTenantForUser` is idempotent per user and writes `tenant.created`.
+- Auth.js tables `users`, `accounts`, `sessions`, `verificationTokens`, `authenticators` are exported for `DrizzleAdapter(db, { usersTable, accountsTable, sessionsTable, verificationTokensTable, authenticatorsTable })`.
+- `createDb()` opens a pool: call it once per process. The migration runner is only at the `@neo/db/migrate` subpath (`runMigrations`, `migrationsFolder`) so app bundles never include it. The app connects as a non-owner role (`DATABASE_URL`) so RLS applies; migrations use `MIGRATION_DATABASE_URL` (owner). See `packages/db/docs/rls.md`.
+- `appendTurn` with an empty `messages` array only updates `pendingConfirmation` (no empty turn row).
+
 ## apps/web  (Next.js 16 App Router, Node runtime)
 
-Routes: `/` marketing+login, `/chat`, `/chat/[id]`, `/api/agent` (POST, NDJSON stream), `/api/agent/confirm` (POST), `/api/conversations` (GET/DELETE), `/api/auth/[...nextauth]`, `/api/health`.
+Routes: `/` marketing+login, `/chat`, `/chat/[id]`, `/api/agent` (POST, NDJSON stream), `/api/agent/confirm` (POST), `/api/conversations` (GET/DELETE), `/api/usage` (GET), `/api/auth/[...nextauth]`, `/api/health`.
 Auth: Auth.js v5 with Google and Resend magic link; Drizzle adapter on @neo/db; on first sign-in `createTenantForUser`. Session carries `{ userId, tenantId, role }`.
 `/api/agent` order: auth → `usage.checkCaps` (429 if not allowed) → `scanUserInput` → load conversation → `runAgentLoop` with `createToolRegistry([checkUrlTool])` → `appendTurn` + `usage.recordCheck`.
+
+### HTTP contract (as shipped)
+
+Every API route runs on the Node runtime; `/api/agent` and `/api/agent/confirm` set `maxDuration = 300` (also in `apps/web/vercel.json`). JSON errors are `{ error: <message>, code? }` except the usage-cap 429 below.
+
+- `POST /api/agent` `{ conversationId?, message }` → 200 NDJSON `AgentEvent` lines, header `x-conversation-id`. Errors: 400 `bad_request` / `message_too_long` / `input_blocked` (injection guard in block mode), 401 `unauthenticated`, 404 `not_found` (unknown id or another tenant's), 409 `confirmation_pending` (answer the pending action first), 429 usage cap, 503 `usage_unavailable` (cap check failed: fail closed), `storage_unavailable`, `agent_unavailable` (no `ANTHROPIC_API_KEY` and not `MOCK_MODE`). The turn (user message + `newMessages`, usage, `pendingConfirmation`) is appended and `usage.recordCheck` is written after the loop ends for every stop reason, including errors and client aborts; then the stream closes.
+- `POST /api/agent/confirm` `{ conversationId, id, approved }` → 200 NDJSON (resumed turn). 409 `no_pending_confirmation` when nothing is pending or the id differs. Approving checks only the daily token cap (429 / 503 fail closed); declining is always allowed. Usage is recorded with `kind: "resume"`.
+- 429 body: `{ error: "usage_cap_exceeded", reason: "monthly_checks" | "daily_tokens", limit, resetAt, message }` with `Retry-After` seconds. At most one `usage.cap_hit` audit event per tenant, reason and period.
+- `GET /api/conversations` → `{ conversations: [{ id, title, updatedAt }] }` for the session user in the session tenant; `DELETE /api/conversations?id=` → 204, 404 for unknown or foreign ids.
+- `GET /api/usage` → `{ monthlyChecks: { used, limit, resetAt }, dailyTokens: { used, limit, resetAt } }`.
+
+### Verdicts in chat
+
+The system prompt (`apps/web/lib/server/system-prompt.ts`) tells the model to end every analysis with exactly one fenced block whose info string is `verdict` and whose body is a `Verdict` JSON object (schema from `verdictJsonSchema`). The UI renders it as a verdict card (`lib/verdict-fence.ts`); the route validates the block in the final assistant message with `VerdictSchema` and inserts a `verdicts` row. The block is prose-embedded rather than a structured-output call so one streamed turn carries both the explanation and the verdict.
+
+### Modes
+
+- `MOCK_MODE=true`: the real agent loop runs against a scripted offline model (`lib/server/mock-model.ts`, passed as `client`), `check_url` runs in @neo/tools mock mode, and a destructive demo tool `report_phish_demo` is registered (send a message containing `confirm-test`) to exercise the confirmation gate. No API key or network needed.
+- No `DATABASE_URL`: conversations, usage, audit events and verdicts use in-memory fallbacks (per process), and no sign-in provider is registered; only `DEV_AUTH_BYPASS` signs in (fixed in-memory dev tenant). For local demos and CI only.
+- `DEV_AUTH_BYPASS=true` is honoured only when `NODE_ENV !== "production"` and `VERCEL_ENV` is neither `production` nor `preview`.

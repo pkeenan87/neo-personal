@@ -46,6 +46,7 @@ Hobby plans on Vercel are for non-commercial use. A private household instance f
 | `NEO_AGENT_MODEL`, `NEO_COMPRESSION_MODEL`, `NEO_TRIAGE_MODEL` | No | Defaults: `claude-opus-5`, `claude-haiku-4-5`, `claude-sonnet-5`. |
 | `NEO_AGENT_EFFORT`, `NEO_ENABLE_FALLBACKS` | No | Defaults `medium`, `true`. |
 | `DATABASE_URL` | Yes | The **`neo_app`** role, not the owner. `?sslmode=require` on Neon. |
+| `MIGRATION_DATABASE_URL` | For migrations | The owner role; used only by `pnpm db:migrate`. Never give it to the app. |
 | `NEO_DB_DRIVER` | No | `neon` on Vercel + Neon (auto-detected). |
 | `AUTH_SECRET` | Yes | Random 32 bytes. Rotating it signs everyone out. |
 | `AUTH_URL` | No | Unset on Vercel. Set it behind other proxies. |
@@ -54,6 +55,7 @@ Hobby plans on Vercel are for non-commercial use. A private household instance f
 | `AUTH_RESEND_KEY`, `EMAIL_FROM` | One sign-in method required | Magic-link sign-in. |
 | `GOOGLE_SAFE_BROWSING_API_KEY` | Recommended | Skipped if unset. |
 | `VIRUSTOTAL_API_KEY` | Recommended | Skipped if unset. 4 req/min on free tier. |
+| `VIRUSTOTAL_SUBMIT` | No | Default `true`: unknown URLs are submitted to VirusTotal for scanning. `false` = lookups only. |
 | `URLSCAN_API_KEY`, `URLSCAN_ENABLED` | Optional | Leave `URLSCAN_ENABLED=false` unless you accept that submitted URLs may be visible on urlscan.io. |
 | `USAGE_CAP_MONTHLY_CHECKS`, `USAGE_CAP_DAILY_TOKENS` | No | Defaults 50 and 300000 per household. |
 | `MOCK_MODE` | Yes | **`false`** in production. |

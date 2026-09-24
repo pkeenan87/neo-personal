@@ -6,7 +6,7 @@ Everything runs locally without API keys or a database account. Real services ar
 
 - **Node 22+** (`.nvmrc` pins 22).
 - **pnpm**, at the version in the root `package.json` `packageManager` field. `corepack enable` installs it automatically.
-- **Postgres 16+** for conversation storage and sign-in (Docker, Postgres.app, or a free Neon branch). See [Local database](#local-database).
+- **Postgres 16+** (optional) for persistent conversations and real sign-in (Docker, Postgres.app, or a free Neon branch). See [Local database](#local-database). Without `DATABASE_URL` the app keeps conversations, usage, and audit events in memory for the life of the dev server, and only `DEV_AUTH_BYPASS` can sign you in.
 - **gitleaks** (optional, for the pre-commit hook): `brew install gitleaks`, or a binary from <https://github.com/gitleaks/gitleaks/releases>.
 
 ## First run
@@ -18,15 +18,21 @@ pnpm dlx lefthook install
 MOCK_MODE=true DEV_AUTH_BYPASS=true pnpm --filter @neo/web dev
 ```
 
-Open <http://localhost:3000>. `DEV_AUTH_BYPASS=true` signs you in as a seeded dev user in a seeded household. It is refused whenever `NODE_ENV` is `production` or `VERCEL_ENV` is `production` or `preview`.
+Open <http://localhost:3000> and paste a link such as `https://paypa1-secure-login.com/verify` (phishing fixture) or `https://example.com/` (clean). Type a message containing `confirm-test` to try the confirmation flow. `DEV_AUTH_BYPASS=true` signs you in as a dev user (`dev@neo.local`) in a dev household, created in the database on first use when `DATABASE_URL` is set. It is refused whenever `NODE_ENV` is `production` or `VERCEL_ENV` is `production` or `preview`, and a "Dev auth bypass active" badge shows while it is on.
 
 Next.js loads env files from the app directory (`apps/web/`), so `.env.local` goes there. Package tests read `process.env` directly and should not need a file.
 
 ## Mock mode
 
-`MOCK_MODE=true` makes every external client (Claude, Safe Browsing, VirusTotal, urlscan, RDAP, Resend) return deterministic fixtures for a fixed set of test URLs, and makes no network calls. Use it for UI work, tests, and CI.
+`MOCK_MODE=true` makes every external service deterministic and offline:
 
-To exercise one real service, set `MOCK_MODE=false` and fill in only that key. Clients with no key return `{ skipped: "no_api_key" }` instead of failing, so a partial `.env.local` is fine.
+- **Claude**: the real agent loop (`@neo/core`) runs against a scripted model (`apps/web/lib/server/mock-model.ts`) that calls `check_url` for pasted links and answers with a verdict built from the tool's output. Tool calls, the trust-boundary envelope, persistence, usage caps and verdict storage all run for real.
+- **URL analyzers** (Safe Browsing, VirusTotal, urlscan, RDAP, TLS, redirects): fixtures for the URLs in `MOCK_URLS` (`packages/tools/src/mock.ts`), a plausible clean result for anything else.
+- **Resend**: with no `AUTH_RESEND_KEY`, magic links are printed to the dev server console.
+
+Use it for UI work, tests, and CI. Usage is still recorded, so caps can be tested locally (`USAGE_CAP_MONTHLY_CHECKS=2`).
+
+To use real services, set `MOCK_MODE=false` and `ANTHROPIC_API_KEY` (without a key `/api/agent` returns 503), then add analyzer keys as needed. Analyzer clients with no key return `{ skipped: "no_api_key" }` instead of failing, so a partial `.env.local` is fine.
 
 ## Commands
 

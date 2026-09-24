@@ -205,7 +205,7 @@ describe("usage caps", () => {
   it("fails closed with 503 when the usage store is unavailable", async () => {
     signInAsTenantB();
     // Nothing listens on port 1: the usage query fails to connect.
-    vi.stubEnv("DATABASE_URL", "postgres://neo:neo@127.0.0.1:1/neo");
+    vi.stubEnv("DATABASE_URL", "postgres://127.0.0.1:1/neo");
     const res = await agentPOST(post("/api/agent", { message: "hello" }));
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ code: "usage_unavailable" });

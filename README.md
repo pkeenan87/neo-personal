@@ -34,7 +34,7 @@ cp .env.example apps/web/.env.local
 MOCK_MODE=true DEV_AUTH_BYPASS=true pnpm --filter @neo/web dev
 ```
 
-Open <http://localhost:3000> and ask "is https://example.com safe?". `DEV_AUTH_BYPASS` signs you in as a local dev user and is ignored on production and preview deployments.
+Open <http://localhost:3000> and ask "is https://paypa1-secure-login.com/verify safe?". In mock mode the real agent loop runs against a scripted model, so no Anthropic key or database is needed; set `ANTHROPIC_API_KEY` and `MOCK_MODE=false` for real answers. `DEV_AUTH_BYPASS` signs you in as a local dev user and is ignored on production and preview deployments.
 
 More in [docs/development.md](docs/development.md): local Postgres, running with real API keys, the pre-commit secret scan, and every command.
 
@@ -59,7 +59,7 @@ Mobile, extension, and desktop apps arrive in later phases under `apps/`.
 
 ## How it is built
 
-- **Claude** does the reasoning: `claude-opus-5` for chat, `claude-sonnet-5` for bulk triage, `claude-haiku-4-5` for compression. Verdicts come back through structured outputs, so the schema is enforced by the API.
+- **Claude** does the reasoning: `claude-opus-5` for chat, `claude-sonnet-5` for bulk triage, `claude-haiku-4-5` for compression. Every analysis ends with a structured verdict (a JSON block validated against the shared zod schema), which the app renders as a verdict card and stores.
 - **Everything Neo analyzes is treated as hostile.** Emails, texts, and web pages are written by the people Neo is judging, so they enter the model inside a trust-boundary envelope as evidence, never as instructions. See the threat model in [SECURITY.md](SECURITY.md#threat-model).
 - **Multi-tenant from day one.** Every row carries a household `tenant_id`, every query is scoped in code, and Postgres row-level security backs it up.
 - **Spend is capped.** Per-household monthly check and daily token caps, tunable by env var.
