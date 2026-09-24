@@ -62,7 +62,7 @@ export interface WebEnv {
   APP_VERSION: string;
   /** Git commit reported by /api/health when running on Vercel. */
   GIT_SHA: string | undefined;
-  /** Postgres connection string (app role). Unset → in-memory fallbacks (MOCK_MODE / tests only). */
+  /** Postgres connection string (app role): NEO_DATABASE_URL, else DATABASE_URL. Unset → in-memory fallbacks (MOCK_MODE / tests only). */
   DATABASE_URL: string | undefined;
   /** Anthropic credentials are present (MOCK_MODE does not need them). */
   HAS_ANTHROPIC_CREDENTIALS: boolean;
@@ -70,9 +70,18 @@ export interface WebEnv {
   AUTH_PROVIDERS: { google: boolean; resend: boolean };
 }
 
+/**
+ * Connection string for the app role. `NEO_DATABASE_URL` wins over `DATABASE_URL` so a
+ * marketplace integration (e.g. Neon on Vercel) can keep managing `DATABASE_URL` with the
+ * owner role while the app connects as the least-privilege role that RLS applies to.
+ */
+export function databaseUrl(source: EnvSource = process.env): string | undefined {
+  return nonEmpty(source.NEO_DATABASE_URL) ?? nonEmpty(source.DATABASE_URL);
+}
+
 export function readEnv(source: EnvSource = process.env): WebEnv {
   const mock = bool(source.MOCK_MODE);
-  const database = nonEmpty(source.DATABASE_URL);
+  const database = databaseUrl(source);
   return {
     MOCK_MODE: mock,
     DEV_AUTH_BYPASS: devAuthBypassActive(source),
@@ -94,7 +103,7 @@ export function readEnv(source: EnvSource = process.env): WebEnv {
  * MOCK_MODE on a non-deployed environment (the magic link is logged instead of sent).
  */
 export function authProviders(source: EnvSource = process.env): { google: boolean; resend: boolean } {
-  const database = Boolean(nonEmpty(source.DATABASE_URL));
+  const database = Boolean(databaseUrl(source));
   const google = database && Boolean(nonEmpty(source.AUTH_GOOGLE_ID) && nonEmpty(source.AUTH_GOOGLE_SECRET));
   const resend =
     database && (Boolean(nonEmpty(source.AUTH_RESEND_KEY)) || (bool(source.MOCK_MODE) && !isDeployedEnvironment(source)));

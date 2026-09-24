@@ -27,7 +27,7 @@ Status as of 2026-09-24: Phase 0 code is complete and green in CI. One real Opus
   ```
   Both flags must be false.
 - [ ] Start the dev server and confirm conversations survive a restart.
-- [ ] Note: docs call the role `neo_app` in `docs/` and `app_user` in `packages/db/docs/rls.md`. Same role; pick one name and I will unify the docs.
+- [ ] Note: docs call the role `app_user` in `docs/` and `app_user` in `packages/db/docs/rls.md`. Same role; pick one name and I will unify the docs.
 
 ## 3. Authentication (unblocks turning off the dev bypass)
 
@@ -71,4 +71,4 @@ Status as of 2026-09-24: Phase 0 code is complete and green in CI. One real Opus
 
 - [ ] Inbound email provider for Phase 1: Resend (assumed) or Postmark.
 - [ ] Usage cap launch numbers once you have seen a week of real per-check costs. Current defaults: 50 checks/month, 300,000 tokens/day per household.
-- [ ] Whether the app DB role is called `neo_app` or `app_user` (see section 2).
+- [ ] Whether the app DB role is called `app_user` or `app_user` (see section 2).

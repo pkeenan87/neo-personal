@@ -55,17 +55,17 @@ docker run -d --name neo-pg -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:
 
 # Create a non-superuser app role so RLS applies (see docs/self-hosting.md)
 psql postgres://postgres:postgres@localhost:5432/postgres \
-  -c "CREATE ROLE neo_app LOGIN PASSWORD 'neo_app' NOSUPERUSER NOBYPASSRLS;" \
+  -c "CREATE ROLE app_user LOGIN PASSWORD 'app_user' NOSUPERUSER NOBYPASSRLS;" \
   -c "CREATE DATABASE neo OWNER postgres;" \
-  -c "GRANT CONNECT, TEMP ON DATABASE neo TO neo_app;"
+  -c "GRANT CONNECT, TEMP ON DATABASE neo TO app_user;"
 ```
 
-Run migrations as the owner role, apply the `neo_app` grants from [self-hosting.md](self-hosting.md#database-roles-and-rls) (connected to the `neo` database), then run the app as `neo_app`:
+Run migrations as the owner role, apply the `app_user` grants from [self-hosting.md](self-hosting.md#database-roles-and-rls) (connected to the `neo` database), then run the app as `app_user`:
 
 ```bash
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/neo pnpm db:migrate
 # apps/web/.env.local
-DATABASE_URL=postgres://neo_app:neo_app@localhost:5432/neo
+DATABASE_URL=postgres://app_user:app_user@localhost:5432/neo
 NEO_DB_DRIVER=pg
 ```
 

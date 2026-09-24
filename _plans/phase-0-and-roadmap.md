@@ -344,4 +344,4 @@ Weeks are calendar weeks for one developer using Claude Code heavily. Each phase
 
 **Not yet verified**: a real Postgres/Neon database and RLS under the app role, Google OAuth and Resend magic links, a real Anthropic call, a Vercel deployment. The public GitHub repo does not exist yet (README badges and issue-template links carry placeholders).
 
-**Carried into Phase 1**: sign-out-everywhere, click-to-confirm page for magic links, usage indicator in the chat header, warn-once log for invalid cap env values, unify the app DB role name (`neo_app` vs `app_user`) across docs, decide the `VIRUSTOTAL_SUBMIT` default (currently true, which exposes pasted URLs to other VirusTotal users), port the injection-guard regex fix back to the work Neo repo.
+**Carried into Phase 1**: sign-out-everywhere, click-to-confirm page for magic links, usage indicator in the chat header, warn-once log for invalid cap env values, unify the app DB role name (`app_user` vs `app_user`) across docs, decide the `VIRUSTOTAL_SUBMIT` default (currently true, which exposes pasted URLs to other VirusTotal users), port the injection-guard regex fix back to the work Neo repo.
