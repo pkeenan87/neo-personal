@@ -1,48 +1,30 @@
 /**
- * ─── STUB: REPLACE IN INTEGRATION PASS ───────────────────────────────
- * In-memory ConversationStore for mock/dev mode. Mirrors the
- * `ConversationStore` interface in docs/contracts.md (@neo/core) so the
- * integration pass replaces `getConversationStore()` with
- *
- *   createConversationStore(createDb())   // from @neo/db
- *
- * and deletes the in-memory implementation. Data lives on globalThis so it
- * survives dev hot reloads; it is per-process and lost on restart.
- * ─────────────────────────────────────────────────────────────────────
+ * Conversation persistence. `getConversationStore()` returns the Postgres store
+ * from @neo/db (`createConversationStore`) when DATABASE_URL is set, and the
+ * in-memory no-database fallback otherwise (MOCK_MODE with zero
+ * infrastructure, and the test suite). Both implement @neo/core's
+ * ConversationStore and scope every read and write by tenantId.
  */
-import type { StoredMessage, StoredPendingConfirmation } from "@/lib/chat-state";
-
-/** TEMPORARY mirror of @neo/core ConversationStore (MessageParam narrowed to StoredMessage). */
-export interface ConversationStore {
-  create(input: { tenantId: string; userId: string; title?: string }): Promise<{ id: string }>;
-  get(
-    id: string,
-    tenantId: string,
-  ): Promise<{ id: string; messages: StoredMessage[]; pendingConfirmation?: unknown } | undefined>;
-  appendTurn(
-    id: string,
-    tenantId: string,
-    turn: {
-      messages: StoredMessage[];
-      usage?: { input_tokens: number; output_tokens: number };
-      pendingConfirmation?: unknown | null;
-    },
-  ): Promise<void>;
-  list(tenantId: string, userId: string): Promise<Array<{ id: string; title: string | null; updatedAt: Date }>>;
-  delete(id: string, tenantId: string): Promise<void>;
-}
+import type { ConversationStore, MessageParam } from "@neo/core";
+import { createConversationStore } from "@neo/db";
+import type { StoredPendingConfirmation } from "@/lib/chat-state";
+import { getDb } from "./db";
 
 interface Row {
   id: string;
   tenantId: string;
   userId: string;
   title: string | null;
-  messages: StoredMessage[];
+  messages: MessageParam[];
   pendingConfirmation?: unknown;
   updatedAt: Date;
 }
 
-function createMemoryStore(): ConversationStore {
+/**
+ * No-database fallback store: per-process, lost on restart, kept on globalThis
+ * so it survives dev hot reloads. Never used when DATABASE_URL is set.
+ */
+export function createInMemoryConversationStore(): ConversationStore {
   const rows = new Map<string, Row>();
   return {
     async create({ tenantId, userId, title }) {
@@ -55,19 +37,15 @@ function createMemoryStore(): ConversationStore {
       if (!r || r.tenantId !== tenantId) return undefined;
       return {
         id: r.id,
-        messages: [...r.messages],
-        ...(r.pendingConfirmation ? { pendingConfirmation: r.pendingConfirmation } : {}),
+        messages: structuredClone(r.messages),
+        ...(r.pendingConfirmation != null ? { pendingConfirmation: r.pendingConfirmation } : {}),
       };
     },
     async appendTurn(id, tenantId, turn) {
       const r = rows.get(id);
       if (!r || r.tenantId !== tenantId) throw new Error("conversation not found");
-      r.messages.push(...turn.messages);
+      r.messages.push(...structuredClone(turn.messages));
       if (turn.pendingConfirmation !== undefined) r.pendingConfirmation = turn.pendingConfirmation ?? undefined;
-      if (!r.title) {
-        const firstUser = r.messages.find((m) => m.role === "user" && typeof m.content === "string");
-        if (firstUser && typeof firstUser.content === "string") r.title = firstUser.content.slice(0, 80);
-      }
       r.updatedAt = new Date();
     },
     async list(tenantId, userId) {
@@ -83,11 +61,25 @@ function createMemoryStore(): ConversationStore {
   };
 }
 
-const g = globalThis as typeof globalThis & { __neoMemoryConversationStore?: ConversationStore };
+const g = globalThis as typeof globalThis & {
+  __neoMemoryConversationStore?: ConversationStore;
+  __neoDbConversationStore?: { db: unknown; store: ConversationStore };
+};
 
 export function getConversationStore(): ConversationStore {
-  g.__neoMemoryConversationStore ??= createMemoryStore();
+  const db = getDb();
+  if (db) {
+    if (g.__neoDbConversationStore?.db !== db) g.__neoDbConversationStore = { db, store: createConversationStore(db) };
+    return g.__neoDbConversationStore.store;
+  }
+  g.__neoMemoryConversationStore ??= createInMemoryConversationStore();
   return g.__neoMemoryConversationStore;
+}
+
+/** Conversation titles come from the first user message (the store's create() takes the title). */
+export function titleFromMessage(message: string): string {
+  const oneLine = message.replace(/\s+/g, " ").trim();
+  return oneLine.length > 80 ? `${oneLine.slice(0, 79)}…` : oneLine;
 }
 
 /** Narrow an opaque persisted pendingConfirmation to what the UI needs. */

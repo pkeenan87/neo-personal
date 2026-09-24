@@ -3,7 +3,8 @@
  * getConversationStore(), so the integration pass only swaps the store.
  */
 import type { ConversationSummary } from "@/lib/api-types";
-import { messagesFromStored, type ChatMessage } from "@/lib/chat-state";
+import type { MessageParam } from "@neo/core";
+import { messagesFromStored, type ChatMessage, type StoredMessage } from "@/lib/chat-state";
 import type { NeoSession } from "@/lib/session";
 import { CONVERSATION_ID_RE, getConversationStore, toPendingConfirmation } from "./conversation-store";
 
@@ -24,6 +25,11 @@ export async function loadConversation(session: NeoSession, id: string): Promise
   if (!conv) return null;
   return {
     id: conv.id,
-    messages: messagesFromStored(conv.messages, { pending: toPendingConfirmation(conv.pendingConfirmation) }),
+    messages: messagesFromStored(conv.messages.filter(isChatRole), { pending: toPendingConfirmation(conv.pendingConfirmation) }),
   };
+}
+
+/** Persisted history only ever holds user/assistant turns; narrow for the UI. */
+function isChatRole(m: MessageParam): m is MessageParam & StoredMessage {
+  return m.role === "user" || m.role === "assistant";
 }

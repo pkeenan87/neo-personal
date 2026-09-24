@@ -1,33 +1,35 @@
 /**
- * ─── STUB: REPLACE IN INTEGRATION PASS ───────────────────────────────
- * POST /api/agent — streams AgentEvents as NDJSON.
+ * POST /api/agent — run one agent turn and stream AgentEvents as NDJSON.
  *
- * HTTP contract to preserve (lib/agent-client.ts depends on it):
  *   request   { conversationId?: string; message: string }   (AgentRequestBody)
- *   200       body: NDJSON AgentEvent lines; header x-conversation-id: <uuid>
- *   400/401/404/503  JSON { error, code? }
+ *   200       NDJSON AgentEvent lines; header x-conversation-id: <uuid>
+ *   400       invalid body, or input blocked by the injection guard (code "input_blocked")
+ *   401       no session
+ *   404       unknown conversation (or another tenant's)
+ *   409       the conversation is waiting on a confirmation (code "confirmation_pending")
+ *   429       usage cap: { error: "usage_cap_exceeded", reason, limit, resetAt, message } + Retry-After
+ *   503       usage store unavailable (fail closed), storage unavailable, or no model configured
  *
- * The integration pass replaces the MOCK_MODE branch with the order in
- * docs/contracts.md: auth → usage.checkCaps (429) → scanUserInput →
- * load conversation → runAgentLoop(createToolRegistry([checkUrlTool]))
- * → appendTurn + usage.recordCheck. The agent must emit verdicts as a
- * ```verdict fenced block (see lib/verdict-fence.ts).
- * ─────────────────────────────────────────────────────────────────────
+ * Order (docs/contracts.md, _specs/usage-caps.md): auth → validate →
+ * usage.checkCaps → scanUserInput/shouldBlock → load/create conversation →
+ * runAgentLoop → appendTurn + usage.recordCheck (+ verdict row), always.
  */
+import { hashPii, logger, runAgentLoop, scanUserInput, shouldBlock, type MessageParam } from "@neo/core";
 import { CONVERSATION_ID_HEADER, MAX_MESSAGE_CHARS } from "@/lib/api-types";
 import { env } from "@/lib/env";
-import { CONVERSATION_ID_RE, getConversationStore } from "@/lib/server/conversation-store";
-import { jsonError, NDJSON_HEADERS, readJsonObject } from "@/lib/server/http";
-import { mockTurnMessages, scriptMockTurn, streamMockEvents } from "@/lib/server/mock-agent";
-import { getSession } from "@/lib/session";
+import { streamAgentRun } from "@/lib/server/agent-run";
+import { CONVERSATION_ID_RE, getConversationStore, titleFromMessage, toPendingConfirmation } from "@/lib/server/conversation-store";
+import { jsonError, readJsonObject } from "@/lib/server/http";
+import { capExceededResponse, checkCaps, noteCapHit, type CapCheckResult } from "@/lib/server/usage";
+import { requireApiSession } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 export async function POST(req: Request): Promise<Response> {
-  const session = await getSession();
-  if (!session) return jsonError(401, "Sign in to continue.", "unauthenticated");
+  const { session, response } = await requireApiSession();
+  if (!session) return response;
 
   const body = await readJsonObject(req);
   if (!body) return jsonError(400, "Invalid JSON body.", "bad_request");
@@ -41,31 +43,69 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const e = env();
-  if (!e.MOCK_MODE) {
-    return jsonError(503, "Neo's agent isn't connected yet. Set MOCK_MODE=true to try the demo.", "agent_unavailable");
+  if (!e.MOCK_MODE && !e.HAS_ANTHROPIC_CREDENTIALS) {
+    return jsonError(503, "Neo's AI model isn't configured on this server. Set ANTHROPIC_API_KEY, or MOCK_MODE=true for the demo.", "agent_unavailable");
+  }
+
+  // Usage caps: fail closed if the usage store is unavailable.
+  let caps: CapCheckResult;
+  try {
+    caps = await checkCaps(session.tenantId);
+  } catch (err) {
+    logger.error("Usage cap check failed", "api.agent", {
+      tenantId: session.tenantId,
+      errorMessage: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
+    });
+    return jsonError(503, "Neo can't check your usage right now. Please try again in a moment.", "usage_unavailable");
+  }
+  if (!caps.allowed && caps.reason) {
+    await noteCapHit(session.tenantId, session.userId, caps, caps.reason);
+    return capExceededResponse(caps, caps.reason);
+  }
+
+  // Prompt-injection guard on what the user typed (monitor logs; block rejects).
+  const scan = scanUserInput(message, conversationId ? { conversationId } : {});
+  if (shouldBlock(scan)) {
+    return jsonError(
+      400,
+      "That message looks like an attempt to override Neo's instructions, so it wasn't sent. If you're asking about a suspicious message, paste it and ask Neo to check it.",
+      "input_blocked",
+    );
   }
 
   const store = getConversationStore();
   let id: string;
-  if (conversationId) {
-    const existing = await store.get(conversationId, session.tenantId);
-    if (!existing) return jsonError(404, "Conversation not found.", "not_found");
-    id = existing.id;
-  } else {
-    id = (await store.create({ tenantId: session.tenantId, userId: session.userId })).id;
+  let history: MessageParam[];
+  try {
+    if (conversationId) {
+      const existing = await store.get(conversationId, session.tenantId);
+      if (!existing) return jsonError(404, "Conversation not found.", "not_found");
+      if (toPendingConfirmation(existing.pendingConfirmation)) {
+        return jsonError(409, "Approve or decline the pending action first.", "confirmation_pending");
+      }
+      id = existing.id;
+      history = existing.messages;
+    } else {
+      id = (await store.create({ tenantId: session.tenantId, userId: session.userId, title: titleFromMessage(message) })).id;
+      history = [];
+    }
+  } catch (err) {
+    logger.error("Conversation load failed", "api.agent", {
+      tenantId: session.tenantId,
+      userIdHash: hashPii(session.userId),
+      errorMessage: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
+    });
+    return jsonError(503, "Neo can't reach its storage right now. Please try again in a moment.", "storage_unavailable");
   }
 
-  const turn = scriptMockTurn(message);
-  const stream = streamMockEvents(turn.events, {
-    delayMs: e.MOCK_STREAM_DELAY_MS,
+  const userMessage: MessageParam = { role: "user", content: message };
+  return streamAgentRun({
+    session,
+    conversationId: id,
+    prefix: [userMessage],
+    kind: "check",
     signal: req.signal,
-    onComplete: async (aborted) => {
-      await store.appendTurn(id, session.tenantId, {
-        messages: aborted ? [{ role: "user", content: message }] : mockTurnMessages(message, turn),
-        pendingConfirmation: aborted ? null : (turn.pendingConfirmation ?? null),
-      });
-    },
+    headers: { [CONVERSATION_ID_HEADER]: id },
+    run: (common) => runAgentLoop({ ...common, messages: [...history, userMessage] }),
   });
-
-  return new Response(stream, { headers: { ...NDJSON_HEADERS, [CONVERSATION_ID_HEADER]: id } });
 }

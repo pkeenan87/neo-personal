@@ -3,7 +3,7 @@
  * (and later the mobile/desktop wrappers) talk through; it is NOT a stub
  * and should survive the integration pass unchanged.
  */
-import type { AgentEvent } from "@/types/agent-event";
+import type { AgentEvent } from "@neo/core";
 import {
   CONVERSATION_ID_HEADER,
   type AgentRequestBody,
@@ -30,8 +30,15 @@ async function errorFrom(res: Response): Promise<ApiRequestError> {
   try {
     const body: unknown = await res.json();
     if (typeof body === "object" && body !== null) {
-      const b = body as { error?: unknown; code?: unknown };
-      if (typeof b.error === "string") message = b.error;
+      const b = body as { error?: unknown; code?: unknown; message?: unknown };
+      // Two error shapes: { error: <message>, code? } and, for usage caps,
+      // { error: "usage_cap_exceeded", message: <friendly text>, reason, resetAt }.
+      if (typeof b.message === "string") {
+        message = b.message;
+        if (typeof b.error === "string") code = b.error;
+      } else if (typeof b.error === "string") {
+        message = b.error;
+      }
       if (typeof b.code === "string") code = b.code;
     }
   } catch {
