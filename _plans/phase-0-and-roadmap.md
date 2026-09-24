@@ -330,3 +330,18 @@ Weeks are calendar weeks for one developer using Claude Code heavily. Each phase
 1. Clone the private Neo repo into the scratch directory and diff against `../Neo` to see what changed since June.
 2. `git init` here with the MIT license and `SECURITY.md`, scaffold the Turborepo, and lift `packages/core` with a checklist of every Azure import removed.
 3. Write `_specs/url-analysis.md`, `_specs/tenant-auth.md`, and `_specs/usage-caps.md` using Neo's spec template, then build Phase 0.
+
+---
+
+## Phase 0 status (2026-09-24)
+
+**Built and green locally** (`pnpm turbo run typecheck lint test build`: 20/20 tasks, 393 tests): monorepo, `@neo/core`, `@neo/db`, `@neo/tools`, `@neo/verdict`, `apps/web` with Auth.js, usage caps, the `check_url` tool wired through the real agent loop, CI workflows, security policy, docs, and specs.
+
+**Deviations from the plan**
+- The lift came from the local `../Neo` checkout (June 2026), not the private work repo, because that repo is not reachable from this machine. Diff the two before Phase 1.
+- Verdicts are parsed from a ```verdict fenced block in the streamed answer rather than a separate structured-outputs call.
+- Without a database only the dev bypass can sign in, because the Auth.js adapter needs one.
+
+**Not yet verified**: a real Postgres/Neon database and RLS under the app role, Google OAuth and Resend magic links, a real Anthropic call, a Vercel deployment. The public GitHub repo does not exist yet (README badges and issue-template links carry placeholders).
+
+**Carried into Phase 1**: sign-out-everywhere, click-to-confirm page for magic links, usage indicator in the chat header, warn-once log for invalid cap env values, unify the app DB role name (`neo_app` vs `app_user`) across docs, decide the `VIRUSTOTAL_SUBMIT` default (currently true, which exposes pasted URLs to other VirusTotal users), port the injection-guard regex fix back to the work Neo repo.
