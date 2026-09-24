@@ -38,7 +38,7 @@ The Content Security Policy ships as **`Content-Security-Policy-Report-Only`**. 
 
 | Vercel environment | Branch | Database | Keys |
 |---|---|---|---|
-| Production | `main` | Neon main branch, `neo_app` role | Production keys |
+| Production | `main` | Neon main branch, `app_user` role | Production keys |
 | Preview | every PR branch | Neon branch per preview (below) | Separate low-limit keys, or none with `MOCK_MODE=true` |
 | Development | local (`vercel env pull`) | Local Postgres or a Neon dev branch | Your own |
 
@@ -52,7 +52,7 @@ Setup:
 
 1. Install Neon from the Vercel Marketplace and connect the project.
 2. In the integration settings, enable creating a database branch for each preview deployment.
-3. Make sure the `neo_app` role exists on the parent branch, since branches inherit roles and grants. Point the preview `DATABASE_URL` at `neo_app` (the integration uses the owner role by default; override it or run migrations and the app with separate URLs).
+3. Make sure the `app_user` role exists on the parent branch, since branches inherit roles and grants. Set the preview `NEO_DATABASE_URL` to the `app_user` connection string for the branch (the integration-managed `DATABASE_URL` stays on the owner role and is used only by migrations).
 4. Run migrations as part of the preview build, or manually against the branch. **Do not** run migrations automatically against production from a build; run them deliberately before promoting.
 5. Neon deletes preview branches when the integration's cleanup runs; old branches count against plan limits.
 

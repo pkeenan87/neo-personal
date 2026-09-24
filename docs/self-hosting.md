@@ -23,7 +23,7 @@ Hobby plans on Vercel are for non-commercial use. A private household instance f
 1. **Fork** this repository on GitHub.
 2. **Create a Vercel project** from the fork. Set **Root Directory** to `apps/web` (dashboard setting) and leave build settings to `vercel.json`. See [deployment.md](deployment.md) for detail.
 3. **Add Neon** from Vercel's Marketplace (Storage tab) and link it to the project. This sets `DATABASE_URL` for each environment. Enable preview branching if you want per-PR databases.
-4. **Create the application role** (see [Database roles and RLS](#database-roles-and-rls) below) and replace `DATABASE_URL` in Vercel with the `neo_app` connection string. Keep the owner connection string for migrations only.
+4. **Create the application role** (see [Database roles and RLS](#database-roles-and-rls) below) and add `NEO_DATABASE_URL` in Vercel with the `app_user` connection string (pooled host). The integration keeps managing `DATABASE_URL` with the owner role; the app prefers `NEO_DATABASE_URL`, and migrations use the owner string.
 5. **Run migrations** from your machine with the owner connection string:
    ```bash
    pnpm install
@@ -45,7 +45,7 @@ Hobby plans on Vercel are for non-commercial use. A private household instance f
 | `ANTHROPIC_API_KEY` | Yes | Set a spend limit in the Anthropic console too. |
 | `NEO_AGENT_MODEL`, `NEO_COMPRESSION_MODEL`, `NEO_TRIAGE_MODEL` | No | Defaults: `claude-opus-5`, `claude-haiku-4-5`, `claude-sonnet-5`. |
 | `NEO_AGENT_EFFORT`, `NEO_ENABLE_FALLBACKS` | No | Defaults `medium`, `true`. |
-| `DATABASE_URL` | Yes | The **`neo_app`** role, not the owner. `?sslmode=require` on Neon. |
+| `DATABASE_URL` | Yes | The **`app_user`** role, not the owner. `?sslmode=require` on Neon. |
 | `MIGRATION_DATABASE_URL` | For migrations | The owner role; used only by `pnpm db:migrate`. Never give it to the app. |
 | `NEO_DB_DRIVER` | No | `neon` on Vercel + Neon (auto-detected). |
 | `AUTH_SECRET` | Yes | Random 32 bytes. Rotating it signs everyone out. |
@@ -70,18 +70,18 @@ Neo scopes every query by `tenant_id` in code **and** enables Postgres row-level
 Create a dedicated role for the app, as the owner:
 
 ```sql
-CREATE ROLE neo_app LOGIN PASSWORD '<strong password>' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
-GRANT USAGE ON SCHEMA public TO neo_app;
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO neo_app;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO neo_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO neo_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO neo_app;
+CREATE ROLE app_user LOGIN PASSWORD '<strong password>' NOSUPERUSER NOBYPASSRLS NOCREATEROLE NOCREATEDB;
+GRANT USAGE ON SCHEMA public TO app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
+GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO app_user;
 ```
 
-Run migrations as the owner. Run the app as `neo_app`. You can confirm isolation with:
+Run migrations as the owner. Run the app as `app_user`. You can confirm isolation with:
 
 ```sql
-SET ROLE neo_app;
+SET ROLE app_user;
 SELECT count(*) FROM conversations;   -- expect 0 without app.tenant_id set
 ```
 

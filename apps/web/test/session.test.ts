@@ -124,3 +124,15 @@ describe("callbackUrl sanitizer", () => {
     expect(resolveAuthRedirect("//evil.example", base)).toBe(base);
   });
 });
+
+describe("databaseUrl precedence", () => {
+  it("prefers NEO_DATABASE_URL over DATABASE_URL and falls back", async () => {
+    const { databaseUrl, readEnv } = await import("@/lib/env");
+    expect(databaseUrl({ NEO_DATABASE_URL: "postgres://app_user@h/neo", DATABASE_URL: "postgres://owner@h/neo" })).toBe(
+      "postgres://app_user@h/neo",
+    );
+    expect(databaseUrl({ DATABASE_URL: "postgres://owner@h/neo" })).toBe("postgres://owner@h/neo");
+    expect(databaseUrl({ NEO_DATABASE_URL: "  ", DATABASE_URL: "" })).toBeUndefined();
+    expect(readEnv({ NEO_DATABASE_URL: "postgres://app_user@h/neo" }).DATABASE_URL).toBe("postgres://app_user@h/neo");
+  });
+});
