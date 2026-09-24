@@ -90,6 +90,15 @@ export const SAFE_METADATA_FIELDS: ReadonlySet<string> = new Set([
   "truncatedChars",
   "reason",
   "method",
+  // apps/web (auth, usage caps, audit, verdicts)
+  "eventType",
+  "provider",
+  "limit",
+  "used",
+  "resetAt",
+  "verdict",
+  "subjectType",
+  "confidence",
 ]);
 
 function sanitizeMetadata(meta: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
