@@ -34,7 +34,7 @@ cp .env.example apps/web/.env.local
 MOCK_MODE=true DEV_AUTH_BYPASS=true pnpm --filter @neo/web dev
 ```
 
-Open <http://localhost:3000> and ask "is https://example.com safe?". `DEV_AUTH_BYPASS` signs you in as a local dev user and is refused in production.
+Open <http://localhost:3000> and ask "is https://example.com safe?". `DEV_AUTH_BYPASS` signs you in as a local dev user and is ignored on production and preview deployments.
 
 More in [docs/development.md](docs/development.md): local Postgres, running with real API keys, the pre-commit secret scan, and every command.
 

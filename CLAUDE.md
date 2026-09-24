@@ -17,3 +17,12 @@ pnpm + Turborepo. `apps/web` (Next.js 16), `packages/core` (agent loop, safeguar
 - GitHub Actions must be SHA-pinned with a version comment.
 - Commits: `<emoji> <type>(<scope>): <summary>` (✨ feat · 🐛 fix · 🔒 security · 📝 docs · 🧪 test · ⬆️ deps).
 - Plan (`_plans/`) then spec (`_specs/`, use `_specs/template.md`) before non-trivial features.
+
+## Repo hygiene
+- CI (`.github/workflows/ci.yml`): `checks` runs `pnpm turbo run typecheck lint test build` with `MOCK_MODE=true` and no secrets; plus CodeQL and blocking gitleaks. Branch protection requires the single **All checks passed** job.
+- Resolve action SHAs with `gh api repos/{owner}/{repo}/git/refs/tags/{tag}`; dereference annotated tags via `git/tags/{sha}`. Never guess a SHA. Container images in workflows are pinned by digest.
+- Secret scanning: `.gitleaks.toml` (CI + `lefthook.yml` pre-commit). Install hooks with `pnpm dlx lefthook install`. Synthetic secrets belong under `test/fixtures/`.
+- New env var: add it to `.env.example` with a comment, and make the code work when it is unset.
+- `DEV_AUTH_BYPASS` must be ignored when `NODE_ENV=production` or `VERCEL_ENV` is `production`/`preview`.
+- Vercel Root Directory is `apps/web`; Vercel reads `vercel.json` from there (see `docs/deployment.md`).
+- Docs: `docs/development.md`, `docs/self-hosting.md`, `docs/deployment.md`. Threat model: `SECURITY.md`.

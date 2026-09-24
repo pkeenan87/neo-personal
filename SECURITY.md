@@ -101,7 +101,7 @@ A tenant is a household. A user must never read or change another household's da
 - Every tenant table carries `tenant_id`. All queries go through `tenantScoped()` (`@neo/db`), which injects it.
 - Postgres row-level security keyed on `app.tenant_id` is defense in depth. It only works if the app connects as a **non-superuser, non-owner** role without `BYPASSRLS`.
 - The tenant id comes from the server-side session (`{ userId, tenantId, role }`), never from request bodies or query strings.
-- `DEV_AUTH_BYPASS` is refused when `NODE_ENV=production` or `VERCEL_ENV=production`.
+- `DEV_AUTH_BYPASS` is refused when `NODE_ENV=production` or `VERCEL_ENV` is `production` or `preview` (previews are public URLs).
 
 ### Secrets
 

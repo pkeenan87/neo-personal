@@ -18,7 +18,7 @@ pnpm dlx lefthook install
 MOCK_MODE=true DEV_AUTH_BYPASS=true pnpm --filter @neo/web dev
 ```
 
-Open <http://localhost:3000>. `DEV_AUTH_BYPASS=true` signs you in as a seeded dev user in a seeded household. It is refused whenever `NODE_ENV` or `VERCEL_ENV` is `production`.
+Open <http://localhost:3000>. `DEV_AUTH_BYPASS=true` signs you in as a seeded dev user in a seeded household. It is refused whenever `NODE_ENV` is `production` or `VERCEL_ENV` is `production` or `preview`.
 
 Next.js loads env files from the app directory (`apps/web/`), so `.env.local` goes there. Package tests read `process.env` directly and should not need a file.
 
@@ -54,7 +54,7 @@ psql postgres://postgres:postgres@localhost:5432/postgres \
   -c "GRANT CONNECT, TEMP ON DATABASE neo TO neo_app;"
 ```
 
-Run migrations as the owner role, run the app as `neo_app`:
+Run migrations as the owner role, apply the `neo_app` grants from [self-hosting.md](self-hosting.md#database-roles-and-rls) (connected to the `neo` database), then run the app as `neo_app`:
 
 ```bash
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/neo pnpm db:migrate

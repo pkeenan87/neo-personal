@@ -57,7 +57,7 @@ Hobby plans on Vercel are for non-commercial use. A private household instance f
 | `URLSCAN_API_KEY`, `URLSCAN_ENABLED` | Optional | Leave `URLSCAN_ENABLED=false` unless you accept that submitted URLs may be visible on urlscan.io. |
 | `USAGE_CAP_MONTHLY_CHECKS`, `USAGE_CAP_DAILY_TOKENS` | No | Defaults 50 and 300000 per household. |
 | `MOCK_MODE` | Yes | **`false`** in production. |
-| `DEV_AUTH_BYPASS` | No | Leave unset/`false`. Refused in production regardless. |
+| `DEV_AUTH_BYPASS` | No | Leave unset/`false`. Refused in production and preview regardless. |
 | `INJECTION_GUARD_MODE` | No | `monitor` (default) or `block`. |
 | `LOG_LEVEL` | No | `info`. |
 
