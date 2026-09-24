@@ -1,0 +1,17 @@
+# Git hooks for Neo. Install once per clone: `pnpm dlx lefthook install`
+# See docs/development.md.
+#
+# The pre-commit secret scan is a convenience. CI's gitleaks job is the
+# enforcement point and is blocking, so a missing local gitleaks binary
+# prints an install hint and lets the commit through.
+
+pre-commit:
+  commands:
+    gitleaks:
+      run: |
+        if command -v gitleaks >/dev/null 2>&1; then
+          gitleaks git --pre-commit --staged --redact --no-banner --config .gitleaks.toml
+        else
+          echo "lefthook: gitleaks not found, skipping local secret scan (CI still enforces it)."
+          echo "  Install: brew install gitleaks | https://github.com/gitleaks/gitleaks#installing"
+        fi
