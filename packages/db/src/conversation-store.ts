@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import type { Db } from "./client.js";
-import type { ConversationStore, MessageParam } from "./contracts.js";
+import type { ConversationStore, MessageParam } from "@neo/core";
 import { conversations, turns } from "./schema/index.js";
 import { tenantScoped } from "./tenant.js";
 

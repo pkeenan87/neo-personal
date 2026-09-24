@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createConversationStore } from "../src/conversation-store.js";
-import type { ConversationStore, MessageParam } from "../src/contracts.js";
+import type { ConversationStore, MessageParam } from "@neo/core";
 import { conversations, turns } from "../src/schema/index.js";
 import { tenantScoped } from "../src/tenant.js";
 import { createTenantForUser } from "../src/tenants.js";

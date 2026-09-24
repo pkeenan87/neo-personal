@@ -16,6 +16,6 @@ export { checkSafeBrowsing, parseSafeBrowsing } from "./checks/safeBrowsing.js";
 export { checkVirusTotal, parseVirusTotalReport, virusTotalUrlId } from "./checks/virustotal.js";
 export { checkUrlscan, parseUrlscanResult } from "./checks/urlscan.js";
 
-export type { ToolDefinition, ToolContext, ToolExecutor } from "./contracts.js";
+export type { ToolDefinition, ToolContext, ToolExecutor } from "@neo/core";
 export type * from "./types.js";
 export { isSkipped } from "./types.js";

@@ -1,5 +1,5 @@
 import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import type { MessageParam } from "../contracts.js";
+import type { MessageParam } from "@neo/core";
 import { users } from "./auth.js";
 import { tenants } from "./tenants.js";
 

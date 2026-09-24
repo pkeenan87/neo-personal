@@ -16,6 +16,8 @@ export type {
   ToolExecutor,
   ToolRegistry,
 } from "./types.js";
+// Re-exported so dependants (e.g. @neo/db) name the persisted message type without importing the SDK.
+export type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 
 // Tool registry
 export { createToolRegistry } from "./tool-registry.js";

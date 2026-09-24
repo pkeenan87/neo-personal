@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { analyzeUrl, type AnalyzeUrlOptions } from "./analyzeUrl.js";
-import type { ToolContext, ToolDefinition, ToolExecutor } from "./contracts.js";
+import type { ToolContext, ToolDefinition, ToolExecutor } from "@neo/core";
 
 export const CheckUrlInputSchema = z.object({ url: z.string().trim().min(1).max(8192) }).strict();
 export type CheckUrlInput = z.infer<typeof CheckUrlInputSchema>;

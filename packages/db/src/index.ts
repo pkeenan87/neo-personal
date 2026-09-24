@@ -24,9 +24,11 @@ export {
   DEFAULT_DAILY_TOKENS,
   DEFAULT_MONTHLY_CHECKS,
   type CapCheckResult,
+  type CapHitInput,
+  type CapReason,
   type RecordCheckInput,
   type UsageCaps,
 } from "./usage.js";
 export { createTenantForUser, findTenantForUser, type UserTenant } from "./tenants.js";
 // runMigrations lives in the "@neo/db/migrate" subpath so app bundles never see the migrations folder.
-export type { ConversationStore, MessageParam } from "./contracts.js";
+export type { ConversationStore, MessageParam } from "@neo/core";

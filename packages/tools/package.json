@@ -23,6 +23,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@neo/core": "workspace:*",
     "@neo/verdict": "workspace:*",
     "tldts": "7.4.13",
     "undici": "8.10.2",
