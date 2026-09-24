@@ -1,0 +1,52 @@
+name: Feature request
+description: Suggest a capability or improvement.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Check the roadmap in `_plans/phase-0-and-roadmap.md` first; your idea may already be planned for a later phase.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to protect against or get done? Who is it for?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Email / SMS phishing review
+        - URL analysis
+        - Sign-in alert monitoring
+        - Breach monitoring
+        - Incident playbooks
+        - Household / accounts
+        - Mobile / extension / desktop
+        - Self-hosting
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Privacy and security impact
+      description: Does this need new data, new OAuth scopes, or new external services? What could go wrong?

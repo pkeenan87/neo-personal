@@ -1,0 +1,91 @@
+name: Bug report
+description: Something does not work as documented.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug.
+
+        > **Security issues do not belong here.** If this could let someone read another household's data, bypass auth or usage caps, make Neo fetch internal addresses, or steer the agent with injected content, report it privately as described in SECURITY.md.
+
+        Do not paste real emails, phone numbers, API keys, or tokens. Redact them.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      options:
+        - Web app
+        - Agent / chat answers
+        - URL analysis
+        - Auth / sign-in
+        - Self-hosting / deployment
+        - CI / tooling
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Where
+      options:
+        - Hosted Neo
+        - Self-hosted
+        - Local development
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Run mode
+      options:
+        - MOCK_MODE=true
+        - MOCK_MODE=false (real APIs)
+        - Not sure / hosted
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimum steps, including the exact prompt or request if relevant.
+      placeholder: |
+        1. MOCK_MODE=true DEV_AUTH_BYPASS=true pnpm --filter @neo/web dev
+        2. Ask "is https://example.test/login safe?"
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behaviour
+      description: Include error messages or log lines (redacted).
+      render: shell
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit SHA
+      placeholder: 5406716
