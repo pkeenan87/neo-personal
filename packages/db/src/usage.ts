@@ -1,6 +1,6 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
-import { usageEvents } from "./schema/index.js";
+import { auditEvents, usageEvents, type UsageKind } from "./schema/index.js";
 import { tenantScoped } from "./tenant.js";
 
 export const DEFAULT_MONTHLY_CHECKS = 50;
@@ -28,12 +28,16 @@ export function getUsageCaps(env: NodeJS.ProcessEnv = process.env): UsageCaps {
   };
 }
 
+export type CapReason = "monthly_checks" | "daily_tokens";
+
 export type CapCheckResult = {
   allowed: boolean;
-  reason?: "monthly_checks" | "daily_tokens";
+  reason?: CapReason;
   remaining: { monthlyChecks: number; dailyTokens: number };
   used: { monthlyChecks: number; dailyTokens: number };
   limits: UsageCaps;
+  /** When each counter resets: start of the next UTC month / UTC day. */
+  resetAt: { monthlyChecks: Date; dailyTokens: Date };
 };
 
 export type RecordCheckInput = {
@@ -45,6 +49,8 @@ export type RecordCheckInput = {
   outputTokens: number;
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
+  /** `check` (default) counts toward the monthly cap; `resume` (confirm resumptions) counts tokens only. */
+  kind?: UsageKind;
 };
 
 /** [start, end) of the UTC calendar month and UTC day containing `now`. */
@@ -74,7 +80,7 @@ async function checkCaps(
   const used = await tenantScoped(db, tenantId).transaction(async (t) => {
     const monthlyChecks = await t.count(
       usageEvents,
-      and(gte(usageEvents.createdAt, w.monthStart), lt(usageEvents.createdAt, w.monthEnd)),
+      and(eq(usageEvents.kind, "check"), gte(usageEvents.createdAt, w.monthStart), lt(usageEvents.createdAt, w.monthEnd)),
     );
     const [tokens] = await t.tx
       .select({
@@ -95,19 +101,21 @@ async function checkCaps(
     monthlyChecks: Math.max(0, limits.monthlyChecks - used.monthlyChecks),
     dailyTokens: Math.max(0, limits.dailyTokens - used.dailyTokens),
   };
+  const resetAt = { monthlyChecks: w.monthEnd, dailyTokens: w.dayEnd };
   if (used.monthlyChecks >= limits.monthlyChecks) {
-    return { allowed: false, reason: "monthly_checks", remaining, used, limits };
+    return { allowed: false, reason: "monthly_checks", remaining, used, limits, resetAt };
   }
   if (used.dailyTokens >= limits.dailyTokens) {
-    return { allowed: false, reason: "daily_tokens", remaining, used, limits };
+    return { allowed: false, reason: "daily_tokens", remaining, used, limits, resetAt };
   }
-  return { allowed: true, remaining, used, limits };
+  return { allowed: true, remaining, used, limits, resetAt };
 }
 
 async function recordCheck(db: Db, input: RecordCheckInput): Promise<void> {
   await tenantScoped(db, input.tenantId).insert(usageEvents, {
     userId: input.userId,
     conversationId: input.conversationId ?? null,
+    kind: input.kind ?? "check",
     model: input.model,
     inputTokens: nonNegInt(input.inputTokens),
     outputTokens: nonNegInt(input.outputTokens),
@@ -116,8 +124,48 @@ async function recordCheck(db: Db, input: RecordCheckInput): Promise<void> {
   });
 }
 
+export type CapHitInput = {
+  tenantId: string;
+  userId: string;
+  reason: CapReason;
+  limit: number;
+  used: number;
+  resetAt: Date;
+  now?: Date;
+};
+
 /**
- * Per-tenant usage caps. Monthly checks = usage_events rows this UTC calendar month; daily
+ * Write a `usage.cap_hit` audit event, at most once per tenant, reason and period (UTC month
+ * for monthly_checks, UTC day for daily_tokens). Returns true when a row was written.
+ */
+async function recordCapHit(db: Db, input: CapHitInput): Promise<boolean> {
+  const w = utcWindows(input.now ?? new Date());
+  const periodStart = input.reason === "monthly_checks" ? w.monthStart : w.dayStart;
+  return tenantScoped(db, input.tenantId).transaction(async (t) => {
+    // Serialize concurrent rejections for the same tenant/reason so exactly one row is written.
+    await t.tx.execute(
+      sql`select pg_advisory_xact_lock(hashtextextended(${`neo:cap-hit:${input.tenantId}:${input.reason}`}, 0))`,
+    );
+    const existing = await t.count(
+      auditEvents,
+      and(
+        eq(auditEvents.eventType, "usage.cap_hit"),
+        sql`${auditEvents.metadata}->>'reason' = ${input.reason}`,
+        gte(auditEvents.createdAt, periodStart),
+      ),
+    );
+    if (existing > 0) return false;
+    await t.insert(auditEvents, {
+      userId: input.userId,
+      eventType: "usage.cap_hit",
+      metadata: { reason: input.reason, limit: input.limit, used: input.used, resetAt: input.resetAt.toISOString() },
+    });
+    return true;
+  });
+}
+
+/**
+ * Per-tenant usage caps. Monthly checks = `kind = 'check'` usage_events rows this UTC calendar month; daily
  * tokens = sum(input + output) today (UTC). A check is allowed while both are below the cap.
  */
-export const usage = { checkCaps, recordCheck };
+export const usage = { checkCaps, recordCheck, recordCapHit };

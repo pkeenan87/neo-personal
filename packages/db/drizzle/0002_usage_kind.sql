@@ -1,0 +1,2 @@
+ALTER TABLE "usage_events" ADD COLUMN "kind" text DEFAULT 'check' NOT NULL;--> statement-breakpoint
+ALTER TABLE "usage_events" ADD CONSTRAINT "usage_events_kind_check" CHECK ("usage_events"."kind" in ('check', 'resume'));

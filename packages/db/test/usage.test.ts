@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { usageEvents } from "../src/schema/index.js";
+import { auditEvents, usageEvents } from "../src/schema/index.js";
 import { tenantScoped } from "../src/tenant.js";
 import { createTenantForUser } from "../src/tenants.js";
 import { getUsageCaps, parseIntEnv, usage, utcWindows } from "../src/usage.js";
@@ -104,5 +104,27 @@ describe("usage.checkCaps / recordCheck", () => {
       if (prev === undefined) delete process.env.USAGE_CAP_MONTHLY_CHECKS;
       else process.env.USAGE_CAP_MONTHLY_CHECKS = prev;
     }
+  });
+
+  it("counts resume rows toward daily tokens but not monthly checks, and reports resetAt", async () => {
+    const { tenantId, userId } = await freshTenant();
+    const caps = { monthlyChecks: 1, dailyTokens: 1000 };
+    await usage.recordCheck(t.db, { tenantId, userId, model: "claude-opus-5", inputTokens: 100, outputTokens: 50, kind: "resume" });
+    const r = await usage.checkCaps(t.db, tenantId, { caps });
+    expect(r).toMatchObject({ allowed: true, used: { monthlyChecks: 0, dailyTokens: 150 } });
+    const w = utcWindows(new Date());
+    expect(r.resetAt).toEqual({ monthlyChecks: w.monthEnd, dailyTokens: w.dayEnd });
+  });
+
+  it("writes one usage.cap_hit audit event per tenant, reason and period", async () => {
+    const { tenantId, userId } = await freshTenant();
+    const base = { tenantId, userId, limit: 2, used: 2, resetAt: new Date("2026-10-01T00:00:00Z"), now: NOW };
+    expect(await usage.recordCapHit(t.db, { ...base, reason: "monthly_checks" })).toBe(true);
+    expect(await usage.recordCapHit(t.db, { ...base, reason: "monthly_checks" })).toBe(false);
+    expect(await usage.recordCapHit(t.db, { ...base, reason: "daily_tokens" })).toBe(true);
+    const rows = await tenantScoped(t.db, tenantId).select(auditEvents);
+    const hits = rows.filter((r) => r.eventType === "usage.cap_hit");
+    expect(hits).toHaveLength(2);
+    expect(hits.map((h) => h.metadata.reason).sort()).toEqual(["daily_tokens", "monthly_checks"]);
   });
 });
