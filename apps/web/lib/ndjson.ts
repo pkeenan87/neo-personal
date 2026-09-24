@@ -4,7 +4,7 @@
  * unknown/ill-shaped events are skipped rather than aborting the stream,
  * so a single bad line never kills a response.
  */
-import type { AgentEvent } from "@/types/agent-event";
+import type { AgentEvent } from "@neo/core";
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);

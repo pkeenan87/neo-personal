@@ -2,7 +2,7 @@
 
 import { ExternalLink, ShieldAlert, ShieldCheck, ShieldQuestion, ShieldX } from "lucide-react";
 import { VERDICT_LABELS, verdictToText } from "@/lib/verdict-fence";
-import type { ActionUrgency, IndicatorSeverity, Verdict, VerdictValue } from "@/types/verdict";
+import type { Severity as IndicatorSeverity, Urgency as ActionUrgency, Verdict, VerdictLabel as VerdictValue } from "@neo/verdict";
 import { CopyButton } from "./CopyButton";
 
 const VERDICT_STYLE: Record<VerdictValue, { band: string; icon: typeof ShieldX; iconColor: string }> = {

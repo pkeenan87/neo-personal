@@ -1,5 +1,5 @@
-import type { AgentEvent } from "@/types/agent-event";
-import type { Verdict } from "@/types/verdict";
+import type { AgentEvent } from "@neo/core";
+import type { Verdict } from "@neo/verdict";
 
 export const VERDICT_FIXTURE: Verdict = {
   subject_type: "sms",

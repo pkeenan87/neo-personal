@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createNdjsonDecoder, isAgentEvent, parseEventLine, readAgentEvents } from "@/lib/ndjson";
-import type { AgentEvent } from "@/types/agent-event";
+import type { AgentEvent } from "@neo/core";
 import { collect, ndjson, streamingResponse } from "./fixtures";
 
 const EVENTS: AgentEvent[] = [

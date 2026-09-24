@@ -8,7 +8,7 @@ import {
   pendingConfirmation,
   type ChatState,
 } from "@/lib/chat-state";
-import type { AgentEvent } from "@/types/agent-event";
+import type { AgentEvent } from "@neo/core";
 
 function run(events: AgentEvent[], state: ChatState = initialChatState()): ChatState {
   let s = chatReducer(state, { type: "send", userId: "u1", assistantId: "a1", text: "hi" });

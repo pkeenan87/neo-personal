@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { hasVerdictFence, splitVerdictSegments, verdictToText } from "@/lib/verdict-fence";
-import { isVerdict } from "@/types/verdict";
+import { isVerdict } from "@/lib/verdict-fence";
 import { VERDICT_FIXTURE } from "./fixtures";
 
 const json = JSON.stringify(VERDICT_FIXTURE, null, 2);

@@ -5,7 +5,7 @@ import { ChatInterface } from "@/components/ChatInterface";
 import { Toaster } from "@/components/Toaster";
 import { ToastProvider } from "@/components/toast-context";
 import { messagesFromStored } from "@/lib/chat-state";
-import type { AgentEvent } from "@/types/agent-event";
+import type { AgentEvent } from "@neo/core";
 import { ndjson, streamingResponse, VERDICT_FIXTURE } from "./fixtures";
 
 const push = vi.fn();

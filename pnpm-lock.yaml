@@ -190,6 +190,9 @@ importers:
       '@neo/verdict':
         specifier: workspace:*
         version: link:../../packages/verdict
+      drizzle-orm:
+        specifier: ^0.45.3
+        version: 0.45.3(@electric-sql/pglite@0.5.8)(@neondatabase/serverless@1.1.0)(@types/pg@8.23.1)(pg@8.23.0)
       lucide-react:
         specifier: 1.47.0
         version: 1.47.0(react@19.3.0)
@@ -215,6 +218,9 @@ importers:
         specifier: 4.0.1
         version: 4.0.1
     devDependencies:
+      '@electric-sql/pglite':
+        specifier: ^0.5.8
+        version: 0.5.8
       '@next/eslint-plugin-next':
         specifier: 16.3.6
         version: 16.3.6(eslint@10.11.0(jiti@2.7.0))

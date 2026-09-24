@@ -22,10 +22,16 @@
  *   - An unterminated block while the message is still streaming renders a
  *     placeholder; once the stream ends it is treated as invalid.
  *
- * The integration pass makes the agent emit this block (system prompt +
- * structured output); `isVerdict` is swapped for VerdictSchema from @neo/verdict.
+ * The agent is told to emit exactly one such block per analysis (see
+ * lib/server/system-prompt.ts); blocks are validated with VerdictSchema from
+ * @neo/verdict, here for rendering and server-side before a verdict row is stored.
  */
-import { isVerdict, type Verdict } from "@/types/verdict";
+import { VerdictSchema, type Verdict } from "@neo/verdict";
+
+/** True when `v` is a valid Verdict (VerdictSchema from @neo/verdict). */
+export function isVerdict(v: unknown): v is Verdict {
+  return VerdictSchema.safeParse(v).success;
+}
 
 export type ContentSegment =
   | { kind: "markdown"; text: string }

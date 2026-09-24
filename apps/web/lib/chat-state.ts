@@ -13,7 +13,7 @@
  *   done                  → mark the message complete                     [—]
  *   error                 → mark the message errored with the text         [error]
  */
-import type { AgentEvent } from "@/types/agent-event";
+import type { AgentEvent } from "@neo/core";
 
 export type ToolStatus = "running" | "done" | "error";
 
