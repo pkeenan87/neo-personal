@@ -1,0 +1,21 @@
+{
+  "name": "neo",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Neo — open source personal cyber security agent powered by Claude",
+  "license": "MIT",
+  "packageManager": "pnpm@12.6.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @neo/db generate",
+    "db:migrate": "pnpm --filter @neo/db migrate"
+  },
+  "devDependencies": {
+    "turbo": "^2"
+  }
+}
