@@ -1,6 +1,5 @@
-# Update the URL below if the public repository is not pkeenan87/neo.
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/pkeenan87/neo/security/advisories/new
+    url: https://github.com/pkeenan87/neo-personal/security/advisories/new
     about: Please report vulnerabilities privately through GitHub Security Advisories, never as a public issue. See SECURITY.md.

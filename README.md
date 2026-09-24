@@ -2,8 +2,8 @@
 
 **A personal cyber security agent, powered by Claude.** Ask Neo whether a link, email, or text message is a scam, and get a clear verdict with the evidence behind it and what to do next.
 
-<!-- Badges: replace OWNER/REPO once the public repository exists. -->
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+<!-- Badges: replace pkeenan87/neo-personal once the public repository exists. -->
+[![CI](https://github.com/pkeenan87/neo-personal/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/pkeenan87/neo-personal/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-orange.svg)
 
@@ -28,7 +28,7 @@ No API keys needed. Mock mode returns deterministic fixtures for every external 
 Requires Node 22+ and pnpm (`corepack enable`).
 
 ```bash
-git clone https://github.com/OWNER/REPO.git neo && cd neo
+git clone https://github.com/pkeenan87/neo-personal.git neo && cd neo
 pnpm install
 cp .env.example apps/web/.env.local
 MOCK_MODE=true DEV_AUTH_BYPASS=true pnpm --filter @neo/web dev
