@@ -2,7 +2,15 @@ import { KeyRound, Link2, MailWarning, ShieldCheck } from "lucide-react";
 import Link from "next/link";
 import { NeoMark } from "@/components/NeoMark";
 import { SignInPanel } from "@/components/SignInPanel";
+import { DevBypassBanner } from "@/components/DevBypassBanner";
+import { env } from "@/lib/env";
 import { getSession } from "@/lib/session";
+
+const AUTH_ERRORS: Record<string, string> = {
+  OAuthAccountNotLinked: "This email is already registered with a different sign-in method. Please sign in with your original method.",
+  AccessDenied: "Sign-in was denied. Google sign-in needs a verified email address.",
+  Verification: "That sign-in link has expired or was already used. Send yourself a new one.",
+};
 
 const FEATURES = [
   {
@@ -22,12 +30,25 @@ const FEATURES = [
   },
 ];
 
-export default async function LandingPage({ searchParams }: { searchParams: Promise<{ signin?: string }> }) {
+export default async function LandingPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ signin?: string; error?: string }>;
+}) {
   const [session, params] = await Promise.all([getSession(), searchParams]);
-  const notice = params.signin === "required" ? "Please sign in to continue." : undefined;
+  const e = env();
+  const notice =
+    params.signin === "required"
+      ? "Please sign in to continue."
+      : params.signin === "check-email"
+        ? "Check your inbox for a sign-in link. It expires in 10 minutes."
+        : params.error
+          ? (AUTH_ERRORS[params.error] ?? "Sign-in failed. Please try again.")
+          : undefined;
 
   return (
     <div className="flex min-h-dvh flex-col">
+      {e.DEV_AUTH_BYPASS && <DevBypassBanner />}
       <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-4 pt-[max(1rem,env(safe-area-inset-top))]">
         <div className="flex items-center gap-2 text-lg font-semibold">
           <NeoMark className="size-7 text-accent" />
@@ -80,7 +101,7 @@ export default async function LandingPage({ searchParams }: { searchParams: Prom
               </Link>
             </div>
           ) : (
-            <SignInPanel notice={notice} />
+            <SignInPanel notice={notice} providers={e.AUTH_PROVIDERS} />
           )}
         </section>
       </main>

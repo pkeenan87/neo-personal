@@ -1,51 +1,46 @@
 /**
- * ─── STUB: REPLACE IN INTEGRATION PASS ───────────────────────────────
- * Client-side auth actions. The integration pass swaps the bodies for
- * `signIn` / `signOut` from `next-auth/react`:
- *
- *   signIn("google", { redirectTo: callbackUrl })
- *   signIn("resend", { email, redirectTo: callbackUrl })
- *   signOut({ redirectTo: "/" })
- *
- * Keep the exported signatures. Until then, sign-in simply navigates to
- * the callback URL; the server (lib/session.ts) lets you through only
- * when DEV_AUTH_BYPASS=true and otherwise bounces back to
- * `/?signin=required`.
- * ─────────────────────────────────────────────────────────────────────
+ * Client-side auth actions on `next-auth/react`. Signatures are the stable
+ * seam the UI uses (SignInPanel, ChatInterface).
  */
+import { signIn as nextAuthSignIn, signOut as nextAuthSignOut } from "next-auth/react";
+import { safeCallbackPath } from "./safe-redirect";
 
 export type SignInProvider = "google" | "resend";
 
 export interface SignInOptions {
   /** Required for the "resend" (email magic link) provider. */
   email?: string;
-  /** Where to land after sign-in. Defaults to /chat. */
+  /** Where to land after sign-in (same-origin path only). Defaults to /chat. */
   callbackUrl?: string;
 }
 
 export interface SignInResult {
   ok: boolean;
-  /** For "resend": true when a magic link was (or would be) emailed. */
+  /** For "resend": true when a magic link was emailed. */
   emailSent?: boolean;
   error?: string;
 }
 
-function navigate(url: string): void {
-  window.location.assign(url);
-}
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export async function signIn(provider: SignInProvider, opts: SignInOptions = {}): Promise<SignInResult> {
-  const callbackUrl = opts.callbackUrl ?? "/chat";
-  if (provider === "resend") {
-    const email = opts.email?.trim() ?? "";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      return { ok: false, error: "Enter a valid email address." };
-    }
+  const redirectTo = safeCallbackPath(opts.callbackUrl);
+  if (provider === "google") {
+    // Full-page redirect to Google; resolves only if navigation fails.
+    await nextAuthSignIn("google", { redirectTo });
+    return { ok: true };
   }
-  navigate(callbackUrl);
-  return { ok: true, emailSent: provider === "resend" };
+  const email = opts.email?.trim().toLowerCase() ?? "";
+  if (!EMAIL_RE.test(email)) return { ok: false, error: "Enter a valid email address." };
+  try {
+    const res = await nextAuthSignIn("resend", { email, redirectTo, redirect: false });
+    if (res?.error) return { ok: false, error: "We couldn't send a sign-in link. Please try again." };
+    return { ok: true, emailSent: true };
+  } catch {
+    return { ok: false, error: "We couldn't send a sign-in link. Please try again." };
+  }
 }
 
 export async function signOut(opts: { callbackUrl?: string } = {}): Promise<void> {
-  navigate(opts.callbackUrl ?? "/");
+  await nextAuthSignOut({ redirectTo: safeCallbackPath(opts.callbackUrl, "/") });
 }

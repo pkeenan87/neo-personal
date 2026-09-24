@@ -15,7 +15,19 @@ function GoogleIcon() {
   );
 }
 
-export function SignInPanel({ notice }: { notice?: string }) {
+export interface SignInProviders {
+  google: boolean;
+  resend: boolean;
+}
+
+export function SignInPanel({
+  notice,
+  providers = { google: true, resend: true },
+}: {
+  notice?: string;
+  /** Only registered providers are shown (see authProviders in lib/env.ts). */
+  providers?: SignInProviders;
+}) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState<"google" | "resend" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -48,23 +60,31 @@ export function SignInPanel({ notice }: { notice?: string }) {
           {notice}
         </p>
       )}
-      <button
-        type="button"
-        onClick={() => void google()}
-        disabled={busy !== null}
-        className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-border-strong bg-surface px-4 text-sm font-semibold hover:bg-surface-2 disabled:opacity-60"
-      >
-        {busy === "google" ? <Loader2 className="size-5 animate-spin" aria-hidden="true" /> : <GoogleIcon />}
-        Sign in with Google
-      </button>
+      {!providers.google && !providers.resend && (
+        <p role="status" className="text-sm text-muted">
+          Sign-in isn&apos;t configured on this server yet. See docs/self-hosting.md to set up Google or email sign-in.
+        </p>
+      )}
+      {providers.google && (
+        <button
+          type="button"
+          onClick={() => void google()}
+          disabled={busy !== null}
+          className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-border-strong bg-surface px-4 text-sm font-semibold hover:bg-surface-2 disabled:opacity-60"
+        >
+          {busy === "google" ? <Loader2 className="size-5 animate-spin" aria-hidden="true" /> : <GoogleIcon />}
+          Sign in with Google
+        </button>
+      )}
+      {providers.google && providers.resend && (
+        <div className="my-4 flex items-center gap-3 text-xs text-muted">
+          <span className="h-px flex-1 bg-border" />
+          or
+          <span className="h-px flex-1 bg-border" />
+        </div>
+      )}
 
-      <div className="my-4 flex items-center gap-3 text-xs text-muted">
-        <span className="h-px flex-1 bg-border" />
-        or
-        <span className="h-px flex-1 bg-border" />
-      </div>
-
-      {sent ? (
+      {!providers.resend ? null : sent ? (
         <p role="status" className="text-sm">
           Check your inbox for a sign-in link.
         </p>
