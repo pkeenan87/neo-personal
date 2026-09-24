@@ -1,0 +1,52 @@
+{
+  "name": "@neo/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Neo Postgres persistence: Drizzle schema, migrations, tenant-scoped helpers, RLS",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./migrate": {
+      "types": "./dist/migrate.d.ts",
+      "import": "./dist/migrate.js"
+    }
+  },
+  "files": [
+    "dist",
+    "drizzle"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "generate": "drizzle-kit generate",
+    "migrate": "tsx src/migrate.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@neondatabase/serverless": "^1.1.0",
+    "drizzle-orm": "^0.45.3",
+    "pg": "^8.23.0"
+  },
+  "devDependencies": {
+    "@auth/drizzle-adapter": "^1.11.3",
+    "@electric-sql/pglite": "^0.5.8",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.6.2",
+    "@types/pg": "^8.23.1",
+    "drizzle-kit": "^0.31.11",
+    "eslint": "^10.11.0",
+    "globals": "^17.12.0",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.1"
+  }
+}
