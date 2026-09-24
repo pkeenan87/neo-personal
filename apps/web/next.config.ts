@@ -7,10 +7,11 @@ const monorepoRoot = path.join(here, "../..");
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Don't let `next dev` generate apps/web/AGENTS.md + CLAUDE.md; repo guidance lives in /CLAUDE.md.
+  agentRules: false,
   reactStrictMode: true,
-  // Monorepo: trace and bundle relative to the workspace root so
-  // workspace packages (@neo/core etc., added by the integration pass)
-  // resolve on Vercel.
+  // Monorepo: trace and bundle relative to the workspace root so the
+  // @neo/* workspace packages resolve on Vercel.
   outputFileTracingRoot: monorepoRoot,
   turbopack: { root: monorepoRoot },
   async headers() {
