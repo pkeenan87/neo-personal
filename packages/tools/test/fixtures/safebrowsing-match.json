@@ -1,0 +1,18 @@
+{
+  "matches": [
+    {
+      "threatType": "SOCIAL_ENGINEERING",
+      "platformType": "ANY_PLATFORM",
+      "threat": { "url": "https://evil.test/login" },
+      "cacheDuration": "300s",
+      "threatEntryType": "URL"
+    },
+    {
+      "threatType": "MALWARE",
+      "platformType": "WINDOWS",
+      "threat": { "url": "https://evil.test/login" },
+      "cacheDuration": "300s",
+      "threatEntryType": "URL"
+    }
+  ]
+}
