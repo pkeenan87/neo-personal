@@ -76,3 +76,8 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     signal?.addEventListener("abort", onAbort, { once: true });
   });
 }
+
+/** Release a response body we do not need. Not awaited: cancellation can wait on the network. */
+export function discardBody(res: Response | undefined): void {
+  res?.body?.cancel().catch(() => undefined);
+}

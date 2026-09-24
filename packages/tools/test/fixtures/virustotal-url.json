@@ -1,0 +1,20 @@
+{
+  "data": {
+    "type": "url",
+    "id": "aHR0cHM6Ly9ldmlsLnRlc3QvbG9naW4",
+    "attributes": {
+      "last_analysis_date": 1768471200,
+      "reputation": -20,
+      "last_analysis_stats": { "malicious": 3, "suspicious": 1, "undetected": 20, "harmless": 60, "timeout": 0 },
+      "last_analysis_results": {
+        "Sophos": { "category": "malicious", "result": "phishing", "method": "blacklist", "engine_name": "Sophos" },
+        "ESET": { "category": "malicious", "result": "phishing", "method": "blacklist", "engine_name": "ESET" },
+        "Acronis": { "category": "suspicious", "result": "suspicious", "method": "blacklist", "engine_name": "Acronis" },
+        "BitDefender": { "category": "malicious", "result": "malware", "method": "blacklist", "engine_name": "BitDefender" },
+        "Google Safebrowsing": { "category": "harmless", "result": "clean", "method": "blacklist", "engine_name": "Google Safebrowsing" },
+        "Quttera": { "category": "undetected", "result": "unrated", "method": "blacklist", "engine_name": "Quttera" }
+      },
+      "url": "https://evil.test/login"
+    }
+  }
+}

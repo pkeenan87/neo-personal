@@ -201,11 +201,15 @@ export const GENERIC_KEYWORDS = new Set([
   "slack", "halifax", "santander", "citi", "ing", "anz", "dpd", "dmv", "uber", "medicare", "azure", "skype", "bing",
 ]);
 
+// A domain label becomes a keyword only for the first brand that lists it
+// (so "Google Pay" does not re-claim "google" without Google's ccTLD handling).
+const claimed = new Set<string>();
 export const BRANDS: Brand[] = ROWS.map(([name, domains, extra = [], ccTLDs = false]) => {
   const keywords = new Set<string>(extra);
   for (const d of domains) {
     const label = d.split(".")[0]?.replace(/-/g, "");
-    if (label && label.length >= 3 && !NOT_KEYWORDS.has(label)) keywords.add(label);
+    if (label && label.length >= 3 && !NOT_KEYWORDS.has(label) && !claimed.has(label)) keywords.add(label);
   }
+  for (const k of keywords) claimed.add(k);
   return { name, domains, keywords: [...keywords], ccTLDs };
 });

@@ -1,0 +1,11 @@
+{
+  "task": {
+    "uuid": "0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0",
+    "visibility": "private",
+    "url": "https://evil.test/login",
+    "reportURL": "https://urlscan.io/result/0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0/",
+    "screenshotURL": "https://urlscan.io/screenshots/0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0.png"
+  },
+  "page": { "url": "https://evil.test/login", "domain": "evil.test", "ip": "93.184.215.14", "country": "NL", "status": "200" },
+  "verdicts": { "overall": { "score": 100, "categories": ["phishing"], "brands": ["PayPal"], "malicious": true } }
+}

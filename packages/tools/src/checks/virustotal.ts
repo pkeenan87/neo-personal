@@ -1,5 +1,5 @@
 import type { CheckContext, Skipped, VirusTotalResult } from "../types.js";
-import { envKey, readJson, timeoutSignal } from "../util.js";
+import { discardBody, envKey, readJson, timeoutSignal } from "../util.js";
 
 export const VIRUSTOTAL_API = "https://www.virustotal.com/api/v3";
 
@@ -52,7 +52,7 @@ export async function checkVirusTotal(url: string, ctx: CheckContext): Promise<V
     signal: timeoutSignal(ctx.deps.timeoutMs, ctx.signal),
   });
   if (res.ok) return parseVirusTotalReport(id, await readJson(res));
-  await res.body?.cancel();
+  discardBody(res);
   if (res.status !== 404) throw new Error(`HTTP ${res.status}${res.status === 429 ? " (rate limited)" : ""}`);
   if (!ctx.deps.virustotalSubmit) return { status: "pending", permalink: permalink(id) };
 
@@ -63,7 +63,7 @@ export async function checkVirusTotal(url: string, ctx: CheckContext): Promise<V
     signal: timeoutSignal(ctx.deps.timeoutMs, ctx.signal),
   });
   if (!submit.ok) {
-    await submit.body?.cancel();
+    discardBody(submit);
     throw new Error(`submit HTTP ${submit.status}`);
   }
   const body = (await readJson(submit)) as { data?: { id?: string } } | null;

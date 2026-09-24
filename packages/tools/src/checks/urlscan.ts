@@ -1,5 +1,5 @@
 import type { CheckContext, Skipped, UrlscanResult } from "../types.js";
-import { envKey, readJson, sleep, timeoutSignal } from "../util.js";
+import { discardBody, envKey, readJson, sleep, timeoutSignal } from "../util.js";
 
 export const URLSCAN_API = "https://urlscan.io/api/v1";
 
@@ -43,7 +43,7 @@ export async function checkUrlscan(url: string, ctx: CheckContext): Promise<Urls
     signal: timeoutSignal(ctx.deps.timeoutMs, ctx.signal),
   });
   if (!submit.ok) {
-    await submit.body?.cancel();
+    discardBody(submit);
     throw new Error(`submit HTTP ${submit.status}`);
   }
   const { uuid } = ((await readJson(submit)) ?? {}) as { uuid?: string };
@@ -57,11 +57,11 @@ export async function checkUrlscan(url: string, ctx: CheckContext): Promise<Urls
       signal: timeoutSignal(ctx.deps.timeoutMs, ctx.signal),
     });
     if (res.status === 404) {
-      await res.body?.cancel();
+      discardBody(res);
       continue;
     }
     if (!res.ok) {
-      await res.body?.cancel();
+      discardBody(res);
       throw new Error(`result HTTP ${res.status}`);
     }
     return parseUrlscanResult(uuid, await readJson(res));

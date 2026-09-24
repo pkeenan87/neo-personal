@@ -1,5 +1,5 @@
 import type { CheckContext, PageResult, RedirectHop } from "../types.js";
-import { errorMessage, timeoutSignal } from "../util.js";
+import { discardBody, errorMessage, timeoutSignal } from "../util.js";
 import { SsrfError, assertFetchable } from "./ssrf.js";
 
 const REQUEST_HEADERS = {
@@ -33,7 +33,7 @@ export async function readCapped(res: Response, max: number): Promise<string> {
       total += take.byteLength;
     }
   } finally {
-    await reader.cancel().catch(() => undefined);
+    reader.cancel().catch(() => undefined);
   }
   const buf = new Uint8Array(total);
   let off = 0;
@@ -132,7 +132,7 @@ export async function followRedirects(startUrl: string, ctx: CheckContext): Prom
       }
       let method: "HEAD" | "GET" = "HEAD";
       if (!res || !isRedirect(res.status) || !res.headers.get("location")) {
-        await res?.body?.cancel().catch(() => undefined);
+        discardBody(res);
         res = await request(url, "GET");
         method = "GET";
       }
@@ -140,7 +140,7 @@ export async function followRedirects(startUrl: string, ctx: CheckContext): Prom
       const location = res.headers.get("location");
 
       if (isRedirect(res.status) && location) {
-        await res.body?.cancel().catch(() => undefined);
+        discardBody(res);
         if (++redirects > deps.maxRedirects) {
           page.truncated_chain = true;
           break;
@@ -170,7 +170,7 @@ export async function followRedirects(startUrl: string, ctx: CheckContext): Prom
           continue;
         }
       } else {
-        await res.body?.cancel().catch(() => undefined);
+        discardBody(res);
       }
       break;
     }

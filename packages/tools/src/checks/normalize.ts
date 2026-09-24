@@ -192,7 +192,7 @@ export function normalizeUrl(input: string): NormalizedUrl {
     is_ip,
     is_private_ip,
     is_shortener,
-    heuristics: [...heuristics],
+    heuristics: sortHeuristics(heuristics) as HeuristicCode[],
   };
 }
 

@@ -1,0 +1,31 @@
+{
+  "objectClassName": "domain",
+  "handle": "2336799_DOMAIN_COM-VRSN",
+  "ldhName": "PAYPA1-SECURE-LOGIN.COM",
+  "links": [{ "value": "https://rdap.verisign.com/com/v1/domain/PAYPA1-SECURE-LOGIN.COM", "rel": "self", "href": "https://rdap.verisign.com/com/v1/domain/PAYPA1-SECURE-LOGIN.COM", "type": "application/rdap+json" }],
+  "status": ["client transfer prohibited"],
+  "entities": [
+    {
+      "objectClassName": "entity",
+      "handle": "1479",
+      "roles": ["registrar"],
+      "publicIds": [{ "type": "IANA Registrar ID", "identifier": "1479" }],
+      "vcardArray": ["vcard", [["version", {}, "text", "4.0"], ["fn", {}, "text", "NameSilo, LLC"]]],
+      "entities": [
+        {
+          "objectClassName": "entity",
+          "roles": ["abuse"],
+          "vcardArray": ["vcard", [["version", {}, "text", "4.0"], ["fn", {}, "text", ""], ["tel", { "type": "voice" }, "uri", "tel:+1.6024928200"], ["email", {}, "text", "abuse@namesilo.com"]]]
+        }
+      ]
+    }
+  ],
+  "events": [
+    { "eventAction": "registration", "eventDate": "2026-01-12T08:14:22Z" },
+    { "eventAction": "expiration", "eventDate": "2027-01-12T08:14:22Z" },
+    { "eventAction": "last changed", "eventDate": "2026-01-12T08:20:01Z" },
+    { "eventAction": "last update of RDAP database", "eventDate": "2026-01-15T11:02:44Z" }
+  ],
+  "secureDNS": { "delegationSigned": false },
+  "nameservers": [{ "objectClassName": "nameserver", "ldhName": "NS1.DNSOWL.COM" }]
+}

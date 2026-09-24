@@ -1,5 +1,5 @@
 import type { CheckContext, RdapResult } from "../types.js";
-import { daysBetween, readJson, timeoutSignal } from "../util.js";
+import { daysBetween, discardBody, readJson, timeoutSignal } from "../util.js";
 
 export const RDAP_BASE = "https://rdap.org/domain/";
 
@@ -47,11 +47,11 @@ export async function checkRdap(domain: string, ctx: CheckContext): Promise<Rdap
     signal: timeoutSignal(ctx.deps.timeoutMs, ctx.signal),
   });
   if (res.status === 404) {
-    await res.body?.cancel();
+    discardBody(res);
     return { found: false, domain };
   }
   if (!res.ok) {
-    await res.body?.cancel();
+    discardBody(res);
     throw new Error(`HTTP ${res.status}`);
   }
   return parseRdap(domain, await readJson(res), ctx.deps.now());

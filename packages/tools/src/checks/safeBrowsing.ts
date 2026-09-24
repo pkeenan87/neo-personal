@@ -1,5 +1,5 @@
 import type { CheckContext, SafeBrowsingResult, Skipped } from "../types.js";
-import { envKey, readJson, timeoutSignal } from "../util.js";
+import { discardBody, envKey, readJson, timeoutSignal } from "../util.js";
 
 export const SAFE_BROWSING_ENDPOINT = "https://safebrowsing.googleapis.com/v4/threatMatches:find";
 export const SAFE_BROWSING_THREAT_TYPES = ["MALWARE", "SOCIAL_ENGINEERING", "UNWANTED_SOFTWARE", "POTENTIALLY_HARMFUL_APPLICATION"];
@@ -35,7 +35,7 @@ export async function checkSafeBrowsing(urls: string[], ctx: CheckContext): Prom
     signal: timeoutSignal(ctx.deps.timeoutMs, ctx.signal),
   });
   if (!res.ok) {
-    await res.body?.cancel();
+    discardBody(res);
     throw new Error(`HTTP ${res.status}`);
   }
   return parseSafeBrowsing(await readJson(res));
