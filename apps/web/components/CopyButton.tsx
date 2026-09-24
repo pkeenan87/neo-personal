@@ -74,7 +74,7 @@ export function CopyButton({ text, label, variant = "icon", children, className 
 
   const Icon = status === "copied" ? Check : status === "failed" ? AlertCircle : Copy;
   const base =
-    "inline-flex items-center gap-1.5 rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-50";
+    "inline-flex shrink-0 items-center gap-1.5 rounded-md whitespace-nowrap text-muted transition-colors hover:bg-surface-2 hover:text-fg disabled:opacity-50";
 
   if (variant === "text") {
     return (

@@ -40,7 +40,7 @@ export default async function LandingPage({ searchParams }: { searchParams: Prom
         )}
       </header>
 
-      <main className="mx-auto grid w-full max-w-5xl flex-1 items-center gap-10 px-4 py-8 md:grid-cols-[1.2fr_1fr] md:py-16">
+      <main className="mx-auto grid w-full max-w-5xl flex-1 content-center items-center gap-10 px-4 py-8 md:grid-cols-[1.2fr_1fr] md:py-16">
         <section>
           <p className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1 text-xs font-semibold text-accent">
             <ShieldCheck className="size-3.5" aria-hidden="true" />
