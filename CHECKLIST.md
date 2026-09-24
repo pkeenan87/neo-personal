@@ -2,7 +2,7 @@
 
 Things only you can do: accounts, credentials, and decisions. Everything is ordered so each block unblocks the next. Local env values go in `apps/web/.env.local` (gitignored). Production values go in Vercel project settings. Never put a real value in `.env.example`.
 
-Status as of 2026-09-24: Phase 0 code is complete and green in CI. One real Opus 5 call succeeded locally (about 4 cents).
+Status as of 2026-09-24 (evening): Phase 0 code is green in CI and deployed to production at https://neo-sable-ten.vercel.app with Neon Postgres, migrations applied, and the `app_user` RLS role in place. One real Opus 5 call succeeded locally (about 4 cents). Nobody can sign in yet: Google or Resend credentials are the next blocker (section 3).
 
 ## 1. Right now (free, unblocks local testing)
 
@@ -15,19 +15,19 @@ Status as of 2026-09-24: Phase 0 code is complete and green in CI. One real Opus
 
 ## 2. Database (unblocks real sign-in, persistence, usage caps)
 
-- [ ] Create a **Neon** project (free tier). Copy the owner connection string.
-- [ ] Run migrations as the owner:
+- [x] Create a **Neon** project (free tier). Copy the owner connection string.
+- [x] Run migrations as the owner:
   ```
   MIGRATION_DATABASE_URL='<owner connection string>' pnpm db:migrate
   ```
-- [ ] Create the non-superuser app role by running `packages/db/sql/create-app-user.sql` against the database as the owner (SQL editor in Neon). Do this in SQL, not the Neon console, because console-created roles can bypass row-level security. Pick a strong password.
-- [ ] Set `DATABASE_URL` to the connection string for the app role and `MIGRATION_DATABASE_URL` to the owner string. Verify with:
+- [x] Create the non-superuser app role by running `packages/db/sql/create-app-user.sql` against the database as the owner (SQL editor in Neon). Do this in SQL, not the Neon console, because console-created roles can bypass row-level security. Pick a strong password.
+- [x] Done via `NEO_DATABASE_URL` on Vercel (app role, pooled host); the Neon integration keeps `DATABASE_URL` on the owner for migrations. Verified with:
   ```sql
   select rolname, rolsuper, rolbypassrls from pg_roles where rolname = 'app_user';
   ```
   Both flags must be false.
 - [ ] Start the dev server and confirm conversations survive a restart.
-- [ ] Note: docs call the role `app_user` in `docs/` and `app_user` in `packages/db/docs/rls.md`. Same role; pick one name and I will unify the docs.
+- [x] Role name unified to `app_user` everywhere (2026-09-24).
 
 ## 3. Authentication (unblocks turning off the dev bypass)
 
@@ -41,12 +41,12 @@ Status as of 2026-09-24: Phase 0 code is complete and green in CI. One real Opus
 
 ## 4. Vercel deployment
 
-- [ ] Create a Vercel project from `pkeenan87/neo-personal`. Set **Root Directory** to `apps/web`. Framework Next.js. Install command `pnpm install`, build command `pnpm turbo run build --filter=@neo/web` (already in `apps/web/vercel.json`).
-- [ ] Add environment variables for Production and Preview: `ANTHROPIC_API_KEY`, `AUTH_SECRET`, `AUTH_URL` (production URL), `AUTH_TRUST_HOST=true`, `DATABASE_URL`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_RESEND_KEY`, `EMAIL_FROM`, `GOOGLE_SAFE_BROWSING_API_KEY`, `VIRUSTOTAL_API_KEY`, `VIRUSTOTAL_SUBMIT=false`, `MOCK_MODE=false`, `DEV_AUTH_BYPASS=false`, `USAGE_CAP_MONTHLY_CHECKS`, `USAGE_CAP_DAILY_TOKENS`.
+- [x] Create a Vercel project from `pkeenan87/neo-personal`. Set **Root Directory** to `apps/web`. Framework Next.js. Install command `pnpm install`, build command `pnpm turbo run build --filter=@neo/web` (already in `apps/web/vercel.json`).
+- [x] Add environment variables for Production and Preview: `ANTHROPIC_API_KEY`, `AUTH_SECRET`, `AUTH_URL` (production URL), `AUTH_TRUST_HOST=true`, `DATABASE_URL`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_RESEND_KEY`, `EMAIL_FROM`, `GOOGLE_SAFE_BROWSING_API_KEY`, `VIRUSTOTAL_API_KEY`, `VIRUSTOTAL_SUBMIT=false`, `MOCK_MODE=false`, `DEV_AUTH_BYPASS=false`, `USAGE_CAP_MONTHLY_CHECKS`, `USAGE_CAP_DAILY_TOKENS`.
 - [ ] Add the Vercel production URL to the Google OAuth redirect URIs.
-- [ ] Deploy, open the URL, sign in, run one URL check. Confirm `/api/health` returns `mock: false`.
+- [x] Deployed; `/api/health` returns `mock: false`. Still to do once sign-in works: sign in and run one URL check in production.
 - [ ] Optional: Neon branch per preview deployment via the Vercel Neon integration, so previews do not touch production data.
-- [ ] Enable the Vercel GitHub integration so PRs get preview deployments.
+- [x] Enable the Vercel GitHub integration so PRs get preview deployments.
 
 ## 5. Domain and public identity
 
@@ -71,4 +71,4 @@ Status as of 2026-09-24: Phase 0 code is complete and green in CI. One real Opus
 
 - [ ] Inbound email provider for Phase 1: Resend (assumed) or Postmark.
 - [ ] Usage cap launch numbers once you have seen a week of real per-check costs. Current defaults: 50 checks/month, 300,000 tokens/day per household.
-- [ ] Whether the app DB role is called `app_user` or `app_user` (see section 2).
+- [x] App DB role is `app_user`.
