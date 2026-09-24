@@ -2,7 +2,6 @@
 
 **A personal cyber security agent, powered by Claude.** Ask Neo whether a link, email, or text message is a scam, and get a clear verdict with the evidence behind it and what to do next.
 
-<!-- Badges: replace pkeenan87/neo-personal once the public repository exists. -->
 [![CI](https://github.com/pkeenan87/neo-personal/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/pkeenan87/neo-personal/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-orange.svg)
