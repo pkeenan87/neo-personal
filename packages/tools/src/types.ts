@@ -156,8 +156,10 @@ export interface UrlAnalysisDeps {
   urlscan: boolean;
   /** Submit unknown URLs to VirusTotal for scanning (makes them visible to VT users). Defaults to env VIRUSTOTAL_SUBMIT !== "false". */
   virustotalSubmit: boolean;
-  /** Per-check timeout (ms). Default 5000. */
+  /** Per-check / per-hop timeout (ms). Default 5000. */
   timeoutMs: number;
+  /** Total wall-clock budget for the whole redirect chain (ms). Default 15000. */
+  redirectBudgetMs: number;
   /** urlscan.io total polling budget (ms). Default 20000. */
   urlscanPollMs: number;
   urlscanPollIntervalMs: number;

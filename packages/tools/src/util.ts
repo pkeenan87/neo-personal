@@ -15,20 +15,6 @@ export function timeoutSignal(ms: number, parent?: AbortSignal): AbortSignal {
   return parent ? AbortSignal.any([parent, t]) : t;
 }
 
-/** Reject if the promise does not settle within `ms` (for work that cannot take a signal). */
-export function withDeadline<T>(p: Promise<T>, ms: number, signal?: AbortSignal): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(Object.assign(new Error("timed out"), { name: "TimeoutError" })), ms);
-    const onAbort = () => reject(Object.assign(new Error("aborted"), { name: "AbortError" }));
-    if (signal?.aborted) onAbort();
-    signal?.addEventListener("abort", onAbort, { once: true });
-    p.then(resolve, reject).finally(() => {
-      clearTimeout(timer);
-      signal?.removeEventListener("abort", onAbort);
-    });
-  });
-}
-
 /**
  * Run one independent check. Never throws: failures are appended to `errors`
  * as `"<name>: <message>"` and yield `undefined`.

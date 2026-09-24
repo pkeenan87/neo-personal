@@ -109,6 +109,19 @@ describe("followRedirects", () => {
     expect(r.final_url).toBeUndefined();
   });
 
+  it("bounds the whole chain with a total budget", async () => {
+    let n = 0;
+    const fetch = routeFetch({});
+    fetch.mockImplementation(async (_url: string, init: RequestInit = {}) => {
+      await new Promise((r) => setTimeout(r, 15));
+      if (init.signal?.aborted) throw init.signal.reason;
+      return redirect(`https://loop.example.com/${++n}`);
+    });
+    const r = await followRedirects("https://loop.example.com/0", ctx(fetch, { redirectBudgetMs: 40 }));
+    expect(r.error).toBe("timed out");
+    expect(r.page.hops.length).toBeLessThan(5);
+  });
+
   it("does not read non-HTML bodies", async () => {
     const body = new Response("binary", { headers: { "content-type": "application/octet-stream" } });
     const fetch = routeFetch({ "https://start.example.com/": body });

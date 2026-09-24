@@ -55,6 +55,7 @@ export function resolveDeps(partial: Partial<UrlAnalysisDeps> = {}): UrlAnalysis
     urlscan: partial.urlscan ?? env.URLSCAN_ENABLED === "true",
     virustotalSubmit: partial.virustotalSubmit ?? env.VIRUSTOTAL_SUBMIT !== "false",
     timeoutMs: partial.timeoutMs ?? 5_000,
+    redirectBudgetMs: partial.redirectBudgetMs ?? 15_000,
     urlscanPollMs: partial.urlscanPollMs ?? 20_000,
     urlscanPollIntervalMs: partial.urlscanPollIntervalMs ?? 2_500,
     maxRedirects: partial.maxRedirects ?? 10,

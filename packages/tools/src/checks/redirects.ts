@@ -108,9 +108,11 @@ export async function followRedirects(startUrl: string, ctx: CheckContext): Prom
   const chain: string[] = [startUrl];
   const page: PageResult = { hops, has_password_field: false };
   let current = startUrl;
+  // Per-hop timeout, bounded by a budget for the whole chain.
+  const budget = timeoutSignal(deps.redirectBudgetMs, ctx.signal);
 
   const request = async (url: URL, method: "HEAD" | "GET") =>
-    deps.fetch(url.href, { method, redirect: "manual", headers: REQUEST_HEADERS, signal: timeoutSignal(deps.timeoutMs, ctx.signal) });
+    deps.fetch(url.href, { method, redirect: "manual", headers: REQUEST_HEADERS, signal: timeoutSignal(deps.timeoutMs, budget) });
 
   const next = (location: string) => {
     const u = new URL(location, current);
@@ -127,7 +129,7 @@ export async function followRedirects(startUrl: string, ctx: CheckContext): Prom
       try {
         res = await request(url, "HEAD");
       } catch (e) {
-        if (ctx.signal?.aborted) throw e;
+        if (budget.aborted) throw e;
         res = undefined;
       }
       let method: "HEAD" | "GET" = "HEAD";
