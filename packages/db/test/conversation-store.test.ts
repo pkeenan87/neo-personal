@@ -75,6 +75,17 @@ describe("createConversationStore", () => {
     expect(await t.db.select().from(turns).where(eq(turns.conversationId, id))).toHaveLength(0);
   });
 
+  it("clears a pending confirmation without writing an empty turn", async () => {
+    const { id } = await store.create({ tenantId: tenantA, userId: userA });
+    await store.appendTurn(id, tenantA, { messages: turn1, pendingConfirmation: { id: "toolu_9", name: "x", input: {} } });
+    await store.appendTurn(id, tenantA, { messages: [], pendingConfirmation: null });
+    const got = await store.get(id, tenantA);
+    expect(got?.pendingConfirmation).toBeUndefined();
+    expect(got?.messages).toEqual(turn1);
+    const rows = await t.db.select({ seq: turns.seq }).from(turns).where(eq(turns.conversationId, id));
+    expect(rows).toHaveLength(1);
+  });
+
   it("assigns unique consecutive seq numbers under concurrent appends", async () => {
     const { id } = await store.create({ tenantId: tenantA, userId: userA });
     await Promise.all(

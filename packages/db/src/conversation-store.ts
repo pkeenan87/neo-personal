@@ -43,6 +43,8 @@ export function createConversationStore(db: Db): ConversationStore {
         const updated = await t.update(conversations, set, eq(conversations.id, id));
         if (updated.length === 0) throw new Error("@neo/db: conversation not found");
 
+        // Clearing a pending confirmation alone writes no turn row.
+        if (turn.messages.length === 0) return;
         await t.tx.insert(turns).values({
           conversationId: id,
           tenantId,
