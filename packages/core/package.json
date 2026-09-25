@@ -24,7 +24,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.128.0"
+    "@anthropic-ai/sdk": "0.128.0",
+    "@neo/verdict": "workspace:*"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

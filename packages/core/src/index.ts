@@ -44,3 +44,27 @@ export {
   compressionModel,
   fallbacksEnabled,
 } from "./config.js";
+
+// Artifact crypto (envelope encryption at rest)
+export {
+  ARTIFACT_CIPHERTEXT_OVERHEAD,
+  ArtifactDecryptError,
+  decryptArtifact,
+  deriveTenantKey,
+  encryptArtifact,
+  masterKeyFromEnv,
+} from "./artifact-crypto.js";
+
+// Bulk triage (structured outputs)
+export {
+  DEFAULT_TRIAGE_MAX_TOKENS,
+  DEFAULT_TRIAGE_MODEL,
+  TRIAGE_SYSTEM_PROMPT,
+  buildTriageRequest,
+  createMockTriageClient,
+  parseTriageResponse,
+  runTriage,
+  triageFailedVerdict,
+  triageModel,
+} from "./triage.js";
+export type { RunTriageInput, TriageEvidenceKind, TriageResult } from "./triage.js";
