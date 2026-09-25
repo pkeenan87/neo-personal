@@ -33,7 +33,7 @@ export interface ChatInterfaceProps {
   /** null → a new, unsaved conversation (/chat). */
   conversationId: string | null;
   initialMessages?: ChatMessage[];
-  // --- dashboard + incident playbooks (agent E) ---
+  // --- dashboard + incident playbooks ---
   /** Sent once on mount (from /chat?playbook= or /chat?verdict=). */
   autoStart?: { message: string; playbook?: PlaybookId; verdictId?: string };
   /** Placed in the composer (not sent), e.g. from /chat?check=<url>. */
@@ -197,7 +197,7 @@ export function ChatInterface({
     [input, attachments, uploading, state.streaming, pending, announce, runStream, adoptConversationId, toast],
   );
 
-  // --- dashboard + incident playbooks (agent E) ---
+  // --- dashboard + incident playbooks ---
   // Auto-send once. Deferred so React StrictMode's mount/unmount/mount in dev
   // does not abort the stream (the unmount cleanup aborts in-flight requests).
   const autoStarted = useRef(false);

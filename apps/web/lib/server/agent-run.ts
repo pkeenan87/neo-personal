@@ -97,14 +97,14 @@ export function agentClient(): Anthropic | undefined {
  * `<!-- playbook:<id> -->` marker; otherwise NEO_AGENT_EFFORT (default medium).
  */
 export function agentEffort(turn: { playbook?: PlaybookId; history?: readonly MessageParam[] } = {}): Effort {
-  // --- incident playbooks (agent E) ---
+  // --- incident playbooks ---
   if (turn.playbook || (turn.history && previousTurnPlaybook(turn.history))) return "high";
   // --- end incident playbooks ---
   const raw = process.env.NEO_AGENT_EFFORT?.trim().toLowerCase();
   return raw === "low" || raw === "high" ? raw : "medium";
 }
 
-// --- incident playbooks (agent E) ---
+// --- incident playbooks ---
 function isToolResultCarrier(m: MessageParam): boolean {
   return Array.isArray(m.content) && m.content.length > 0 && m.content.every((b) => b.type === "tool_result");
 }

@@ -61,7 +61,7 @@ export interface StreamAgentOptions {
   onConversationId?: (id: string) => void;
   /** Called once the server accepted the turn (2xx), before any events. */
   onAccepted?: () => void;
-  // --- dashboard + incident playbooks (agent E) ---
+  // --- dashboard + incident playbooks ---
   playbook?: AgentRequestBody["playbook"];
   verdictId?: string;
   // --- end dashboard + incident playbooks ---

@@ -96,9 +96,14 @@ GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO app_user;
+-- Security-definer functions from migration 0003 (forwarding lookup, retention jobs).
+-- The migration grants these itself when app_user already exists; run them if you create the role afterwards.
+GRANT EXECUTE ON FUNCTION public.resolve_inbound_address(text) TO app_user;
+GRANT EXECUTE ON FUNCTION public.list_expired_artifacts(integer) TO app_user;
+GRANT EXECUTE ON FUNCTION public.purge_old_inbound_messages(integer) TO app_user;
 ```
 
-Run migrations as the owner. Run the app as `app_user`. You can confirm isolation with:
+(`packages/db/sql/create-app-user.sql` is the same script with a verification query.) Run migrations as the owner. Run the app as `app_user`. You can confirm isolation with:
 
 ```sql
 SET ROLE app_user;

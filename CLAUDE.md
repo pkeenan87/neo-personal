@@ -4,7 +4,7 @@ Neo — open source (MIT) personal cyber security agent powered by Claude. Multi
 Plan and roadmap: `_plans/phase-0-and-roadmap.md`. Package interfaces: `docs/contracts.md` (authoritative — change it before changing an interface).
 
 ## Layout
-pnpm + Turborepo. `apps/web` (Next.js 16), `packages/core` (agent loop, safeguards), `packages/db` (Drizzle/Postgres), `packages/tools` (analyzers), `packages/verdict` (shared schema).
+pnpm + Turborepo. `apps/web` (Next.js 16; background jobs in `apps/web/inngest`), `packages/core` (agent loop, safeguards, artifact crypto, triage), `packages/db` (Drizzle/Postgres, artifact store), `packages/tools` (URL, email and SMS analyzers), `packages/verdict` (shared schema).
 
 ## Commands
 `pnpm install` · `pnpm typecheck` · `pnpm lint` · `pnpm test` · `pnpm build` · `pnpm --filter @neo/web dev`

@@ -77,7 +77,7 @@ export function ConversationSidebar({
           </button>
         </div>
 
-        {/* app navigation (agent E) */}
+        {/* app navigation */}
         <nav aria-label="Main" className="mb-2 space-y-0.5 px-2">
           <Link href="/dashboard" className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm hover:bg-surface-2">
             <LayoutDashboard className="size-4 text-muted" aria-hidden="true" />

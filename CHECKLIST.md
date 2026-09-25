@@ -72,7 +72,7 @@ Status as of 2026-09-25: Phase 0 is complete and verified in production at https
 
 ## 8. Decisions still open from the plan
 
-- [ ] Inbound email provider for Phase 1: Resend (assumed) or Postmark.
+- [x] Inbound email provider for Phase 1: Resend (built and tested against its documented API).
 - [ ] Usage cap launch numbers once you have seen a week of real per-check costs. Current defaults: 50 checks/month, 300,000 tokens/day per household.
 - [x] App DB role is `app_user`.
 
@@ -81,14 +81,15 @@ Status as of 2026-09-25: Phase 0 is complete and verified in production at https
 Everything in Phase 1 runs locally and in CI with `MOCK_MODE=true`. Turning it on in production needs, in order:
 
 - [ ] Register the domain (section 5). Pick the inbound subdomain, for example `inbound.<domain>`.
-- [ ] Install **Resend** from the Vercel Marketplace (`vercel integration add resend/resend-email`, you accept the terms) and verify the sending domain **and** the inbound subdomain (MX records Resend gives you). Set `NEO_INBOUND_DOMAIN`. Create a webhook for `email.received` pointing at `https://<domain>/api/inbound/resend` and set `RESEND_WEBHOOK_SECRET`. `AUTH_RESEND_KEY` doubles as the sending key.
-- [ ] Install **Inngest** from the Vercel Marketplace (`vercel integration add inngest/account`). It sets `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`; sync the app at `https://<domain>/api/inngest` from the Inngest dashboard.
+- [ ] Install **Resend** from the Vercel Marketplace (`vercel integration add resend/resend-email`, you accept the terms) and verify the sending domain **and** the inbound subdomain (MX records Resend gives you). Set `NEO_INBOUND_DOMAIN`. Create a webhook for `email.received` pointing at `https://<domain>/api/inbound/resend` and set its signing secret (`whsec_…`) as `RESEND_WEBHOOK_SECRET`. The webhook payload carries metadata only: the job fetches the message with `GET /emails/receiving/{id}` and downloads the raw MIME from the signed download URL in that response, so the API key (`RESEND_API_KEY`, or `AUTH_RESEND_KEY`, which doubles as the sending key) must be allowed to read received mail.
+- [ ] Install **Inngest** from the Vercel Marketplace (`vercel integration add inngest/account`). It sets `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`. In the Inngest dashboard, sync the app at `https://<domain>/api/inngest` and check that both functions (`email-received`, `artifacts-expire`) are listed.
 - [ ] Create a **Vercel Blob** store (private) for the project: `vercel blob store add neo-artifacts`. It sets `BLOB_READ_WRITE_TOKEN`.
 - [ ] Generate the artifact master key and add it as a sensitive Vercel env var:
   ```
   vercel env add NEO_MASTER_KEY production --sensitive   # value: openssl rand -base64 32
   ```
   Losing this key makes every stored `.eml` and screenshot unreadable; keep a copy in your password manager.
-- [ ] Run migration `0003_phase1` as the owner (`MIGRATION_DATABASE_URL=... pnpm db:migrate`), then redeploy.
-- [ ] Forward one email from your Gmail to your household address and confirm the verdict email arrives and shows on `/dashboard`.
+- [ ] Run migration `0003_phase1` as the owner (`MIGRATION_DATABASE_URL=... pnpm db:migrate`) **before** deploying the Phase 1 code (it is additive). If `app_user` did not exist at that point, re-run `packages/db/sql/create-app-user.sql` for the three function grants. Then redeploy.
+- [ ] Check `GET /api/health`: `artifacts: "ok"`, `inbound: "ok"`.
+- [ ] Forward one email from your Gmail to your household address (shown on `/settings/forwarding`) and confirm the verdict email arrives and shows on `/dashboard`. To set up a Gmail auto-forward, Gmail first sends a confirmation email to the address: its code appears on `/settings/forwarding` (owner only).
 - [ ] Decide `NEO_ARTIFACT_RETENTION_DAYS` (default 30) and whether inbound triage should stay on Sonnet 5.

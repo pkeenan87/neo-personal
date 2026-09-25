@@ -18,7 +18,7 @@ function codeFence(raw: string): string {
  * replaced by a <VerdictCard> (convention documented in lib/verdict-fence.ts).
  */
 export function MessageContent({ text, streaming = false }: { text: string; streaming?: boolean }) {
-  // The `<!-- playbook:<id> -->` marker is for the server only (agent E).
+  // The `<!-- playbook:<id> -->` marker is for the server only.
   const segments = splitVerdictSegments(stripPlaybookMarker(text), { streaming });
   return (
     <>

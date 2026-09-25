@@ -59,7 +59,7 @@ export function EmptyState({ onPick, onPlaybook }: { onPick: (s: Suggestion) => 
           </li>
         ))}
       </ul>
-      {/* incident playbooks (agent E) */}
+      {/* incident playbooks */}
       <section className="mt-8 w-full text-left" aria-labelledby="playbooks-heading">
         <h2 id="playbooks-heading" className="mb-2 text-sm font-semibold text-muted">
           Something already happened?

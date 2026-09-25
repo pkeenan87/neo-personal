@@ -58,7 +58,7 @@ Rules for the block:
 - Do not produce a verdict block for general questions, greetings, or advice that is not an analysis of a specific thing.
 
 ${
-  // --- incident playbooks (agent E): byte-stable, bundled at build time ---
+  // --- incident playbooks: byte-stable, bundled at build time ---
   playbooksPromptSection()
   // --- end incident playbooks ---
 }`;

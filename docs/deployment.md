@@ -26,7 +26,7 @@ Function duration is also declared in code: `export const maxDuration = 300` in 
 
 ### Function limits
 
-`/api/agent` streams a full agent turn (multiple Claude calls and tool calls) as NDJSON. It is set to `maxDuration: 300` seconds, the Hobby maximum. On Pro it can go to 800. Streaming keeps the client informed during long tool chains. Anything that must outlive a request goes to Inngest (Phase 1), never a longer function.
+`/api/agent` streams a full agent turn (multiple Claude calls and tool calls) as NDJSON. It is set to `maxDuration: 300` seconds, the Hobby maximum. On Pro it can go to 800. Streaming keeps the client informed during long tool chains. Anything that must outlive a request goes to Inngest, never a longer function. `/api/inngest` (Inngest calls it to run each step) also has `maxDuration: 300`.
 
 ### Security headers
 
@@ -63,9 +63,21 @@ Preview-specific settings:
 - `DEV_AUTH_BYPASS` stays **off**. Previews are public URLs. Use Vercel Deployment Protection if previews need to be private.
 - Google OAuth does not accept wildcard redirect URIs, so use magic-link sign-in on previews.
 
-## Cron (placeholder, Phase 1+)
+## Phase 1 services
 
-No cron jobs run in Phase 0. When they arrive (weekly digest, breach re-checks) they will be:
+Deploy order for Phase 1 (details and commands in `CHECKLIST.md` §9 and [self-hosting.md](self-hosting.md)):
+
+1. **Migration first.** Run `0003_phase1` as the owner role before deploying the Phase 1 code: `MIGRATION_DATABASE_URL=<owner url> pnpm db:migrate`. It is additive (new columns with defaults or backfills, new tables and functions), so the Phase 0 deployment keeps working against the migrated schema and a rollback is safe. It grants `EXECUTE` on its three `security definer` functions to `app_user` when that role exists; otherwise re-run `packages/db/sql/create-app-user.sql`.
+2. **Vercel Blob**: create a private Blob store for the project (`vercel blob store add neo-artifacts`); it sets `BLOB_READ_WRITE_TOKEN`.
+3. **`NEO_MASTER_KEY`**: `openssl rand -base64 32`, added as a sensitive env var for Production (and Preview if previews use Blob). Required on production: without it `/api/health` reports `artifacts: "unconfigured"` and uploads return 503. Losing it makes stored artifacts unreadable.
+4. **Resend inbound**: verify the inbound subdomain (MX records), set `NEO_INBOUND_DOMAIN`, create a webhook for `email.received` at `https://<domain>/api/inbound/resend`, and set its signing secret as `RESEND_WEBHOOK_SECRET`. The job fetches each message with `GET /emails/receiving/{id}` and downloads the raw MIME from the signed URL in that response, using `RESEND_API_KEY` (defaults to `AUTH_RESEND_KEY`).
+5. **Inngest**: install the Vercel Marketplace integration (sets `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`) and sync the app URL `https://<domain>/api/inngest` in the Inngest dashboard (the integration re-syncs on each deploy). Functions: `email-received` and the daily `artifacts-expire` cron (`0 4 * * *` UTC), which Inngest schedules, not Vercel Cron.
+
+`GET /api/health` shows `artifacts: "ok"` and `inbound: "ok"` once all of this is in place.
+
+## Vercel Cron (placeholder)
+
+Phase 1 needs no Vercel Cron: scheduled work runs as Inngest cron functions. If Vercel Cron routes arrive later (weekly digest, breach re-checks) they will be:
 
 ```json
 {

@@ -13,7 +13,7 @@ function one(v: string | string[] | undefined): string | undefined {
 }
 
 /**
- * Entry points (agent E):
+ * Entry points:
  *   ?playbook=<id>  auto-sends "I think I …. Help me." with `playbook` (effort high)
  *   ?verdict=<id>   auto-sends "Tell me more about …"; the server adds the stored verdict as hidden context
  *   ?check=<url>    pre-fills the composer (never auto-sent: a crafted link must not spend the user's checks)

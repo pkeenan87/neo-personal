@@ -36,7 +36,7 @@ export default async function LandingPage({
   searchParams: Promise<{ signin?: string; error?: string }>;
 }) {
   const [session, params] = await Promise.all([getSession(), searchParams]);
-  // Signed-in users land on their dashboard (agent E).
+  // Signed-in users land on their dashboard.
   if (session) redirect("/dashboard");
   const e = env();
   const notice =

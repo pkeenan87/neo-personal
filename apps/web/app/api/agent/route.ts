@@ -23,7 +23,7 @@ import { CONVERSATION_ID_HEADER, MAX_MESSAGE_CHARS } from "@/lib/api-types";
 import { ATTACHMENT_LIMITS, parseAttachmentNote } from "@/lib/attachments";
 import { env } from "@/lib/env";
 import { agentEffort, streamAgentRun } from "@/lib/server/agent-run";
-// --- dashboard + incident playbooks (agent E) ---
+// --- dashboard + incident playbooks ---
 import { HIDDEN_CONTEXT_PREFIX } from "@/lib/hidden-context";
 import { isPlaybookId } from "@/lib/playbooks";
 import { getVisibleVerdict, VERDICT_ID_RE, verdictBody } from "@/lib/server/verdict-data";
@@ -61,7 +61,7 @@ export async function POST(req: Request): Promise<Response> {
     return jsonError(400, "Invalid conversation id.", "bad_request");
   }
 
-  // --- dashboard + incident playbooks (agent E) ---
+  // --- dashboard + incident playbooks ---
   const { playbook, verdictId } = body;
   if (playbook !== undefined && !isPlaybookId(playbook)) return jsonError(400, "Unknown playbook.", "bad_request");
   if (verdictId !== undefined && (typeof verdictId !== "string" || !VERDICT_ID_RE.test(verdictId))) {

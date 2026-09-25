@@ -12,7 +12,7 @@ export interface AgentRequestBody {
   message: string;
   /** Artifacts from POST /api/artifacts to include in this turn (≤ 5, the session tenant's own). */
   attachments?: AttachmentInput[];
-  // --- dashboard + incident playbooks (agent E) ---
+  // --- dashboard + incident playbooks ---
   /** Start an incident playbook: this turn runs with effort "high". */
   playbook?: PlaybookId;
   /** "Ask Neo about this": the server loads this verdict and adds it as hidden context. */
