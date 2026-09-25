@@ -342,6 +342,6 @@ Weeks are calendar weeks for one developer using Claude Code heavily. Each phase
 - Verdicts are parsed from a ```verdict fenced block in the streamed answer rather than a separate structured-outputs call.
 - Without a database only the dev bypass can sign in, because the Auth.js adapter needs one.
 
-**Not yet verified**: a real Postgres/Neon database and RLS under the app role, Google OAuth and Resend magic links, a real Anthropic call, a Vercel deployment. The public GitHub repo does not exist yet (README badges and issue-template links carry placeholders).
+**Verified 2026-09-25 in production** (https://neo-sable-ten.vercel.app, repo https://github.com/pkeenan87/neo-personal): Neon Postgres with the `app_user` RLS role, Google OAuth sign-in creating a household tenant, a real Opus 5 URL check persisting conversation, usage, and verdict rows, and live Safe Browsing/VirusTotal/urlscan keys. **Still unverified**: Resend magic links.
 
 **Carried into Phase 1**: sign-out-everywhere, click-to-confirm page for magic links, usage indicator in the chat header, warn-once log for invalid cap env values, unify the app DB role name (`app_user` vs `app_user`) across docs, decide the `VIRUSTOTAL_SUBMIT` default (currently true, which exposes pasted URLs to other VirusTotal users), port the injection-guard regex fix back to the work Neo repo.
