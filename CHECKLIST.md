@@ -89,7 +89,7 @@ Everything in Phase 1 runs locally and in CI with `MOCK_MODE=true`. Turning it o
   vercel env add NEO_MASTER_KEY production --sensitive   # value: openssl rand -base64 32
   ```
   Losing this key makes every stored `.eml` and screenshot unreadable; keep a copy in your password manager.
-- [ ] Run migration `0003_phase1` as the owner (`MIGRATION_DATABASE_URL=... pnpm db:migrate`) **before** deploying the Phase 1 code (it is additive). If `app_user` did not exist at that point, re-run `packages/db/sql/create-app-user.sql` for the three function grants. Then redeploy.
+- [x] Run migration `0003_phase1` as the owner (`MIGRATION_DATABASE_URL=... pnpm db:migrate`) **before** deploying the Phase 1 code (it is additive). If `app_user` did not exist at that point, re-run `packages/db/sql/create-app-user.sql` for the three function grants. Then redeploy. (done 2026-09-25, verified: tables, columns, RLS, definer grants)
 - [ ] Check `GET /api/health`: `artifacts: "ok"`, `inbound: "ok"`.
 - [ ] Forward one email from your Gmail to your household address (shown on `/settings/forwarding`) and confirm the verdict email arrives and shows on `/dashboard`. To set up a Gmail auto-forward, Gmail first sends a confirmation email to the address: its code appears on `/settings/forwarding` (owner only).
 - [ ] Decide `NEO_ARTIFACT_RETENTION_DAYS` (default 30) and whether inbound triage should stay on Sonnet 5.
