@@ -6,14 +6,16 @@
  */
 import type { ReceivedEmail } from "@/lib/server/email/resend";
 
-const ADDRESS_RE = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[^\s@<>()",;:]+$/;
+// Domain labels exclude "." so the pattern cannot backtrack polynomially on attacker input.
+const ADDRESS_RE = /^[^\s@<>()",;:]+@[^\s@<>()",;:.]+(?:\.[^\s@<>()",;:.]+)+$/;
+const MAX_ADDRESS_CHARS = 320;
 
 /** "Name <a@b.c>" | "<a@b.c>" | "a@b.c" → "a@b.c" (lowercased), else undefined. */
 export function extractAddress(value: string | undefined | null): string | undefined {
   if (!value) return undefined;
   const angle = /<([^<>]+)>/.exec(value);
   const candidate = (angle?.[1] ?? value).trim().toLowerCase();
-  return ADDRESS_RE.test(candidate) ? candidate : undefined;
+  return candidate.length <= MAX_ADDRESS_CHARS && ADDRESS_RE.test(candidate) ? candidate : undefined;
 }
 
 /** Split a recipient list header ("a@x, B <b@y>") into addresses. */

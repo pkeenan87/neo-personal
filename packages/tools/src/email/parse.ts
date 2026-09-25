@@ -333,7 +333,7 @@ export function parsePasted(p: { from?: string; subject?: string; body: string }
   if (from) parsed.from = from;
   if (get("Subject")) parsed.subject = get("Subject")!;
   if (get("Date")) parsed.date = get("Date")!;
-  if (/<a\s[^>]*href\s*=|<html[\s>]|<body[\s>]/i.test(body)) parsed.html = body.slice(0, MAX_HTML_CHARS);
+  if (/<a\s[^<>]*href\s*=|<html[\s>]|<body[\s>]/i.test(body)) parsed.html = body.slice(0, MAX_HTML_CHARS);
 
   const quoted = findQuotedForward(parsed.text ?? "", FORWARD_SUBJECT_RE.test(parsed.subject ?? ""));
   if (quoted) parsed.forwardedWrapper = { detectedBy: "quoted_headers", inner: quotedInner(parsed, quoted, 0) };

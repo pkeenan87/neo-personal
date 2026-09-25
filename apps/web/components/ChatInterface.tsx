@@ -41,10 +41,10 @@ export interface ChatInterfaceProps {
   // --- end dashboard + incident playbooks ---
 }
 
+/** Client-side message id. randomUUID needs a secure context; getRandomValues works everywhere. */
 function newId(): string {
-  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `m-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `m-${Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function isAbortError(err: unknown): boolean {

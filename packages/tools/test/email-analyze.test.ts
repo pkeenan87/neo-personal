@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { analyzeEmail } from "../src/email/analyzeEmail.js";
 import { analyzeEmailTool, createAnalyzeEmailTool, EMAIL_ANALYSIS_GUIDANCE, extractEmailIocs } from "../src/email/tool.js";
+import { unwrapRedirector } from "../src/email/urls.js";
 import { MOCK_URLS } from "../src/mock.js";
 import type { EmailAnalysis } from "../src/email/types.js";
 import { json, routeFetch, testDeps } from "./helpers.js";
@@ -162,6 +163,15 @@ describe("links", () => {
     const iocs = extractEmailIocs(a);
     expect(iocs.urls).toEqual(expect.arrayContaining([MOCK_URLS.phish, "https://paypa1-secure-login.com/verify/signin"]));
     expect(iocs.domains).toEqual(expect.arrayContaining(["paypa1-secure-login.com", "example.org"]));
+  });
+});
+
+describe("unwrapRedirector", () => {
+  it("unwraps only real Safe Links hosts, not lookalike suffixes", () => {
+    const target = encodeURIComponent("https://login.example.net/verify");
+    expect(unwrapRedirector(`https://nam12.safelinks.protection.outlook.com/?url=${target}`)).toBe("https://login.example.net/verify");
+    const fake = `https://evilsafelinks.protection.outlook.com/?url=${target}`;
+    expect(unwrapRedirector(fake)).toBe(fake);
   });
 });
 

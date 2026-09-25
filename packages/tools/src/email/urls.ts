@@ -32,7 +32,7 @@ export function unwrapRedirector(url: string): string {
   try {
     const u = new URL(url);
     const host = u.hostname.toLowerCase();
-    if (host.endsWith("safelinks.protection.outlook.com")) return u.searchParams.get("url") ?? url;
+    if (host === "safelinks.protection.outlook.com" || host.endsWith(".safelinks.protection.outlook.com")) return u.searchParams.get("url") ?? url;
     if ((host === "www.google.com" || host === "google.com") && u.pathname === "/url") return u.searchParams.get("q") ?? u.searchParams.get("url") ?? url;
     if (host === "urldefense.proofpoint.com" && u.pathname.startsWith("/v2/")) {
       const enc = u.searchParams.get("u");

@@ -12,6 +12,7 @@ import { GET as verdictsGET } from "@/app/api/verdicts/route";
 import { GET as verdictGET } from "@/app/api/verdicts/[id]/route";
 import type { VerdictDetailResponse, VerdictListResponse } from "@/lib/dashboard-types";
 import { memoryInbound } from "@/lib/server/inbound/memory";
+import { extractAddress } from "@/lib/server/inbound/senders";
 import { memoryState, setMemoryMembers } from "@/lib/server/memory-state";
 import { DEV_SESSION_IDS } from "@/lib/session";
 import { GMAIL_CONFIRMATION_BODY, GMAIL_CONFIRMATION_SUBJECT, forwardedPhish, rawEmail } from "./inbound-fixtures";
@@ -351,5 +352,17 @@ describe("GET /api/health inbound status", () => {
     vi.stubEnv("INNGEST_EVENT_KEY", "test-event-key");
     vi.stubEnv("INNGEST_SIGNING_KEY", "test-signing-key");
     expect((await healthGET().json()) as { inbound: string }).toMatchObject({ inbound: "ok" });
+  });
+});
+
+describe("extractAddress", () => {
+  it("parses display-name forms and rejects malformed or oversized input quickly", () => {
+    expect(extractAddress("Alex <Alex@Example.test>")).toBe("alex@example.test");
+    expect(extractAddress("a@b.c")).toBe("a@b.c");
+    expect(extractAddress("a@b")).toBeUndefined();
+    expect(extractAddress("a@b..c")).toBeUndefined();
+    const started = Date.now();
+    expect(extractAddress(`!@!${"!.".repeat(50_000)}`)).toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(500);
   });
 });

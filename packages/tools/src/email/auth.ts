@@ -178,7 +178,7 @@ export function evaluateAuthentication(headers: Header[], fromRegistrable: strin
   if (receivedSpf || dkimSigs.length) {
     const spfValue = receivedSpf ? stripComments(receivedSpf.value) : "";
     const spfToken = receivedSpf ? /^\s*([a-z]+)/i.exec(receivedSpf.value)?.[1]?.toLowerCase() : undefined;
-    const envelope = /envelope-from\s*=\s*"?<?([^\s;">]+)/i.exec(spfValue)?.[1] ?? /domain of\s+(\S+@\S+?)[\s)]/i.exec(receivedSpf?.value ?? "")?.[1];
+    const envelope = /envelope-from\s*=\s*"?<?([^\s;">]+)/i.exec(spfValue)?.[1] ?? /domain of\s+([^\s@]+@[^\s@)]+)[\s)]/i.exec(receivedSpf?.value ?? "")?.[1];
     const spf = mapSpf(spfToken);
     const dkim_domains = [...new Set(dkimSigs.map((h) => domainOf(/(?:^|;)\s*d\s*=\s*([^;\s]+)/i.exec(h.value)?.[1])).filter((d): d is string => !!d))].slice(0, 10);
     const aligned = fromRegistrable ? spf === "pass" && registrableDomain(domainOf(envelope)) === fromRegistrable : null;
