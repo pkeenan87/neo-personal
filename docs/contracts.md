@@ -149,3 +149,94 @@ The system prompt (`apps/web/lib/server/system-prompt.ts`) tells the model to en
 - `MOCK_MODE=true`: the real agent loop runs against a scripted offline model (`lib/server/mock-model.ts`, passed as `client`), `check_url` runs in @neo/tools mock mode, and a destructive demo tool `report_phish_demo` is registered (send a message containing `confirm-test`) to exercise the confirmation gate. No API key or network needed.
 - No `DATABASE_URL`: conversations, usage, audit events and verdicts use in-memory fallbacks (per process), and no sign-in provider is registered; only `DEV_AUTH_BYPASS` signs in (fixed in-memory dev tenant). For local demos and CI only.
 - `DEV_AUTH_BYPASS=true` is honoured only when `NODE_ENV !== "production"` and `VERCEL_ENV` is neither `production` nor `preview`.
+
+---
+
+# Package contracts (Phase 1)
+
+Additive to Phase 0. Full shapes live in the specs; this section fixes the names and ownership so parallel work lines up. Rule: an agent that needs an interface from another package builds against **this** shape and, if the owning package is not merged yet, a local stub under `test/` or a typed placeholder; the integration pass swaps in the real export.
+
+## @neo/tools (spec `_specs/email-analysis.md`, `_specs/sms-analysis.md`)
+
+```ts
+export function parseEmail(raw: string | Uint8Array): Promise<ParsedEmail>;
+export function analyzeEmail(input: EmailInput, opts?: { deps?: Partial<UrlAnalysisDeps>; signal?: AbortSignal; maxUrls?: number }): Promise<EmailAnalysis>;
+export const analyzeEmailTool: RegisteredTool;                       // "analyze_email"; input { artifact_ref? | raw? | pasted? } (exactly one)
+export function createAnalyzeEmailTool(opts: { deps?: Partial<UrlAnalysisDeps>; loadArtifact?: (ref: string, ctx: ToolContext) => Promise<Uint8Array | undefined> }): RegisteredTool;
+export const EMAIL_ANALYSIS_GUIDANCE: string;
+export function extractEmailIocs(a: EmailAnalysis): Verdict["iocs"];
+export function analyzeSms(input: SmsInput, opts?: { deps?: Partial<UrlAnalysisDeps>; signal?: AbortSignal }): Promise<SmsAnalysis>;
+export const analyzeSmsTool: RegisteredTool;                         // "analyze_sms"; input { sender?, body, received_at?, user_country? }
+export function createAnalyzeSmsTool(opts: { deps?: Partial<UrlAnalysisDeps> }): RegisteredTool;
+export const SMS_ANALYSIS_GUIDANCE: string;
+export function extractSmsIocs(a: SmsAnalysis): Verdict["iocs"];
+export type { ParsedEmail, EmailInput, EmailAnalysis, SmsInput, SmsAnalysis };
+```
+Both tools are read-only, `strict: true`, never throw for analysis failures (`errors[]`), and never fetch attachments or render HTML. Mock mode: offline parsing plus the Phase 0 URL mock. `loadArtifact` receives the `ToolContext` and must scope by `ctx.tenantId`.
+
+## @neo/core (spec `_specs/intake.md`, `_specs/forward-to-address.md`)
+
+```ts
+// Artifact crypto (pure; AES-256-GCM, HKDF per tenant, AAD = artifact id)
+export function masterKeyFromEnv(source?: NodeJS.ProcessEnv): Uint8Array | undefined;   // NEO_MASTER_KEY base64 (32 bytes)
+export function deriveTenantKey(masterKey: Uint8Array, tenantId: string): Uint8Array;
+export function encryptArtifact(key: Uint8Array, plaintext: Uint8Array, aad: string): Uint8Array;
+export function decryptArtifact(key: Uint8Array, blob: Uint8Array, aad: string): Uint8Array;  // throws ArtifactDecryptError
+export class ArtifactDecryptError extends Error {}
+
+// Bulk triage: one structured-output call on NEO_TRIAGE_MODEL (default claude-sonnet-5), effort low
+export function runTriage(input: { evidence: unknown; evidenceKind: "email" | "sms"; guidance: string; client?: Anthropic; model?: string; signal?: AbortSignal }): Promise<{ verdict: Verdict; usage: AgentUsage; model: string }>;
+export const TRIAGE_SYSTEM_PROMPT: string;
+export function triageModel(): string;                                                   // NEO_TRIAGE_MODEL
+
+// Context manager: image blocks count 1600 tokens; compression replaces older images with "[image omitted]" text blocks.
+```
+
+## @neo/db (specs `_specs/intake.md`, `_specs/forward-to-address.md`, `_specs/dashboard.md`)
+
+Migration `0003_phase1`: `artifacts` + `filename`, `mime_type`, `source`; `verdicts` + `source` (`chat|inbound|api`, default `chat`), `artifact_id`; new `inbound_addresses`, `inbound_messages` with RLS; `security definer` function `resolve_inbound_address(local_part)`.
+
+```ts
+export interface BlobClient { put(path: string, bytes: Uint8Array, contentType: string): Promise<{ url: string }>; get(url: string): Promise<Uint8Array | undefined>; del(url: string): Promise<void> }
+export function createVercelBlobClient(token?: string): BlobClient;    // @vercel/blob, private access
+export function createMemoryBlobClient(): BlobClient;
+export type ArtifactKind = "eml" | "image" | "text" | "inbound_eml";
+export type ArtifactMeta = { id; tenantId; userId; kind; filename?; mimeType; sizeBytes; sha256; encrypted; source; createdAt; expiresAt: Date | null };
+export interface ArtifactStore {
+  put(input: { tenantId; userId; kind: ArtifactKind; filename?; mimeType; bytes: Uint8Array; source: "upload" | "inbound" }): Promise<ArtifactMeta>;
+  get(id, tenantId): Promise<ArtifactMeta | undefined>;
+  read(id, tenantId): Promise<Uint8Array | undefined>;                 // decrypted
+  delete(id, tenantId): Promise<void>;
+  listExpired(limit: number): Promise<ArtifactMeta[]>;
+  purge(id: string): Promise<void>;
+}
+export function createArtifactStore(db: Db, opts: { blob: BlobClient; masterKey?: Uint8Array; retentionDays?: number; allowPlaintext?: boolean }): ArtifactStore;
+
+export const inbound: {
+  ensureAddress(db, tenantId): Promise<{ id: string; localPart: string }>;
+  rotateAddress(db, tenantId): Promise<{ id: string; localPart: string }>;
+  findActiveByLocalPart(db, localPart): Promise<{ id: string; tenantId: string } | undefined>;  // via resolve_inbound_address()
+  recordMessage(db, input: { tenantId; addressId; providerMessageId; fromAddressHash; status: InboundStatus }): Promise<{ id: string }>;
+  updateMessage(db, id, tenantId, patch: Partial<{ status: InboundStatus; forwarderUserId; artifactId; verdictId; error; completedAt }>): Promise<void>;
+  countRecent(db, addressId, windowMs): Promise<number>;
+  listRecent(db, tenantId, limit): Promise<InboundMessageRow[]>;
+};
+export type InboundStatus = "received" | "analyzing" | "done" | "rejected" | "over_cap" | "failed";
+export function generateLocalPart(): string;                            // "check-" + 12 lowercase Crockford base32 chars
+
+export const verdictQueries: {
+  list(db, tenantId, opts: { userId?; label?; subjectType?; source?; cursor?; limit? }): Promise<{ items: VerdictRow[]; nextCursor?: string }>;
+  get(db, tenantId, id): Promise<VerdictRow | undefined>;
+  summary(db, tenantId, opts: { userId?; sinceDays: 7 | 30 | 90 }): Promise<VerdictSummary>;
+  remove(db, tenantId, id): Promise<boolean>;
+};
+export function saveVerdict(db, input: { tenantId; userId; conversationId?; artifactId?; source: "chat" | "inbound" | "api"; verdict: Verdict }): Promise<{ id: string }>;
+export function listMembers(db, tenantId): Promise<{ userId; name: string | null; email: string | null; role: "owner" | "member" }[]>;
+```
+
+## apps/web
+
+New routes: `POST /api/artifacts`, `GET /api/artifacts/[id]`, `POST /api/inbound/resend`, `GET|POST|PUT /api/inngest`, `GET /api/verdicts`, `GET /api/verdicts/summary`, `GET|DELETE /api/verdicts/[id]`, `GET /api/household`, `GET|POST /api/settings/forwarding` (POST = rotate). Pages: `/dashboard`, `/verdicts/[id]`, `/settings/forwarding`.
+`POST /api/agent` body gains `attachments?: { id: string }[]` (≤ 5) and `playbook?: PlaybookId`. Tool registry: `check_url`, `analyze_email`, `analyze_sms` (+ mock demo tool).
+Inngest: client `apps/web/inngest/client.ts` (id `neo`), functions `email-received` (`neo/email.received`), `artifacts-expire` (cron `0 4 * * *`). `MOCK_MODE` without `INNGEST_EVENT_KEY` runs `email-received` inline from the webhook.
+Env added: `NEO_INBOUND_DOMAIN`, `RESEND_WEBHOOK_SECRET`, `RESEND_API_KEY` (alias of `AUTH_RESEND_KEY`), `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`, `BLOB_READ_WRITE_TOKEN`, `NEO_MASTER_KEY`, `NEO_ARTIFACT_RETENTION_DAYS`, `NEO_INBOUND_RATE_LIMIT_PER_HOUR`.
