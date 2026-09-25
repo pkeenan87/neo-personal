@@ -22,6 +22,11 @@ import { truncateToolResult } from "./truncate.js";
  *  4. past the trim trigger, the middle of the conversation is compressed
  *     into a Haiku summary (first user message + recent tail kept verbatim),
  *  5. a final pair-aware ceiling pass guarantees the estimate fits.
+ *
+ * Image blocks (screenshots from intake) count a fixed 1600 tokens each. Past
+ * the trim trigger, images in turns before the latest user turn are replaced
+ * with "[image omitted]" text blocks first (the model already transcribed them
+ * when they were current); compression runs only if that is not enough.
  */
 
 export { truncateToolResult };
@@ -84,6 +89,57 @@ function hasToolUse(msg: MessageParam): boolean {
 
 function hasToolResult(msg: MessageParam): boolean {
   return msg.role === "user" && blocksOf(msg).some((b) => b.type === "tool_result");
+}
+
+// ── Older-image omission ─────────────────────────────────────
+
+/** Text that replaces an image block dropped from older history. */
+export const IMAGE_OMITTED_TEXT = "[image omitted]";
+
+/** Index of the latest user message that is not only tool results (the current turn), or -1. */
+function latestUserTurnIndex(messages: readonly MessageParam[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i]!;
+    if (m.role === "user" && !(Array.isArray(m.content) && m.content.length > 0 && m.content.every((b) => b.type === "tool_result"))) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Replace every image block (top level, or inside a tool_result) in messages
+ * before the latest user turn with an `[image omitted]` text block. Images in
+ * the latest user turn and after it are kept. Pure; returns the count replaced.
+ */
+export function omitOlderImages(messages: readonly MessageParam[]): { messages: MessageParam[]; omitted: number } {
+  const keepFrom = latestUserTurnIndex(messages);
+  let omitted = 0;
+  const out = messages.map((msg, idx): MessageParam => {
+    if (idx >= keepFrom || typeof msg.content === "string") return msg;
+    let changed = false;
+    const content = msg.content.map((block): ContentBlockParam => {
+      if (block.type === "image") {
+        changed = true;
+        omitted++;
+        return { type: "text", text: IMAGE_OMITTED_TEXT };
+      }
+      if (block.type === "tool_result" && Array.isArray(block.content) && block.content.some((b) => b.type === "image")) {
+        changed = true;
+        return {
+          ...block,
+          content: block.content.map((b) => {
+            if (b.type !== "image") return b;
+            omitted++;
+            return { type: "text" as const, text: IMAGE_OMITTED_TEXT };
+          }),
+        };
+      }
+      return block;
+    });
+    return changed ? { ...msg, content } : msg;
+  });
+  return { messages: out, omitted };
 }
 
 // ── Per-result truncation ────────────────────────────────────
@@ -444,6 +500,9 @@ export function renderTranscript(messages: readonly MessageParam[]): string {
         case "thinking":
         case "redacted_thinking":
           break;
+        case "image":
+          lines.push(`[${who}] ${IMAGE_OMITTED_TEXT}`);
+          break;
         default:
           lines.push(`[${who} ${b.type} block]`);
       }
@@ -652,7 +711,22 @@ export async function prepareMessages(
   working = truncateToolResults(working, budget.perResult).messages;
   working = validateAndRepairConversationShape(working);
 
-  const estimate = estimateTokens(working) + systemTokens;
+  let estimate = estimateTokens(working) + systemTokens;
+  if (estimate > budget.trigger) {
+    // Cheapest reduction first: older screenshots become "[image omitted]".
+    const images = omitOlderImages(working);
+    if (images.omitted > 0) {
+      working = images.messages;
+      const after = estimateTokens(working) + systemTokens;
+      logger.info("Omitted older images from context", "context-manager", {
+        conversationId: opts.conversationId,
+        droppedCount: images.omitted,
+        contentType: "image",
+        estimatedTokens: after,
+      });
+      estimate = after;
+    }
+  }
   if (estimate > budget.trigger) {
     logger.info("Context compression triggered", "context-manager", {
       conversationId: opts.conversationId,

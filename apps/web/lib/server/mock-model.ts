@@ -13,6 +13,12 @@
  *                                    registered only in MOCK_MODE) to exercise
  *                                    the confirmation gate
  *   - report_phish_demo result     → short acknowledgement
+ *   - an [Attached file …] note    → tool_use analyze_email { artifact_ref } per file
+ *   - an image block (screenshot)  → a scripted transcription + tool_use analyze_sms
+ *                                    with a fixed input
+ *   - analyze_email / analyze_sms
+ *     tool_result(s)               → explanation + one ```verdict block built
+ *                                    from the actual result
  *   - anything else                → a canned demo-mode answer
  */
 import type Anthropic from "@anthropic-ai/sdk";
@@ -20,6 +26,7 @@ import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import type { RegisteredTool } from "@neo/core";
 import { extractUrlIocs, isSkipped, MOCK_URLS, type UrlAnalysis } from "@neo/tools";
 import type { Verdict } from "@neo/verdict";
+import { parseAttachmentNote } from "@/lib/attachments";
 
 export const CONFIRM_TEST_TRIGGER = "confirm-test";
 export const MOCK_REPORT_TOOL = "report_phish_demo";
@@ -207,6 +214,118 @@ function verdictAnswer(analyses: UrlAnalysis[]): string {
   return `${lead} ${v.headline}\n\n${found}\n\n${block}\n\n_(Demo mode: this answer is scripted; the link checks ran in mock mode.)_`;
 }
 
+// ── Intake (analyze_email / analyze_sms) ──
+
+export const ANALYZE_EMAIL_TOOL = "analyze_email";
+export const ANALYZE_SMS_TOOL = "analyze_sms";
+
+/** The fixed "transcription" the scripted model makes of any screenshot. */
+export const MOCK_SMS_INPUT = {
+  sender: "+1 555 0100",
+  body: `PayPal: your account has been limited. Verify your details at ${MOCK_URLS.phish} within 24 hours or it will be closed.`,
+} as const;
+
+/** The fields of an EmailAnalysis / SmsAnalysis the scripted model reasons over (docs/contracts.md). */
+export interface MessageAnalysisLike {
+  heuristics?: unknown;
+  signals?: unknown;
+  content?: { signals?: unknown };
+  urls?: unknown;
+  phone_numbers?: unknown;
+  errors?: unknown;
+}
+
+const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+
+const STRONG_MESSAGE_CODES = new Set([
+  "lookalike_sender_domain",
+  "spoofed_brand_in_display_name",
+  "free_mail_sender_claiming_brand",
+  "brand_claim_from_personal_number",
+  "brand_claim_from_international_number",
+  "link_domain_not_brand",
+  "dangerous_attachment_type",
+  "attachment_vt_flagged",
+]);
+
+/** A plausible verdict from an analyze_email / analyze_sms result. Null when the analysis could not run. */
+export function mockMessageVerdict(kind: "email" | "sms", a: MessageAnalysisLike): Verdict | null {
+  const errors = strings(a.errors);
+  if (errors.includes("artifact_not_found")) return null;
+  const codes = [...new Set([...strings(a.heuristics), ...strings(a.signals), ...strings(a.content?.signals)])];
+  const urlAnalyses = (Array.isArray(a.urls) ? a.urls : [])
+    .map((u) => (u && typeof u === "object" ? (u as { analysis?: unknown }).analysis : undefined))
+    .filter(isAnalysis);
+  const urlVerdicts = urlAnalyses.map(mockVerdictFor);
+
+  const indicators: Verdict["indicators"] = [
+    ...codes.map((c) => ({
+      severity: (STRONG_MESSAGE_CODES.has(c) ? "high" : "medium") as Verdict["indicators"][number]["severity"],
+      category: c,
+      evidence: c.replace(/_/g, " "),
+      explanation: STRONG_MESSAGE_CODES.has(c) ? "A strong sign the message is impersonating someone." : "A common trait of scam messages.",
+    })),
+    ...urlVerdicts.flatMap((v) => v.indicators),
+  ].slice(0, 12);
+
+  const strong = codes.some((c) => STRONG_MESSAGE_CODES.has(c)) || urlVerdicts.some((v) => v.verdict === "malicious");
+  const noun = kind === "email" ? "email" : "text message";
+  let verdict: Verdict["verdict"];
+  let confidence: number;
+  let headline: string;
+  if (strong) {
+    verdict = "malicious";
+    confidence = 0.93;
+    headline = `This ${noun} is a phishing attempt. Don't click its link or reply.`;
+  } else if (codes.length >= 2 || urlVerdicts.some((v) => v.verdict === "suspicious")) {
+    verdict = "suspicious";
+    confidence = 0.7;
+    headline = `This ${noun} has several warning signs. Don't act on it until you confirm it another way.`;
+  } else if (codes.length === 0 && urlVerdicts.length > 0 && urlVerdicts.every((v) => v.verdict === "likely_safe")) {
+    verdict = "likely_safe";
+    confidence = 0.8;
+    headline = `This ${noun} looks legitimate.`;
+  } else {
+    verdict = "insufficient_evidence";
+    confidence = 0.4;
+    headline = `There isn't enough evidence to say whether this ${noun} is safe.`;
+  }
+
+  const iocs: Verdict["iocs"] = { urls: [], domains: [], ips: [], hashes: [], phone_numbers: [] };
+  for (const v of urlVerdicts) {
+    for (const k of Object.keys(iocs) as Array<keyof Verdict["iocs"]>) iocs[k] = [...new Set([...iocs[k], ...v.iocs[k]])];
+  }
+  iocs.phone_numbers = [...new Set([...iocs.phone_numbers, ...strings(a.phone_numbers)])];
+
+  const recommended_actions: Verdict["recommended_actions"] =
+    verdict === "malicious" || verdict === "suspicious"
+      ? [
+          { action: "Don't click the link, call any number in it, or reply.", urgency: "now" },
+          { action: "If you entered a password, change it on the real website and turn on two-step verification.", urgency: "now" },
+          { action: kind === "email" ? "Report it as phishing in your email app, then delete it." : "Report it as junk and block the sender.", urgency: "soon" },
+        ]
+      : [{ action: "If anything asks for a password or payment, go to the company's site or app directly instead.", urgency: "optional" }];
+
+  return { subject_type: kind, verdict, confidence, headline, indicators, recommended_actions, iocs };
+}
+
+function messageVerdictAnswer(items: Array<{ kind: "email" | "sms"; data: MessageAnalysisLike }>): string {
+  const rank = { malicious: 3, suspicious: 2, insufficient_evidence: 1, likely_safe: 0 } as const;
+  const verdicts = items
+    .map((i) => mockMessageVerdict(i.kind, i.data))
+    .filter((v): v is Verdict => v !== null)
+    .sort((x, y) => rank[y.verdict] - rank[x.verdict]);
+  const v = verdicts[0];
+  if (!v) {
+    return "I couldn't open that file: it may have expired or been removed. Please attach it again.\n\n_(Demo mode: this answer is scripted.)_";
+  }
+  const lead =
+    v.verdict === "malicious" ? "**This is a scam.**" : v.verdict === "suspicious" ? "**Be careful with this one.**" : v.verdict === "likely_safe" ? "**This looks legitimate.**" : "**I can't tell for sure.**";
+  const found = v.indicators.length ? `Here's what I found:\n\n${v.indicators.map((i) => `- ${i.evidence}: ${i.explanation}`).join("\n")}` : "Nothing stood out as a warning sign.";
+  const block = "```verdict\n" + JSON.stringify(v, null, 2) + "\n```";
+  return `${lead} ${v.headline}\n\n${found}\n\n${block}\n\n_(Demo mode: this answer is scripted; the checks ran in mock mode.)_`;
+}
+
 /** Decide the scripted response from the request messages. */
 export function scriptResponse(messages: readonly MessageParam[]): ScriptedResponse {
   const last = messages[messages.length - 1];
@@ -217,11 +336,14 @@ export function scriptResponse(messages: readonly MessageParam[]): ScriptedRespo
     const names = new Map<string, string>();
     for (const b of blocksOf(prevAssistant)) if (b.type === "tool_use") names.set(String(b.id), String(b.name));
     const analyses: UrlAnalysis[] = [];
+    const messageAnalyses: Array<{ kind: "email" | "sms"; data: MessageAnalysisLike }> = [];
     let reportOutcome: "approved" | "declined" | undefined;
     for (const r of results) {
       const name = names.get(String(r.tool_use_id));
       const data = unwrap(r.content);
-      if (name === MOCK_REPORT_TOOL) {
+      if ((name === ANALYZE_EMAIL_TOOL || name === ANALYZE_SMS_TOOL) && data && typeof data === "object") {
+        messageAnalyses.push({ kind: name === ANALYZE_EMAIL_TOOL ? "email" : "sms", data: data as MessageAnalysisLike });
+      } else if (name === MOCK_REPORT_TOOL) {
         reportOutcome = data && typeof data === "object" && "cancelled" in data ? "declined" : "approved";
       } else if (isAnalysis(data)) {
         analyses.push(data);
@@ -234,10 +356,40 @@ export function scriptResponse(messages: readonly MessageParam[]): ScriptedRespo
           : "Okay, I won't report it. Let me know if you change your mind.";
       return { content: [{ type: "text", text, citations: null }], stop_reason: "end_turn" };
     }
+    if (messageAnalyses.length > 0) {
+      return { content: [{ type: "text", text: messageVerdictAnswer(messageAnalyses), citations: null }], stop_reason: "end_turn" };
+    }
     const text = analyses.length
       ? verdictAnswer(analyses)
       : "I couldn't analyze that link: the check failed. Please try again in a moment.";
     return { content: [{ type: "text", text, citations: null }], stop_reason: "end_turn" };
+  }
+
+  // Intake: attached files → analyze_email; screenshots → transcription + analyze_sms.
+  const lastBlocks = blocksOf(last);
+  const files = lastBlocks
+    .map((b) => (b.type === "text" && typeof b.text === "string" ? parseAttachmentNote(b.text) : null))
+    .filter((r) => r !== null && r.kind !== "image");
+  const hasImage = lastBlocks.some((b) => b.type === "image");
+  if (files.length > 0 || hasImage) {
+    const content: Block[] = [
+      { type: "thinking", thinking: "The user attached evidence. I'll analyze it with the message tools before judging.", signature: "mock" },
+    ];
+    if (hasImage) {
+      content.push({
+        type: "text",
+        text:
+          `Here's what I can see in the screenshot: a text message from **${MOCK_SMS_INPUT.sender}** that reads ` +
+          `"${MOCK_SMS_INPUT.body}". Let me check it.`,
+        citations: null,
+      });
+      content.push({ type: "tool_use", id: toolId(), name: ANALYZE_SMS_TOOL, input: MOCK_SMS_INPUT });
+    }
+    if (files.length > 0) {
+      content.push({ type: "text", text: files.length === 1 ? "Let me analyze that email." : "Let me analyze those emails.", citations: null });
+      for (const f of files) content.push({ type: "tool_use", id: toolId(), name: ANALYZE_EMAIL_TOOL, input: { artifact_ref: f!.id } });
+    }
+    return { stop_reason: "tool_use", content };
   }
 
   const userText = textOf(last);

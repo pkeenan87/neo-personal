@@ -1,9 +1,11 @@
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  IMAGE_OMITTED_TEXT,
   enforceCeiling,
   estimateTokens,
   mergeConsecutiveUserMessages,
+  omitOlderImages,
   prepareMessages,
   renderTranscript,
   sanitizeEmptyUserMessages,
@@ -392,5 +394,66 @@ describe("prepareMessages", () => {
     const c = (out[2]!.content as Array<{ content: string }>)[0]!.content;
     expect(c.length).toBeLessThan(40_000);
     expect(fake.createCalls).toHaveLength(0);
+  });
+});
+
+describe("image blocks", () => {
+  const PNG_1x1 =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+  const image = { type: "image" as const, source: { type: "base64" as const, media_type: "image/png" as const, data: PNG_1x1 } };
+  const withImage = (t: string, n = 1): MessageParam => ({
+    role: "user",
+    content: [{ type: "text", text: t }, ...Array.from({ length: n }, () => image)],
+  });
+
+  it("estimates each image block at a fixed 1600 tokens, whatever its byte size", () => {
+    expect(estimateTokens([withImage("", 1)])).toBe(1600);
+    expect(estimateTokens([withImage("", 3)])).toBe(4800);
+    const big = { ...image, source: { ...image.source, data: "A".repeat(100_000) } };
+    expect(estimateTokens([{ role: "user", content: [big] }])).toBe(1600);
+  });
+
+  it("omitOlderImages replaces images before the latest user turn and keeps the current ones", () => {
+    const msgs: MessageParam[] = [withImage("first screenshot", 2), assistant("looks like smishing"), withImage("and this one?")];
+    const { messages, omitted } = omitOlderImages(msgs);
+    expect(omitted).toBe(2);
+    expect(messages[0]!.content).toEqual([
+      { type: "text", text: "first screenshot" },
+      { type: "text", text: IMAGE_OMITTED_TEXT },
+      { type: "text", text: IMAGE_OMITTED_TEXT },
+    ]);
+    expect(messages[2]).toBe(msgs[2]); // current turn untouched
+    expect(msgs[0]!.content).toHaveLength(3); // input not mutated
+    expect((msgs[0]!.content as Array<{ type: string }>)[1]!.type).toBe("image");
+  });
+
+  it("omitOlderImages treats tool-result-only user messages as part of the current turn", () => {
+    const msgs: MessageParam[] = [withImage("check this"), toolCall("t1"), toolResult("t1")];
+    const { omitted } = omitOlderImages(msgs);
+    expect(omitted).toBe(0);
+  });
+
+  it("prepareMessages drops older images first and skips compression when that suffices", async () => {
+    const fake = fakeClient([]);
+    const msgs: MessageParam[] = [withImage("screenshot 1", 2), assistant("answer 1"), withImage("screenshot 2")];
+    // 3 images = 4800 tokens; trigger at 80% of 5000 = 4000.
+    const out = await prepareMessages(msgs, { client: fake.client, maxInputTokens: 5000 });
+    expect(fake.createCalls).toHaveLength(0);
+    expect(out).toHaveLength(3);
+    expect(JSON.stringify(out[0])).not.toContain('"image"');
+    expect(JSON.stringify(out[0])).toContain(IMAGE_OMITTED_TEXT);
+    expect((out[2]!.content as Array<{ type: string }>).map((b) => b.type)).toEqual(["text", "image"]);
+    expect(estimateTokens(out)).toBeLessThan(2000);
+  });
+
+  it("prepareMessages leaves images alone below the trigger", async () => {
+    const fake = fakeClient([]);
+    const msgs: MessageParam[] = [withImage("screenshot 1"), assistant("answer 1"), withImage("screenshot 2")];
+    const out = await prepareMessages(msgs, { client: fake.client });
+    expect(out).toEqual(msgs);
+  });
+
+  it("renders images as [image omitted] in the compression transcript", () => {
+    expect(renderTranscript([withImage("look")])).toBe(`[USER] look\n[USER] ${IMAGE_OMITTED_TEXT}`);
   });
 });

@@ -43,6 +43,16 @@ type Handler = (url: string, init: RequestInit) => Response | Promise<Response>;
 let handlers: Record<string, Handler>;
 let fetchMock: ReturnType<typeof vi.fn>;
 
+const USAGE = {
+  monthlyChecks: { used: 3, limit: 50, resetAt: "2099-02-01T00:00:00.000Z" },
+  dailyTokens: { used: 1000, limit: 300000, resetAt: "2099-01-02T00:00:00.000Z" },
+};
+
+/** Fetches other than the header's usage indicator (it loads on mount and after each turn). */
+function nonUsageCalls() {
+  return fetchMock.mock.calls.filter((c) => !String(c[0]).startsWith("/api/usage"));
+}
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
 }
@@ -53,6 +63,7 @@ beforeEach(() => {
   handlers = {
     "GET /api/conversations": () =>
       json({ conversations: [{ id: CONV_ID, title: "Is this safe?", updatedAt: new Date().toISOString() }] }),
+    "GET /api/usage": () => json(USAGE),
   };
   fetchMock = vi.fn(async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = typeof input === "string" ? input : input.toString();
@@ -133,7 +144,7 @@ describe("ChatInterface", () => {
     const box = screen.getByLabelText("Message Neo");
     await user.type(box, "line one{Shift>}{Enter}{/Shift}line two");
     expect(box).toHaveValue("line one\nline two");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(nonUsageCalls()).toHaveLength(0);
   });
 
   it("shows a confirmation prompt and streams the resumed turn after approval", async () => {
@@ -233,10 +244,10 @@ describe("ChatInterface", () => {
       initialConversations: [{ id: CONV_ID, title: "Old check", updatedAt: new Date().toISOString() }],
     });
     await user.click(screen.getByRole("button", { name: "Delete Old check" }));
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(nonUsageCalls()).toHaveLength(0);
     await user.click(screen.getByRole("button", { name: "Confirm delete Old check" }));
     await waitFor(() => expect(screen.queryByRole("link", { name: /Old check/ })).not.toBeInTheDocument());
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(`/api/conversations?id=${CONV_ID}`);
+    expect(nonUsageCalls()[0]?.[0]).toBe(`/api/conversations?id=${CONV_ID}`);
     expect(push).toHaveBeenCalledWith("/chat");
   });
 });

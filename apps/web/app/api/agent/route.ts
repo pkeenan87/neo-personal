@@ -1,14 +1,15 @@
 /**
  * POST /api/agent — run one agent turn and stream AgentEvents as NDJSON.
  *
- *   request   { conversationId?: string; message: string }   (AgentRequestBody)
+ *   request   { conversationId?: string; message: string; attachments?: { id }[] }   (AgentRequestBody)
+ *             message may be empty when attachments are given; attachments ≤ 5
  *   200       NDJSON AgentEvent lines; header x-conversation-id: <uuid>
  *   400       invalid body, or input blocked by the injection guard (code "input_blocked")
  *   401       no session
- *   404       unknown conversation (or another tenant's)
+ *   404       unknown conversation (or another tenant's); an attachment that is missing, expired or another tenant's
  *   409       the conversation is waiting on a confirmation (code "confirmation_pending")
  *   429       usage cap: { error: "usage_cap_exceeded", reason, limit, resetAt, message } + Retry-After
- *   503       usage store unavailable (fail closed), storage unavailable, or no model configured
+ *   503       usage store unavailable (fail closed), storage unavailable (incl. artifacts), or no model configured
  *
  * Order (docs/contracts.md, _specs/usage-caps.md): auth → validate →
  * usage.checkCaps → scanUserInput/shouldBlock → load/create conversation →
@@ -16,9 +17,11 @@
  */
 import { hashPii, logger, runAgentLoop, scanUserInput, shouldBlock, type MessageParam } from "@neo/core";
 import { CONVERSATION_ID_HEADER, MAX_MESSAGE_CHARS } from "@/lib/api-types";
+import { ATTACHMENT_LIMITS, parseAttachmentNote } from "@/lib/attachments";
 import { env } from "@/lib/env";
 import { streamAgentRun } from "@/lib/server/agent-run";
 import { CONVERSATION_ID_RE, getConversationStore, titleFromMessage, toPendingConfirmation } from "@/lib/server/conversation-store";
+import { buildUserContent, defaultAttachmentPrompt, getArtifactStore, type ArtifactMeta } from "@/lib/server/artifacts";
 import { jsonError, readJsonObject } from "@/lib/server/http";
 import { capExceededResponse, checkCaps, noteCapHit, type CapCheckResult } from "@/lib/server/usage";
 import { requireApiSession } from "@/lib/session";
@@ -34,7 +37,15 @@ export async function POST(req: Request): Promise<Response> {
   const body = await readJsonObject(req);
   if (!body) return jsonError(400, "Invalid JSON body.", "bad_request");
   const { message, conversationId } = body;
-  if (typeof message !== "string" || !message.trim()) return jsonError(400, "Message is required.", "bad_request");
+  // ── Phase 1: intake attachments ──
+  const attachmentIds = parseAttachmentIds(body.attachments);
+  if (attachmentIds === null) {
+    return jsonError(400, `Attachments must be a list of at most ${ATTACHMENT_LIMITS.perMessage} { id } objects.`, "bad_request");
+  }
+  if (typeof message !== "string" || (!message.trim() && attachmentIds.length === 0)) {
+    return jsonError(400, "Message is required.", "bad_request");
+  }
+  // ── end Phase 1: intake attachments ──
   if (message.length > MAX_MESSAGE_CHARS) {
     return jsonError(400, `Message is too long (max ${MAX_MESSAGE_CHARS} characters).`, "message_too_long");
   }
@@ -73,6 +84,31 @@ export async function POST(req: Request): Promise<Response> {
     );
   }
 
+  // ── Phase 1: intake attachments (tenant-scoped; 404 for missing, expired or foreign ids) ──
+  let userContent: MessageParam["content"] = message;
+  if (attachmentIds.length > 0) {
+    const artifacts = getArtifactStore();
+    if (!artifacts) return jsonError(503, "File uploads aren't configured on this server.", "storage_unavailable");
+    try {
+      const metas = await Promise.all(attachmentIds.map((a) => artifacts.get(a, session.tenantId)));
+      const found = metas.filter((m): m is ArtifactMeta => m !== undefined);
+      const blocks =
+        found.length === metas.length
+          ? await buildUserContent(message.trim() ? message : defaultAttachmentPrompt(found), found, artifacts, session.tenantId)
+          : null;
+      if (!blocks) return jsonError(404, "An attached file wasn't found. It may have expired; please attach it again.", "not_found");
+      userContent = blocks;
+    } catch (err) {
+      logger.error("Attachment load failed", "api.agent", {
+        tenantId: session.tenantId,
+        userIdHash: hashPii(session.userId),
+        errorMessage: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
+      });
+      return jsonError(503, "Neo can't reach its storage right now. Please try again in a moment.", "storage_unavailable");
+    }
+  }
+  // ── end Phase 1: intake attachments ──
+
   const store = getConversationStore();
   let id: string;
   let history: MessageParam[];
@@ -86,7 +122,7 @@ export async function POST(req: Request): Promise<Response> {
       id = existing.id;
       history = existing.messages;
     } else {
-      id = (await store.create({ tenantId: session.tenantId, userId: session.userId, title: titleFromMessage(message) })).id;
+      id = (await store.create({ tenantId: session.tenantId, userId: session.userId, title: titleFromMessage(message.trim() ? message : attachmentTitle(userContent)) })).id;
       history = [];
     }
   } catch (err) {
@@ -98,7 +134,7 @@ export async function POST(req: Request): Promise<Response> {
     return jsonError(503, "Neo can't reach its storage right now. Please try again in a moment.", "storage_unavailable");
   }
 
-  const userMessage: MessageParam = { role: "user", content: message };
+  const userMessage: MessageParam = { role: "user", content: userContent };
   return streamAgentRun({
     session,
     conversationId: id,
@@ -109,3 +145,30 @@ export async function POST(req: Request): Promise<Response> {
     run: (common) => runAgentLoop({ ...common, messages: [...history, userMessage] }),
   });
 }
+
+// ── Phase 1: intake attachments ──
+const ATTACHMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** `attachments` from the body: [] when absent, null when malformed. Ids are de-duplicated. */
+function parseAttachmentIds(v: unknown): string[] | null {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v) || v.length > ATTACHMENT_LIMITS.perMessage) return null;
+  const ids: string[] = [];
+  for (const a of v) {
+    const id = typeof a === "object" && a !== null ? (a as { id?: unknown }).id : undefined;
+    if (typeof id !== "string" || !ATTACHMENT_ID_RE.test(id)) return null;
+    if (!ids.includes(id.toLowerCase())) ids.push(id.toLowerCase());
+  }
+  return ids;
+}
+
+/** Conversation title when the user sent only attachments: the first file name. */
+function attachmentTitle(content: MessageParam["content"]): string {
+  if (typeof content === "string") return content;
+  for (const b of content) {
+    const ref = b.type === "text" ? parseAttachmentNote(b.text) : null;
+    if (ref) return ref.filename;
+  }
+  return "Attachment";
+}
+// ── end Phase 1: intake attachments ──
