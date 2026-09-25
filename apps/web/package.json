@@ -11,7 +11,8 @@
     "start": "next start",
     "typecheck": "next typegen && tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "playbooks:generate": "node scripts/generate-playbooks.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.128.0",

@@ -1,7 +1,9 @@
 "use client";
 
 import { KeyRound, Link2, MessageSquareWarning } from "lucide-react";
+import type { PlaybookId } from "@/lib/playbooks";
 import { NeoMark } from "./NeoMark";
+import { PlaybookButtons } from "./PlaybookButtons";
 
 export interface Suggestion {
   title: string;
@@ -33,7 +35,7 @@ export const SUGGESTIONS: Suggestion[] = [
   },
 ];
 
-export function EmptyState({ onPick }: { onPick: (s: Suggestion) => void }) {
+export function EmptyState({ onPick, onPlaybook }: { onPick: (s: Suggestion) => void; onPlaybook?: (id: PlaybookId) => void }) {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col items-center px-4 pt-[12vh] pb-8 text-center">
       <div className="flex size-14 items-center justify-center rounded-2xl bg-accent-soft text-accent">
@@ -57,6 +59,13 @@ export function EmptyState({ onPick }: { onPick: (s: Suggestion) => void }) {
           </li>
         ))}
       </ul>
+      {/* incident playbooks (agent E) */}
+      <section className="mt-8 w-full text-left" aria-labelledby="playbooks-heading">
+        <h2 id="playbooks-heading" className="mb-2 text-sm font-semibold text-muted">
+          Something already happened?
+        </h2>
+        <PlaybookButtons onPick={onPlaybook} />
+      </section>
     </div>
   );
 }

@@ -3,6 +3,8 @@ import { readAgentEvents } from "@/lib/ndjson";
 import { memoryAuditLog } from "@/lib/server/audit";
 import { resetMemoryUsage } from "@/lib/server/usage";
 import { memoryVerdicts } from "@/lib/server/verdicts";
+import { resetStubArtifacts, resetStubInbound } from "@/lib/server/phase1-stubs-dashboard";
+import { resetMemoryMembers } from "@/lib/server/verdict-memory";
 import { collect } from "../fixtures";
 
 export function post(url: string, body: unknown): Request {
@@ -44,4 +46,8 @@ export function resetMemoryState(): void {
   resetMemoryUsage();
   memoryAuditLog().length = 0;
   memoryVerdicts().length = 0;
+  // dashboard (agent E)
+  resetMemoryMembers();
+  resetStubArtifacts();
+  resetStubInbound();
 }

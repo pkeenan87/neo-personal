@@ -1,7 +1,10 @@
 /**
  * POST /api/agent — run one agent turn and stream AgentEvents as NDJSON.
  *
- *   request   { conversationId?: string; message: string }   (AgentRequestBody)
+ *   request   { conversationId?: string; message: string; playbook?: PlaybookId; verdictId?: string }   (AgentRequestBody)
+ *             playbook → this turn runs with effort "high" (also the turn after a reply that declared a playbook);
+ *             verdictId → the stored verdict (loaded here, tenant + role scoped; 404 if not visible) is appended
+ *             to the user message as a hidden, trust-boundary-wrapped context block
  *   200       NDJSON AgentEvent lines; header x-conversation-id: <uuid>
  *   400       invalid body, or input blocked by the injection guard (code "input_blocked")
  *   401       no session
@@ -14,10 +17,15 @@
  * usage.checkCaps → scanUserInput/shouldBlock → load/create conversation →
  * runAgentLoop → appendTurn + usage.recordCheck (+ verdict row), always.
  */
-import { hashPii, logger, runAgentLoop, scanUserInput, shouldBlock, type MessageParam } from "@neo/core";
+import { hashPii, logger, runAgentLoop, scanUserInput, shouldBlock, wrapToolResult, type MessageParam } from "@neo/core";
 import { CONVERSATION_ID_HEADER, MAX_MESSAGE_CHARS } from "@/lib/api-types";
 import { env } from "@/lib/env";
-import { streamAgentRun } from "@/lib/server/agent-run";
+import { agentEffort, streamAgentRun } from "@/lib/server/agent-run";
+// --- dashboard + incident playbooks (agent E) ---
+import { HIDDEN_CONTEXT_PREFIX } from "@/lib/hidden-context";
+import { isPlaybookId } from "@/lib/playbooks";
+import { getVisibleVerdict, VERDICT_ID_RE, verdictBody } from "@/lib/server/verdict-data";
+// --- end dashboard + incident playbooks ---
 import { CONVERSATION_ID_RE, getConversationStore, titleFromMessage, toPendingConfirmation } from "@/lib/server/conversation-store";
 import { jsonError, readJsonObject } from "@/lib/server/http";
 import { capExceededResponse, checkCaps, noteCapHit, type CapCheckResult } from "@/lib/server/usage";
@@ -41,6 +49,27 @@ export async function POST(req: Request): Promise<Response> {
   if (conversationId !== undefined && (typeof conversationId !== "string" || !CONVERSATION_ID_RE.test(conversationId))) {
     return jsonError(400, "Invalid conversation id.", "bad_request");
   }
+
+  // --- dashboard + incident playbooks (agent E) ---
+  const { playbook, verdictId } = body;
+  if (playbook !== undefined && !isPlaybookId(playbook)) return jsonError(400, "Unknown playbook.", "bad_request");
+  if (verdictId !== undefined && (typeof verdictId !== "string" || !VERDICT_ID_RE.test(verdictId))) {
+    return jsonError(400, "Invalid verdict id.", "bad_request");
+  }
+  let verdictContext: string | undefined;
+  if (typeof verdictId === "string") {
+    const row = await getVisibleVerdict(session, verdictId).catch(() => undefined);
+    const verdict = row ? verdictBody(row) : null;
+    if (!row || !verdict) return jsonError(404, "Verdict not found.", "not_found");
+    // Loaded from the database, never from the client; its evidence came from
+    // attacker-controlled content, so it enters the model wrapped.
+    verdictContext = `${HIDDEN_CONTEXT_PREFIX} The user is asking about this stored Neo verdict (checked ${row.createdAt.toISOString().slice(0, 10)}):\n${wrapToolResult(
+      "stored_verdict",
+      { verdict_id: row.id, source: row.source, verdict },
+      conversationId ? { conversationId } : {},
+    )}`;
+  }
+  // --- end dashboard + incident playbooks ---
 
   const e = env();
   if (!e.MOCK_MODE && !e.HAS_ANTHROPIC_CREDENTIALS) {
@@ -98,7 +127,9 @@ export async function POST(req: Request): Promise<Response> {
     return jsonError(503, "Neo can't reach its storage right now. Please try again in a moment.", "storage_unavailable");
   }
 
-  const userMessage: MessageParam = { role: "user", content: message };
+  const userMessage: MessageParam = verdictContext
+    ? { role: "user", content: [{ type: "text", text: message }, { type: "text", text: verdictContext }] }
+    : { role: "user", content: message };
   return streamAgentRun({
     session,
     conversationId: id,
@@ -106,6 +137,7 @@ export async function POST(req: Request): Promise<Response> {
     kind: "check",
     signal: req.signal,
     headers: { [CONVERSATION_ID_HEADER]: id },
+    effort: agentEffort({ ...(playbook ? { playbook } : {}), history }),
     run: (common) => runAgentLoop({ ...common, messages: [...history, userMessage] }),
   });
 }

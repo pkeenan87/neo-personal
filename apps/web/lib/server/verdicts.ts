@@ -35,9 +35,14 @@ export function extractVerdict(messages: readonly MessageParam[]): Verdict | nul
 }
 
 export interface MemoryVerdictRow {
+  // --- dashboard (agent E): id/source/artifactId so the no-database fallback can serve /api/verdicts ---
+  id?: string;
+  source?: "chat" | "inbound" | "api";
+  artifactId?: string | null;
+  // --- end dashboard ---
   tenantId: string;
   userId: string;
-  conversationId: string;
+  conversationId: string | null;
   verdict: Verdict;
   createdAt: Date;
 }
@@ -62,7 +67,7 @@ export async function saveVerdict(input: {
     const db = getDb();
     if (!db) {
       const rows = memoryVerdicts();
-      rows.push({ ...input, createdAt: new Date() });
+      rows.push({ id: crypto.randomUUID(), source: "chat", artifactId: null, ...input, createdAt: new Date() });
       if (rows.length > 1000) rows.splice(0, rows.length - 1000);
       return;
     }

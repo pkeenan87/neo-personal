@@ -5,6 +5,9 @@
  */
 import { URL_ANALYSIS_GUIDANCE } from "@neo/tools";
 import { verdictJsonSchema } from "@neo/verdict";
+// --- incident playbooks (agent E) ---
+import { playbooksPromptSection } from "./playbooks";
+// --- end incident playbooks ---
 
 const VERDICT_SCHEMA_JSON = JSON.stringify(verdictJsonSchema);
 
@@ -38,4 +41,10 @@ Rules for the block:
 - It must be valid JSON (double quotes, no comments, no trailing commas) that matches this JSON Schema exactly, with no extra keys: ${VERDICT_SCHEMA_JSON}
 - confidence is a number from 0 to 1. headline is one plain-language sentence for the user. Every indicator cites concrete evidence (a domain, an age in days, an engine count, a quoted phrase). recommended_actions are imperative and ordered by urgency. iocs lists the URLs, registrable domains, IPs, hashes, and phone numbers involved (empty arrays when none).
 - One block per analysis. If the user asks about several things at once, give one block for the overall subject (subject_type "conversation" when it spans several kinds of things) and cover each item in the indicators.
-- Do not produce a verdict block for general questions, greetings, or advice that is not an analysis of a specific thing.`;
+- Do not produce a verdict block for general questions, greetings, or advice that is not an analysis of a specific thing.
+
+${
+  // --- incident playbooks (agent E): byte-stable, bundled at build time ---
+  playbooksPromptSection()
+  // --- end incident playbooks ---
+}`;

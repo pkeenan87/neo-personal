@@ -14,6 +14,8 @@
  *   error                 → mark the message errored with the text         [error]
  */
 import type { AgentEvent } from "@neo/core";
+import { isHiddenContextText } from "./hidden-context";
+import { stripPlaybookMarker } from "./playbooks";
 
 export type ToolStatus = "running" | "done" | "error";
 
@@ -240,7 +242,7 @@ export function pendingConfirmation(state: ChatState): ConfirmationRequest | nul
 export function messageText(m: ChatMessage): string {
   return m.parts
     .filter((p): p is { kind: "text"; text: string } => p.kind === "text")
-    .map((p) => p.text)
+    .map((p) => stripPlaybookMarker(p.text))
     .join("\n\n")
     .trim();
 }
@@ -318,6 +320,7 @@ export function messagesFromStored(
       const text = blocks(msg.content)
         .filter((b): b is { type: "text"; text: string } => b.type === "text" && typeof b.text === "string")
         .map((b) => b.text)
+        .filter((t) => !isHiddenContextText(t)) // server-added context (agent E: "Ask Neo about this")
         .join("\n");
       if (text.trim()) out.push({ id: nextId(), role: "user", parts: [{ kind: "text", text }], status: "complete" });
       continue;

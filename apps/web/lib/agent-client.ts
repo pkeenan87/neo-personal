@@ -54,6 +54,10 @@ export interface StreamAgentOptions {
   onEvent: (e: AgentEvent) => void;
   /** Called as soon as response headers arrive, before any events. */
   onConversationId?: (id: string) => void;
+  // --- dashboard + incident playbooks (agent E) ---
+  playbook?: AgentRequestBody["playbook"];
+  verdictId?: string;
+  // --- end dashboard + incident playbooks ---
 }
 
 export interface StreamResult {
@@ -76,8 +80,15 @@ export async function streamAgent({
   signal,
   onEvent,
   onConversationId,
+  playbook,
+  verdictId,
 }: StreamAgentOptions): Promise<StreamResult> {
-  const body: AgentRequestBody = { message, ...(conversationId ? { conversationId } : {}) };
+  const body: AgentRequestBody = {
+    message,
+    ...(conversationId ? { conversationId } : {}),
+    ...(playbook ? { playbook } : {}),
+    ...(verdictId ? { verdictId } : {}),
+  };
   const res = await fetch("/api/agent", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
