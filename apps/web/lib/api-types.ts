@@ -3,6 +3,7 @@
  * API route handlers. These are the HTTP contract of apps/web and stay
  * stable across the integration pass.
  */
+import type { PlaybookId } from "./playbooks";
 
 /** POST /api/agent body. Omit conversationId to start a new conversation. */
 export interface AgentRequestBody {
@@ -11,6 +12,12 @@ export interface AgentRequestBody {
   message: string;
   /** Artifacts from POST /api/artifacts to include in this turn (≤ 5, the session tenant's own). */
   attachments?: AttachmentInput[];
+  // --- dashboard + incident playbooks (agent E) ---
+  /** Start an incident playbook: this turn runs with effort "high". */
+  playbook?: PlaybookId;
+  /** "Ask Neo about this": the server loads this verdict and adds it as hidden context. */
+  verdictId?: string;
+  // --- end dashboard + incident playbooks ---
 }
 
 // ── Phase 1: intake (_specs/intake.md) ──

@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import { stripPlaybookMarker } from "@/lib/playbooks";
 import { splitVerdictSegments } from "@/lib/verdict-fence";
 import { MarkdownRenderer } from "./MarkdownRenderer";
 import { VerdictCard } from "./VerdictCard";
@@ -17,7 +18,8 @@ function codeFence(raw: string): string {
  * replaced by a <VerdictCard> (convention documented in lib/verdict-fence.ts).
  */
 export function MessageContent({ text, streaming = false }: { text: string; streaming?: boolean }) {
-  const segments = splitVerdictSegments(text, { streaming });
+  // The `<!-- playbook:<id> -->` marker is for the server only (agent E).
+  const segments = splitVerdictSegments(stripPlaybookMarker(text), { streaming });
   return (
     <>
       {segments.map((seg, i) => {

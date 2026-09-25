@@ -15,6 +15,8 @@
  */
 import type { AgentEvent } from "@neo/core";
 import { parseAttachmentNote, type AttachmentRef } from "./attachments";
+import { isHiddenContextText } from "./hidden-context";
+import { stripPlaybookMarker } from "./playbooks";
 
 export type ToolStatus = "running" | "done" | "error";
 
@@ -251,7 +253,7 @@ export function pendingConfirmation(state: ChatState): ConfirmationRequest | nul
 export function messageText(m: ChatMessage): string {
   return m.parts
     .filter((p): p is { kind: "text"; text: string } => p.kind === "text")
-    .map((p) => p.text)
+    .map((p) => stripPlaybookMarker(p.text))
     .join("\n\n")
     .trim();
 }
@@ -330,6 +332,7 @@ export function messagesFromStored(
       const attachments: MessagePart[] = [];
       for (const b of blocks(msg.content)) {
         if (b.type !== "text" || typeof b.text !== "string") continue; // image blocks are shown via their note
+        if (isHiddenContextText(b.text)) continue; // server-added context ("Ask Neo about this")
         const ref = parseAttachmentNote(b.text);
         if (ref) attachments.push({ kind: "attachment", attachment: ref });
         else texts.push(b.text);

@@ -25,6 +25,7 @@ import { createCheckUrlTool, createInMemoryCache } from "@neo/tools";
 import { createAnalyzeEmailTool, createAnalyzeSmsTool } from "./phase1-stubs";
 import { parseAttachmentNote } from "@/lib/attachments";
 import { env } from "@/lib/env";
+import { playbookMarker, type PlaybookId } from "@/lib/playbooks";
 import type { NeoSession } from "@/lib/session";
 import { getArtifactStore } from "./artifacts";
 import { getConversationStore } from "./conversation-store";
@@ -86,10 +87,43 @@ export function agentClient(): Anthropic | undefined {
   return e.MOCK_MODE ? createMockAnthropicClient({ delayMs: e.MOCK_STREAM_DELAY_MS }) : undefined;
 }
 
-export function agentEffort(): Effort {
+/**
+ * Per-turn effort. `high` when this turn starts a playbook (`playbook` in the
+ * request) or the previous assistant turn declared one with the
+ * `<!-- playbook:<id> -->` marker; otherwise NEO_AGENT_EFFORT (default medium).
+ */
+export function agentEffort(turn: { playbook?: PlaybookId; history?: readonly MessageParam[] } = {}): Effort {
+  // --- incident playbooks (agent E) ---
+  if (turn.playbook || (turn.history && previousTurnPlaybook(turn.history))) return "high";
+  // --- end incident playbooks ---
   const raw = process.env.NEO_AGENT_EFFORT?.trim().toLowerCase();
   return raw === "low" || raw === "high" ? raw : "medium";
 }
+
+// --- incident playbooks (agent E) ---
+function isToolResultCarrier(m: MessageParam): boolean {
+  return Array.isArray(m.content) && m.content.length > 0 && m.content.every((b) => b.type === "tool_result");
+}
+
+/** The playbook declared by the previous assistant turn (any of its messages starting with the marker), if any. */
+export function previousTurnPlaybook(history: readonly MessageParam[]): PlaybookId | null {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i]!;
+    if (m.role === "user") {
+      if (isToolResultCarrier(m)) continue;
+      return null; // reached the user message that started the previous turn
+    }
+    const blocks = typeof m.content === "string" ? [{ type: "text" as const, text: m.content }] : m.content;
+    for (const b of blocks) {
+      if (b.type === "text") {
+        const id = playbookMarker(b.text);
+        if (id) return id;
+      }
+    }
+  }
+  return null;
+}
+// --- end incident playbooks ---
 
 /** Model name recorded in usage_events. */
 export function usageModel(): string {
@@ -106,6 +140,8 @@ export interface AgentRunInput {
   /** Start the loop; receives the options shared by runAgentLoop and resumeAfterConfirmation. */
   run: (common: Omit<RunAgentOptions, "messages">) => Promise<AgentResult>;
   headers?: Record<string, string>;
+  /** Per-turn effort (agentEffort({ playbook, history })); default agentEffort(). */
+  effort?: Effort;
 }
 
 /**
@@ -122,7 +158,7 @@ export function streamAgentRun(input: AgentRunInput): Response {
     system: NEO_SYSTEM_PROMPT,
     tools: buildToolRegistry(),
     ctx: { tenantId: session.tenantId, userId: session.userId, conversationId, signal },
-    effort: agentEffort(),
+    effort: input.effort ?? agentEffort(),
     onEvent: send,
     ...(client ? { client } : {}),
   };

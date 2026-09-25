@@ -14,11 +14,10 @@ export type AuditEventType =
   | "auth.sign_out"
   | "usage.cap_hit"
   | "verdict.created"
-  // BEGIN forward-to-address
+  | "verdict.deleted"
   | "inbound.rejected_unknown_sender"
   | "inbound.address_rotated"
   | "inbound.gmail_forwarding_confirmation";
-// END forward-to-address
 
 export interface MemoryAuditEvent {
   tenantId: string;

@@ -61,6 +61,10 @@ export interface StreamAgentOptions {
   onConversationId?: (id: string) => void;
   /** Called once the server accepted the turn (2xx), before any events. */
   onAccepted?: () => void;
+  // --- dashboard + incident playbooks (agent E) ---
+  playbook?: AgentRequestBody["playbook"];
+  verdictId?: string;
+  // --- end dashboard + incident playbooks ---
 }
 
 export interface StreamResult {
@@ -85,11 +89,15 @@ export async function streamAgent({
   onEvent,
   onConversationId,
   onAccepted,
+  playbook,
+  verdictId,
 }: StreamAgentOptions): Promise<StreamResult> {
   const body: AgentRequestBody = {
     message,
     ...(conversationId ? { conversationId } : {}),
     ...(attachments?.length ? { attachments: attachments.map((id) => ({ id })) } : {}),
+    ...(playbook ? { playbook } : {}),
+    ...(verdictId ? { verdictId } : {}),
   };
   const res = await fetch("/api/agent", {
     method: "POST",

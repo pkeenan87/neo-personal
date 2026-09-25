@@ -22,6 +22,7 @@ import { ChatMessageView } from "./ChatMessageView";
 import { Composer, INTAKE_HINTS } from "./Composer";
 import { ConversationSidebar } from "./ConversationSidebar";
 import { EmptyState, type Suggestion } from "./EmptyState";
+import { playbookPrompt, type PlaybookId } from "@/lib/playbooks";
 import { NeoMark } from "./NeoMark";
 import { useToast } from "./toast-context";
 import { UsageIndicator } from "./UsageIndicator";
@@ -32,6 +33,12 @@ export interface ChatInterfaceProps {
   /** null → a new, unsaved conversation (/chat). */
   conversationId: string | null;
   initialMessages?: ChatMessage[];
+  // --- dashboard + incident playbooks (agent E) ---
+  /** Sent once on mount (from /chat?playbook= or /chat?verdict=). */
+  autoStart?: { message: string; playbook?: PlaybookId; verdictId?: string };
+  /** Placed in the composer (not sent), e.g. from /chat?check=<url>. */
+  prefill?: string;
+  // --- end dashboard + incident playbooks ---
 }
 
 function newId(): string {
@@ -51,11 +58,18 @@ function errorMessage(err: unknown): string {
 
 const NEAR_BOTTOM_PX = 120;
 
-export function ChatInterface({ user, initialConversations, conversationId, initialMessages = [] }: ChatInterfaceProps) {
+export function ChatInterface({
+  user,
+  initialConversations,
+  conversationId,
+  initialMessages = [],
+  autoStart,
+  prefill,
+}: ChatInterfaceProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [state, dispatch] = useReducer(chatReducer, initialMessages, initialChatState);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(prefill ?? "");
   const [activeId, setActiveId] = useState<string | null>(conversationId);
   const [conversations, setConversations] = useState(initialConversations);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -131,7 +145,7 @@ export function ChatInterface({ user, initialConversations, conversationId, init
   );
 
   const send = useCallback(
-    async (textOverride?: string) => {
+    async (textOverride?: string, extra: { playbook?: PlaybookId; verdictId?: string } = {}) => {
       const text = (textOverride ?? input).trim();
       const files = textOverride === undefined ? attachments : [];
       if ((!text && files.length === 0) || state.streaming || pending || uploading) return;
@@ -164,6 +178,7 @@ export function ChatInterface({ user, initialConversations, conversationId, init
           conversationId: activeIdRef.current,
           message: text,
           ...(uploaded.length ? { attachments: uploaded.map((u) => u.id) } : {}),
+          ...extra,
           signal,
           onConversationId: adoptConversationId,
           // Keep the chips until the server accepts the turn, so a failed request can be resent.
@@ -181,6 +196,27 @@ export function ChatInterface({ user, initialConversations, conversationId, init
     },
     [input, attachments, uploading, state.streaming, pending, announce, runStream, adoptConversationId, toast],
   );
+
+  // --- dashboard + incident playbooks (agent E) ---
+  // Auto-send once. Deferred so React StrictMode's mount/unmount/mount in dev
+  // does not abort the stream (the unmount cleanup aborts in-flight requests).
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!autoStart || autoStarted.current) return;
+    const t = setTimeout(() => {
+      if (autoStarted.current) return;
+      autoStarted.current = true;
+      if (window.location.search) window.history.replaceState(null, "", window.location.pathname);
+      void send(autoStart.message, {
+        ...(autoStart.playbook ? { playbook: autoStart.playbook } : {}),
+        ...(autoStart.verdictId ? { verdictId: autoStart.verdictId } : {}),
+      });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [autoStart, send]);
+
+  const startPlaybook = useCallback((id: PlaybookId) => void send(playbookPrompt(id), { playbook: id }), [send]);
+  // --- end dashboard + incident playbooks ---
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -309,7 +345,7 @@ export function ChatInterface({ user, initialConversations, conversationId, init
           }}
         >
           {state.messages.length === 0 ? (
-            <EmptyState onPick={pickSuggestion} />
+            <EmptyState onPick={pickSuggestion} onPlaybook={startPlaybook} />
           ) : (
             <div
               className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6"
