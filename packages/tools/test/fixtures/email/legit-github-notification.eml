@@ -1,0 +1,47 @@
+Delivered-To: neo.fixture.user@neo.test
+Received: by 2002:a05:fixture with SMTP id abc123;
+	Tue, 13 Jan 2026 15:02:11 -0800 (PST)
+ARC-Authentication-Results: i=1; mx.google.com;
+	dkim=pass header.i=@github.com header.s=pf2023 header.b=AbCdEf01;
+	spf=pass (google.com: domain of noreply@github.com designates 192.0.2.40 as permitted sender) smtp.mailfrom=noreply@github.com;
+	dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=github.com
+Return-Path: <noreply@github.com>
+Received: from out-40.smtp.github.com (out-40.smtp.github.com. [192.0.2.40])
+	by mx.google.com with ESMTPS id fixture02
+	for <neo.fixture.user@neo.test>; Tue, 13 Jan 2026 15:02:10 -0800 (PST)
+Received-SPF: pass (google.com: domain of noreply@github.com designates 192.0.2.40 as permitted sender) client-ip=192.0.2.40;
+Authentication-Results: mx.google.com;
+	dkim=pass header.i=@github.com header.s=pf2023 header.b=AbCdEf01;
+	spf=pass (google.com: domain of noreply@github.com designates 192.0.2.40 as permitted sender) smtp.mailfrom=noreply@github.com;
+	dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=github.com
+DKIM-Signature: v=1; a=rsa-sha256; c=relaxed/relaxed; d=github.com; s=pf2023; t=1768345330;
+	bh=FIXTUREBODYHASH=; h=Date:From:Reply-To:To:Subject; b=FIXTURESIGNATURE=
+Date: Tue, 13 Jan 2026 15:02:10 -0800
+From: Riley Example <notifications@github.com>
+Reply-To: neo-fixture/example-repo <reply+FIXTURE@reply.github.com>
+To: neo-fixture/example-repo <example-repo@noreply.github.com>
+Subject: Re: [neo-fixture/example-repo] Add retry to the sync job (PR #42)
+Message-ID: <neo-fixture/example-repo/pull/42/c1@github.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="gh-boundary-02"
+
+--gh-boundary-02
+Content-Type: text/plain; charset=UTF-8
+
+@riley-example approved this pull request.
+
+Looks good to me. Thanks for adding the backoff.
+
+--
+Reply to this email directly, view it on GitHub:
+https://github.com/neo-fixture/example-repo/pull/42#pullrequestreview-100
+You are receiving this because you authored the thread.
+
+--gh-boundary-02
+Content-Type: text/html; charset=UTF-8
+
+<p><b>@riley-example</b> approved this pull request.</p>
+<p>Looks good to me. Thanks for adding the backoff.</p>
+<p>&mdash;<br>Reply to this email directly, <a href="https://github.com/neo-fixture/example-repo/pull/42#pullrequestreview-100">view it on GitHub</a>, or <a href="https://github.com/notifications/unsubscribe-auth/FIXTURE">unsubscribe</a>.<br>You are receiving this because you authored the thread.</p>
+
+--gh-boundary-02--

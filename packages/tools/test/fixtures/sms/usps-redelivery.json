@@ -1,0 +1,4 @@
+{
+  "sender": "usps.alerts.fixture@example.net",
+  "body": "USPS: Your package is on hold due to an incomplete address. Please confirm your details within 24 hours: https://usps.redelivery-track.example.net/us\n\nReply Y and reopen this message to activate the link.\nDelivered"
+}

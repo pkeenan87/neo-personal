@@ -1,0 +1,42 @@
+Received: from mail.example.com (mail.example.com [192.0.2.50])
+	by mx.neo.test; Fri, 16 Jan 2026 18:20:00 +0000
+Authentication-Results: mx.neo.test;
+	dkim=pass header.d=example.com;
+	spf=pass smtp.mailfrom=jordan@example.com;
+	dmarc=pass header.from=example.com
+From: Jordan Example <jordan@example.com>
+To: check-fixture0000@neo.test
+Subject: Fwd: Unusual sign-in activity
+Date: Fri, 16 Jan 2026 18:20:00 +0000
+Message-ID: <fixture-fwd-05@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="fwd-boundary-05"
+
+--fwd-boundary-05
+Content-Type: text/plain; charset=UTF-8
+
+Is this real?
+
+---------- Forwarded message ---------
+From: Microsoft account team <no-reply@micros0ft-security.example.net>
+Date: Fri, Jan 16, 2026 at 9:14 AM
+Subject: Unusual sign-in activity
+To: <jordan@example.com>
+
+
+We detected something unusual about a recent sign-in to your Microsoft account.
+Sign-in details: Country/region: Unknown, IP address: 203.0.113.99
+
+Please review recent activity and secure your account:
+https://micros0ft-security.example.net/review
+
+Thanks,
+The Microsoft account team
+
+--fwd-boundary-05
+Content-Type: text/html; charset=UTF-8
+
+<div dir="ltr">Is this real?<br><br><div class="gmail_quote">---------- Forwarded message ---------<br>From: <strong>Microsoft account team</strong> &lt;no-reply@micros0ft-security.example.net&gt;<br>Date: Fri, Jan 16, 2026 at 9:14 AM<br>Subject: Unusual sign-in activity<br>To: &lt;jordan@example.com&gt;<br><br><p>We detected something unusual about a recent sign-in to your Microsoft account.</p>
+<p>Please <a href="https://micros0ft-security.example.net/review">review recent activity</a> and secure your account.</p></div></div>
+
+--fwd-boundary-05--

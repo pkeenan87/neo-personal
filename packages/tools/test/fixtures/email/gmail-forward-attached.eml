@@ -1,0 +1,47 @@
+Received: from mail.example.com (mail.example.com [192.0.2.50])
+	by mx.neo.test; Sat, 17 Jan 2026 09:00:00 +0000
+Authentication-Results: mx.neo.test; dkim=pass header.d=example.com; spf=pass smtp.mailfrom=jordan@example.com; dmarc=pass header.from=example.com
+From: Jordan Example <jordan@example.com>
+To: check-fixture0000@neo.test
+Subject: Fwd: Invoice INV-20931 overdue
+Date: Sat, 17 Jan 2026 09:00:00 +0000
+Message-ID: <fixture-fwd-06@example.com>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="mixed-boundary-06"
+
+--mixed-boundary-06
+Content-Type: text/plain; charset=UTF-8
+
+Can you check the attached one? It looks off.
+
+--mixed-boundary-06
+Content-Type: message/rfc822
+Content-Disposition: attachment; filename="Invoice INV-20931 overdue.eml"
+
+Received: from smtp.example.org (smtp.example.org [198.51.100.20])
+	by mx.example.com with ESMTPS id fixture06inner
+	for <jordan@example.com>; Sat, 17 Jan 2026 08:02:00 +0000
+Authentication-Results: mx.example.com;
+	spf=fail (mx.example.com: domain of billing@example.org does not designate 198.51.100.20 as permitted sender) smtp.mailfrom=billing@example.org;
+	dkim=fail (signature did not verify) header.d=example.org header.s=s1;
+	dmarc=fail (p=REJECT) header.from=example.org
+Authentication-Results: forged.example.net; spf=pass; dkim=pass header.d=example.org; dmarc=pass
+Return-Path: <billing@example.org>
+From: "Accounts Payable" <billing@example.org>
+Reply-To: <ap-payments@example.net>
+To: jordan@example.com
+Subject: Invoice INV-20931 overdue
+Date: Sat, 17 Jan 2026 08:01:30 +0000
+Message-ID: <fixture-invoice-06@example.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Hello,
+
+Invoice INV-20931 is now overdue. Please note our banking details have changed.
+Wire the outstanding balance of $8,450.00 to our new bank account today to avoid a late fee.
+Routing number and account details are on the attached remittance advice.
+
+Accounts Payable
+
+--mixed-boundary-06--
