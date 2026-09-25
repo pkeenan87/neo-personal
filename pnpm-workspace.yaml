@@ -4,3 +4,6 @@ packages:
 
 allowBuilds:
   esbuild: true
+  protobufjs: false
+
+dedupePeers: true
