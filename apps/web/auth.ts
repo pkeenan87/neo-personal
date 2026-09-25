@@ -77,6 +77,17 @@ export async function resolveTenant(db: Db, userId: string, name: string | null 
   }
 }
 
+/** Google OIDC profile -> Auth.js user, keeping the email_verified claim (exported for tests). */
+export function googleProfile(p: { sub: string; name?: string; email?: string; picture?: string; email_verified?: boolean }) {
+  return {
+    id: p.sub,
+    name: p.name ?? null,
+    email: p.email ?? null,
+    image: p.picture ?? null,
+    emailVerified: p.email_verified === true ? new Date() : null,
+  };
+}
+
 /** Registered providers for the current env (exported for tests). */
 export function buildProviders(source: EnvSource = process.env): Provider[] {
   const enabled = authProviders(source);
@@ -87,6 +98,9 @@ export function buildProviders(source: EnvSource = process.env): Provider[] {
         clientId: source.AUTH_GOOGLE_ID,
         clientSecret: source.AUTH_GOOGLE_SECRET,
         authorization: { params: { scope: "openid email profile" } },
+        // The default mapper leaves emailVerified empty; record Google's claim so
+        // the users row reflects it (the signIn callback still requires it to be true).
+        profile: (p) => googleProfile(p),
       }),
     );
   }
