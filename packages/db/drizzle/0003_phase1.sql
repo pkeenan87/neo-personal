@@ -85,8 +85,24 @@ AS $$
   ORDER BY a.expires_at
   LIMIT greatest(0, least(coalesce($1, 0), 1000))
 $$;--> statement-breakpoint
+-- The retention job also deletes rejected/failed inbound delivery rows older than N days
+-- across tenants (at least 1 day; default 90). Returns the number of rows deleted.
+CREATE FUNCTION "public"."purge_old_inbound_messages"(older_than_days integer)
+RETURNS integer
+LANGUAGE sql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, public
+AS $$
+  WITH deleted AS (
+    DELETE FROM public.inbound_messages m
+    WHERE m.status IN ('rejected', 'failed')
+      AND m.received_at < now() - make_interval(days => greatest(coalesce($1, 90), 1))
+    RETURNING 1
+  )
+  SELECT count(*)::integer FROM deleted
+$$;--> statement-breakpoint
 REVOKE ALL ON FUNCTION "public"."resolve_inbound_address"(text) FROM PUBLIC;--> statement-breakpoint
 REVOKE ALL ON FUNCTION "public"."list_expired_artifacts"(integer) FROM PUBLIC;--> statement-breakpoint
+REVOKE ALL ON FUNCTION "public"."purge_old_inbound_messages"(integer) FROM PUBLIC;--> statement-breakpoint
 -- Grant to the app role when it already exists (existing deployments). Fresh databases get
 -- the grant from sql/create-app-user.sql, which runs after the first migration.
 DO $$
@@ -94,6 +110,7 @@ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
     GRANT EXECUTE ON FUNCTION "public"."resolve_inbound_address"(text) TO app_user;
     GRANT EXECUTE ON FUNCTION "public"."list_expired_artifacts"(integer) TO app_user;
+    GRANT EXECUTE ON FUNCTION "public"."purge_old_inbound_messages"(integer) TO app_user;
   END IF;
 END
 $$;

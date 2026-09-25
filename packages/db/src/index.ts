@@ -29,7 +29,7 @@ export {
   type RecordCheckInput,
   type UsageCaps,
 } from "./usage.js";
-export { createTenantForUser, findTenantForUser, type UserTenant } from "./tenants.js";
+export { createTenantForUser, findTenantForUser, getHouseholdName, type UserTenant } from "./tenants.js";
 export { createMemoryBlobClient, createVercelBlobClient, type BlobClient } from "./blob.js";
 export {
   ArtifactStoreUnavailableError,

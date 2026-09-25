@@ -21,10 +21,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE O
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO app_user;
 
 -- Security-definer lookups that run before a tenant is known (migration 0003_phase1).
--- EXECUTE is revoked from PUBLIC, so grant it explicitly. Re-run these two lines if you
+-- EXECUTE is revoked from PUBLIC, so grant it explicitly. Re-run these lines if you
 -- create app_user after adding a new security-definer function (see docs/rls.md).
 GRANT EXECUTE ON FUNCTION public.resolve_inbound_address(text) TO app_user;
 GRANT EXECUTE ON FUNCTION public.list_expired_artifacts(integer) TO app_user;
+GRANT EXECUTE ON FUNCTION public.purge_old_inbound_messages(integer) TO app_user;
 
 -- Verify: both columns must be false.
 SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'app_user';

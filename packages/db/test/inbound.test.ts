@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { generateLocalPart, inbound, inboundAddressFor, isInboundLocalPart } from "../src/inbound.js";
-import { inboundAddresses, inboundMessages } from "../src/schema/index.js";
+import { inboundAddresses, inboundMessages, verdicts } from "../src/schema/index.js";
 import { tenantScoped } from "../src/tenant.js";
 import { createTenantForUser } from "../src/tenants.js";
 import { becomeAppUser, createTestDb, createUser, type TestDb } from "./helpers.js";
@@ -37,10 +37,12 @@ describe("inbound", () => {
   let t: TestDb;
   let tenantA: string;
   let tenantB: string;
+  let userA: string;
 
   beforeAll(async () => {
     t = await createTestDb();
     const a = await createUser(t.db, "A");
+    userA = a;
     const b = await createUser(t.db, "B");
     ({ tenantId: tenantA } = await createTenantForUser(t.db, { userId: a, name: "A" }));
     ({ tenantId: tenantB } = await createTenantForUser(t.db, { userId: b, name: "B" }));
@@ -201,13 +203,64 @@ describe("inbound", () => {
       expect(await inbound.findActiveByLocalPart(t.db, addrA.localPart)).toBeUndefined();
       expect(await inbound.findActiveByLocalPart(t.db, rotated.localPart)).toEqual({ id: rotated.id, tenantId: tenantA });
     });
+
+    it("purgeOld deletes only old rejected/failed rows, across tenants, via purge_old_inbound_messages()", async () => {
+      const a = await inbound.ensureAddress(t.db, tenantA);
+      const b = await inbound.ensureAddress(t.db, tenantB);
+      const rec = (tenantId: string, addressId: string, providerMessageId: string, status: "rejected" | "failed" | "done") =>
+        inbound.recordMessage(t.db, { tenantId, addressId, providerMessageId, fromAddressHash: "h", status });
+      const oldRejectedA = await rec(tenantA, a.id, "purge-a-old-rejected", "rejected");
+      const oldFailedB = await rec(tenantB, b.id, "purge-b-old-failed", "failed");
+      const oldDoneA = await rec(tenantA, a.id, "purge-a-old-done", "done");
+      const freshRejectedB = await rec(tenantB, b.id, "purge-b-fresh-rejected", "rejected");
+      // Age three rows past the window (owner-only UPDATE of received_at through a definer-free path).
+      await t.client.exec("reset role");
+      await t.client.query(
+        `update inbound_messages set received_at = now() - interval '100 days' where id in ($1, $2, $3)`,
+        [oldRejectedA.id, oldFailedB.id, oldDoneA.id],
+      );
+      await t.client.exec("set role app_user");
+
+      expect(await inbound.purgeOld(t.db, 90)).toBe(2);
+      expect(await inbound.getMessage(t.db, oldRejectedA.id, tenantA)).toBeUndefined();
+      expect(await inbound.getMessage(t.db, oldFailedB.id, tenantB)).toBeUndefined();
+      expect(await inbound.getMessage(t.db, oldDoneA.id, tenantA)).toBeDefined();
+      expect(await inbound.getMessage(t.db, freshRejectedB.id, tenantB)).toBeDefined();
+      expect(await inbound.purgeOld(t.db, 90)).toBe(0);
+    });
+
+    it("findByVerdictId is tenant-scoped", async () => {
+      const a = await inbound.ensureAddress(t.db, tenantA);
+      const { id } = await inbound.recordMessage(t.db, {
+        tenantId: tenantA,
+        addressId: a.id,
+        providerMessageId: "by-verdict-1",
+        fromAddressHash: "h",
+        status: "received",
+      });
+      const verdictId = (
+        await tenantScoped(t.db, tenantA).insert(verdicts, {
+          userId: userA,
+          subjectType: "email",
+          verdict: "suspicious",
+          confidence: 0.7,
+          headline: "h",
+          body: {},
+          source: "inbound",
+        })
+      )[0]!.id;
+      await inbound.updateMessage(t.db, id, tenantA, { verdictId, status: "done" });
+      expect((await inbound.findByVerdictId(t.db, tenantA, verdictId))?.id).toBe(id);
+      expect(await inbound.findByVerdictId(t.db, tenantB, verdictId)).toBeUndefined();
+      expect(await inbound.findByVerdictId(t.db, tenantA, "not-a-uuid")).toBeUndefined();
+    });
   });
 
   it("does not grant EXECUTE on the definer functions to PUBLIC", async () => {
     const { rows } = await t.client.query<{ proname: string; acl: string | null }>(
-      `select proname, proacl::text as acl from pg_proc where proname in ('resolve_inbound_address', 'list_expired_artifacts')`,
+      `select proname, proacl::text as acl from pg_proc where proname in ('resolve_inbound_address', 'list_expired_artifacts', 'purge_old_inbound_messages')`,
     );
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     for (const r of rows) {
       expect(r.acl, r.proname).not.toBeNull();
       // An ACL entry for PUBLIC starts with "=" (no role name before it).

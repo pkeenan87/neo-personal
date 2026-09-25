@@ -177,6 +177,24 @@ async function listRecent(db: Db, tenantId: string, limit = 20): Promise<Inbound
   });
 }
 
+/** The delivery that produced `verdictId` (dashboard "forwarded by"), if any. Tenant-scoped. */
+async function findByVerdictId(db: Db, tenantId: string, verdictId: string): Promise<InboundMessageRow | undefined> {
+  if (!UUID_RE.test(verdictId)) return undefined;
+  return tenantScoped(db, tenantId).first(inboundMessages, eq(inboundMessages.verdictId, verdictId));
+}
+
+/**
+ * Retention: delete `rejected` / `failed` deliveries older than `olderThanDays` (≥ 1, default
+ * 90) across all tenants, returning the count. Runs the security-definer function
+ * `purge_old_inbound_messages`, so it works under the app role.
+ */
+async function purgeOld(db: Db, olderThanDays = 90): Promise<number> {
+  const days = Math.max(1, Math.floor(olderThanDays) || 90);
+  const res = await db.execute(sql`select purge_old_inbound_messages(${days}) as n`);
+  const [r] = (res as unknown as { rows: Array<{ n: number | string }> }).rows;
+  return Number(r?.n ?? 0);
+}
+
 /** Forward-to-address persistence (see _specs/forward-to-address.md). */
 export const inbound = {
   ensureAddress,
@@ -187,4 +205,6 @@ export const inbound = {
   getMessage,
   countRecent,
   listRecent,
+  findByVerdictId,
+  purgeOld,
 };
