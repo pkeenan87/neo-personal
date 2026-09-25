@@ -25,6 +25,7 @@
   "dependencies": {
     "@neo/core": "workspace:*",
     "@neo/verdict": "workspace:*",
+    "postal-mime": "3.0.0",
     "tldts": "7.4.13",
     "undici": "8.10.2",
     "zod": "^4.6.5"
