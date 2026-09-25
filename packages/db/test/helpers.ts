@@ -28,3 +28,19 @@ export async function createUser(db: Db, name = "Test User"): Promise<string> {
   if (!row) throw new Error("user insert failed");
   return row.id;
 }
+
+/**
+ * Switch the PGlite session to a non-owner, NOBYPASSRLS role, mirroring
+ * sql/create-app-user.sql (minus LOGIN/password, not needed for SET ROLE). Undo with
+ * `client.exec("reset role")`. Call at most once per database.
+ */
+export async function becomeAppUser(client: PGlite): Promise<void> {
+  await client.exec(`
+    create role app_user nologin nobypassrls;
+    grant usage on schema public to app_user;
+    grant select, insert, update, delete on all tables in schema public to app_user;
+    grant execute on function public.resolve_inbound_address(text) to app_user;
+    grant execute on function public.list_expired_artifacts(integer) to app_user;
+    set role app_user;
+  `);
+}

@@ -30,5 +30,40 @@ export {
   type UsageCaps,
 } from "./usage.js";
 export { createTenantForUser, findTenantForUser, type UserTenant } from "./tenants.js";
+export { createMemoryBlobClient, createVercelBlobClient, type BlobClient } from "./blob.js";
+export {
+  ArtifactStoreUnavailableError,
+  DEFAULT_ARTIFACT_RETENTION_DAYS,
+  artifactBlobPath,
+  artifactRetentionDays,
+  createArtifactStore,
+  type ArtifactMeta,
+  type ArtifactStore,
+  type ArtifactStoreOptions,
+  type PutArtifactInput,
+} from "./artifact-store.js";
+export {
+  generateLocalPart,
+  inbound,
+  inboundAddressFor,
+  isInboundLocalPart,
+  type InboundAddress,
+  type InboundMessagePatch,
+  type InboundMessageRow,
+  type RecordMessageInput,
+} from "./inbound.js";
+export {
+  InvalidCursorError,
+  decodeVerdictCursor,
+  encodeVerdictCursor,
+  listMembers,
+  saveVerdict,
+  verdictQueries,
+  type HouseholdMember,
+  type SaveVerdictInput,
+  type VerdictListOptions,
+  type VerdictRow,
+  type VerdictSummary,
+} from "./verdicts.js";
 // runMigrations lives in the "@neo/db/migrate" subpath so app bundles never see the migrations folder.
 export type { ConversationStore, MessageParam } from "@neo/core";
