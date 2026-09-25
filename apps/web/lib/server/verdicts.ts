@@ -39,6 +39,8 @@ export interface MemoryVerdictRow {
   userId: string;
   conversationId: string;
   verdict: Verdict;
+  /** Phase 1 intake: the first artifact attached to the turn that produced the verdict. */
+  artifactId?: string;
   createdAt: Date;
 }
 
@@ -56,6 +58,8 @@ export async function saveVerdict(input: {
   userId: string;
   conversationId: string;
   verdict: Verdict;
+  /** Phase 1 intake. TODO(integration): write verdicts.artifact_id (migration 0003_phase1) via @neo/db saveVerdict. */
+  artifactId?: string;
 }): Promise<void> {
   const { tenantId, userId, conversationId, verdict } = input;
   try {

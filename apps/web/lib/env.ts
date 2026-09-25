@@ -68,6 +68,14 @@ export interface WebEnv {
   HAS_ANTHROPIC_CREDENTIALS: boolean;
   /** Registered sign-in providers (a provider is registered only when configured). */
   AUTH_PROVIDERS: { google: boolean; resend: boolean };
+  // ── Phase 1: intake artifacts (_specs/intake.md) ──
+  /** BLOB_READ_WRITE_TOKEN is set (Vercel Blob). Unset → in-memory blob client (MOCK_MODE / local only). */
+  HAS_BLOB_TOKEN: boolean;
+  /** NEO_MASTER_KEY is set (artifact encryption). Validity is checked by masterKeyFromEnv. */
+  HAS_MASTER_KEY: boolean;
+  /** NEO_ARTIFACT_RETENTION_DAYS, default 30. */
+  ARTIFACT_RETENTION_DAYS: number;
+  // ── end Phase 1: intake artifacts ──
 }
 
 /**
@@ -94,6 +102,11 @@ export function readEnv(source: EnvSource = process.env): WebEnv {
     DATABASE_URL: database,
     HAS_ANTHROPIC_CREDENTIALS: Boolean(nonEmpty(source.ANTHROPIC_API_KEY) ?? nonEmpty(source.ANTHROPIC_AUTH_TOKEN)),
     AUTH_PROVIDERS: authProviders(source),
+    // ── Phase 1: intake artifacts ──
+    HAS_BLOB_TOKEN: Boolean(nonEmpty(source.BLOB_READ_WRITE_TOKEN)),
+    HAS_MASTER_KEY: Boolean(nonEmpty(source.NEO_MASTER_KEY)),
+    ARTIFACT_RETENTION_DAYS: int(source.NEO_ARTIFACT_RETENTION_DAYS, 30) || 30,
+    // ── end Phase 1: intake artifacts ──
   };
 }
 

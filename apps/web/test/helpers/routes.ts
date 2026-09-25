@@ -1,5 +1,6 @@
 import type { AgentEvent } from "@neo/core";
 import { readAgentEvents } from "@/lib/ndjson";
+import { resetArtifactStore } from "@/lib/server/artifacts";
 import { memoryAuditLog } from "@/lib/server/audit";
 import { resetMemoryUsage } from "@/lib/server/usage";
 import { memoryVerdicts } from "@/lib/server/verdicts";
@@ -35,6 +36,9 @@ export function stubBaseEnv(vi: { stubEnv: (k: string, v: string) => unknown }):
   vi.stubEnv("INJECTION_GUARD_MODE", "monitor");
   vi.stubEnv("USAGE_CAP_MONTHLY_CHECKS", "");
   vi.stubEnv("USAGE_CAP_DAILY_TOKENS", "");
+  // Phase 1 intake: in-memory blob client, plaintext artifacts.
+  vi.stubEnv("BLOB_READ_WRITE_TOKEN", "");
+  vi.stubEnv("NEO_MASTER_KEY", "");
 }
 
 /** Clear every no-database fallback between tests. */
@@ -44,4 +48,5 @@ export function resetMemoryState(): void {
   resetMemoryUsage();
   memoryAuditLog().length = 0;
   memoryVerdicts().length = 0;
+  resetArtifactStore();
 }
