@@ -1,7 +1,9 @@
 "use client";
 
 import { AlertTriangle, Brain } from "lucide-react";
+import type { AttachmentRef } from "@/lib/attachments";
 import { messageText, type ChatMessage } from "@/lib/chat-state";
+import { AttachmentList } from "./AttachmentView";
 import { ConfirmationPrompt } from "./ConfirmationPrompt";
 import { MessageActions } from "./MessageActions";
 import { MessageContent } from "./MessageContent";
@@ -18,11 +20,16 @@ export interface ChatMessageViewProps {
 
 export function ChatMessageView({ message, onDecide, live = false }: ChatMessageViewProps) {
   if (message.role === "user") {
+    const userText = messageText(message);
+    const attachments = message.parts.flatMap((p): AttachmentRef[] => (p.kind === "attachment" ? [p.attachment] : []));
     return (
-      <div className="animate-neo-fade-in flex justify-end" aria-label="Your message">
-        <div className="max-w-[85%] rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words text-accent-fg sm:max-w-[75%]">
-          {messageText(message)}
-        </div>
+      <div className="animate-neo-fade-in flex flex-col items-end gap-2" aria-label="Your message">
+        {userText && (
+          <div className="max-w-[85%] rounded-2xl rounded-br-md bg-accent px-4 py-2.5 text-[15px] leading-relaxed whitespace-pre-wrap break-words text-accent-fg sm:max-w-[75%]">
+            {userText}
+          </div>
+        )}
+        <AttachmentList attachments={attachments} />
       </div>
     );
   }
@@ -54,6 +61,8 @@ export function ChatMessageView({ message, onDecide, live = false }: ChatMessage
               );
             case "tool":
               return <ToolTrace key={part.trace.id + i} trace={part.trace} />;
+            case "attachment":
+              return null;
             case "confirmation":
               return (
                 <ConfirmationPrompt

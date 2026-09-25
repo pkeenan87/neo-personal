@@ -7,6 +7,8 @@ import type { ToolTrace as ToolTraceModel } from "@/lib/chat-state";
 /** Friendly names for known tools; unknown tools show their raw name. */
 const TOOL_LABELS: Record<string, { running: string; done: string }> = {
   check_url: { running: "Checking the link…", done: "Checked the link" },
+  analyze_email: { running: "Analyzing the email…", done: "Analyzed the email" },
+  analyze_sms: { running: "Analyzing the text message…", done: "Analyzed the text message" },
   report_phish: { running: "Reporting…", done: "Reported" },
 };
 

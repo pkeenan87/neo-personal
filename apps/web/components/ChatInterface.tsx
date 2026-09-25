@@ -12,16 +12,19 @@ import {
   deleteConversation,
   listConversations,
   streamAgent,
+  uploadArtifacts,
 } from "@/lib/agent-client";
 import type { ConversationSummary } from "@/lib/api-types";
 import { signOut } from "@/lib/auth-client";
 import { chatReducer, initialChatState, pendingConfirmation, type ChatMessage } from "@/lib/chat-state";
+import { releaseAttachments, toAttachmentRef, type PendingAttachment } from "@/lib/pending-attachments";
 import { ChatMessageView } from "./ChatMessageView";
-import { Composer } from "./Composer";
+import { Composer, INTAKE_HINTS } from "./Composer";
 import { ConversationSidebar } from "./ConversationSidebar";
 import { EmptyState, type Suggestion } from "./EmptyState";
 import { NeoMark } from "./NeoMark";
 import { useToast } from "./toast-context";
+import { UsageIndicator } from "./UsageIndicator";
 
 export interface ChatInterfaceProps {
   user: { name: string; email: string };
@@ -57,6 +60,10 @@ export function ChatInterface({ user, initialConversations, conversationId, init
   const [conversations, setConversations] = useState(initialConversations);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  // Phase 1 intake: files for the next message, and the usage indicator refresh tick.
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [usageTick, setUsageTick] = useState(0);
   // Messages that arrived during this session (vs. loaded history): used to
   // auto-focus a fresh confirmation prompt but not one restored on reload.
   const [liveFrom] = useState(initialMessages.length);
@@ -117,6 +124,7 @@ export function ChatInterface({ user, initialConversations, conversationId, init
       } finally {
         if (abortRef.current === controller) abortRef.current = null;
         void refreshConversations();
+        setUsageTick((n) => n + 1);
       }
     },
     [refreshConversations],
@@ -125,21 +133,53 @@ export function ChatInterface({ user, initialConversations, conversationId, init
   const send = useCallback(
     async (textOverride?: string) => {
       const text = (textOverride ?? input).trim();
-      if (!text || state.streaming || pending) return;
+      const files = textOverride === undefined ? attachments : [];
+      if ((!text && files.length === 0) || state.streaming || pending || uploading) return;
+
+      // Upload on send (not on attach). Files already uploaded by a failed
+      // earlier attempt are reused, so a resend doesn't upload them again.
+      let sent = files;
+      const toUpload = files.filter((a) => !a.uploaded);
+      if (toUpload.length > 0) {
+        setUploading(true);
+        try {
+          const stored = await uploadArtifacts(toUpload.map((a) => a.file));
+          const byLocal = new Map(toUpload.map((a, i) => [a.localId, stored[i]]));
+          sent = files.map((a) => (byLocal.get(a.localId) ? { ...a, uploaded: byLocal.get(a.localId) } : a));
+          setAttachments(sent);
+        } catch (err) {
+          toast({ intent: "error", title: "Couldn't upload your files", description: errorMessage(err) });
+          return;
+        } finally {
+          setUploading(false);
+        }
+      }
+      const uploaded = sent.flatMap((a) => (a.uploaded ? [a.uploaded] : []));
+
       setInput("");
-      dispatch({ type: "send", userId: newId(), assistantId: newId(), text });
+      dispatch({ type: "send", userId: newId(), assistantId: newId(), text, attachments: uploaded.map(toAttachmentRef) });
       announce("Neo is responding");
       await runStream((signal) =>
         streamAgent({
           conversationId: activeIdRef.current,
           message: text,
+          ...(uploaded.length ? { attachments: uploaded.map((u) => u.id) } : {}),
           signal,
           onConversationId: adoptConversationId,
+          // Keep the chips until the server accepts the turn, so a failed request can be resent.
+          onAccepted: () => {
+            if (sent.length === 0) return;
+            setAttachments((prev) => {
+              const done = prev.filter((a) => sent.some((s) => s.localId === a.localId));
+              releaseAttachments(done);
+              return prev.filter((a) => !done.includes(a));
+            });
+          },
           onEvent: (event) => dispatch({ type: "event", event }),
         }),
       );
     },
-    [input, state.streaming, pending, announce, runStream, adoptConversationId],
+    [input, attachments, uploading, state.streaming, pending, announce, runStream, adoptConversationId, toast],
   );
 
   const stop = useCallback(() => {
@@ -187,6 +227,10 @@ export function ChatInterface({ user, initialConversations, conversationId, init
     abortRef.current?.abort();
     dispatch({ type: "reset", messages: [] });
     setInput("");
+    setAttachments((prev) => {
+      releaseAttachments(prev);
+      return [];
+    });
     activeIdRef.current = null;
     setActiveId(null);
     setSidebarOpen(false);
@@ -253,6 +297,7 @@ export function ChatInterface({ user, initialConversations, conversationId, init
           </button>
           <NeoMark className="size-5 text-accent md:hidden" />
           <h1 className="min-w-0 flex-1 truncate py-3 text-sm font-medium">{title}</h1>
+          <UsageIndicator refreshKey={usageTick} />
         </header>
 
         <div
@@ -304,7 +349,11 @@ export function ChatInterface({ user, initialConversations, conversationId, init
                   ? "Reply to Neo…"
                   : "Paste a link, email, or message…"
             }
+            {...(!pending && state.messages.length === 0 ? { placeholderHints: INTAKE_HINTS } : {})}
             textareaRef={textareaRef}
+            attachments={attachments}
+            onAttachmentsChange={setAttachments}
+            uploading={uploading}
           />
         </div>
       </main>
