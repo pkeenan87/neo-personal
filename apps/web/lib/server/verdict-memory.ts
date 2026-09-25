@@ -2,12 +2,18 @@
  * No-database fallback for the dashboard queries (MOCK_MODE with zero
  * infrastructure, and the test suite). Same semantics as `verdictQueries` /
  * `listMembers` in @neo/db (docs/contracts.md, _specs/dashboard.md), over the
- * in-memory verdict rows written by `saveVerdict` (lib/server/verdicts.ts).
+ * in-memory verdict rows (lib/server/memory-state.ts) written by `saveVerdict`
+ * (lib/server/verdicts.ts) for chat and inbound verdicts alike.
  * Never used when DATABASE_URL is set.
  */
+import { InvalidCursorError, type HouseholdMember, type VerdictListOptions, type VerdictRow, type VerdictSummary } from "@neo/db";
 import { SUBJECT_TYPES, VERDICTS, type SubjectType, type VerdictLabel } from "@neo/verdict";
-import type { VerdictListOpts, VerdictRow, VerdictSource, VerdictSummary, VerdictSummaryOpts, HouseholdMember } from "./phase1-stubs-dashboard";
-import { memoryVerdicts, type MemoryVerdictRow } from "./verdicts";
+import { memoryListMembers as listMemoryMembers, memoryVerdicts, type MemoryVerdictRow } from "./memory-state";
+
+export interface VerdictSummaryOpts {
+  userId?: string;
+  sinceDays: 7 | 30 | 90;
+}
 
 export const MAX_VERDICT_PAGE = 50;
 export const DEFAULT_VERDICT_PAGE = 20;
@@ -30,8 +36,6 @@ export function decodeVerdictCursor(cursor: string): { createdAt: Date; id: stri
 }
 
 function toRow(r: MemoryVerdictRow): VerdictRow {
-  // saveVerdict always sets an id; assign one once for rows pushed without it (older test fixtures).
-  r.id ??= crypto.randomUUID();
   return {
     id: r.id,
     tenantId: r.tenantId,
@@ -41,9 +45,9 @@ function toRow(r: MemoryVerdictRow): VerdictRow {
     verdict: r.verdict.verdict,
     confidence: r.verdict.confidence,
     headline: r.verdict.headline,
-    body: r.verdict as unknown as Record<string, unknown>,
-    source: r.source ?? "chat",
-    artifactId: r.artifactId ?? null,
+    body: r.verdict,
+    source: r.source,
+    artifactId: r.artifactId,
     createdAt: r.createdAt,
   };
 }
@@ -61,9 +65,10 @@ function tenantRows(tenantId: string): VerdictRow[] {
 }
 
 export const memoryVerdictQueries = {
-  async list(tenantId: string, opts: VerdictListOpts = {}): Promise<{ items: VerdictRow[]; nextCursor?: string }> {
+  async list(tenantId: string, opts: VerdictListOptions = {}): Promise<{ items: VerdictRow[]; nextCursor?: string }> {
     const limit = Math.min(MAX_VERDICT_PAGE, Math.max(1, opts.limit ?? DEFAULT_VERDICT_PAGE));
     const after = opts.cursor ? decodeVerdictCursor(opts.cursor) : null;
+    if (opts.cursor && !after) throw new InvalidCursorError(); // same contract as @neo/db
     const rows = tenantRows(tenantId).filter(
       (r) =>
         (!opts.userId || r.userId === opts.userId) &&
@@ -147,24 +152,6 @@ export function summarize(rows: readonly VerdictRow[], sinceDays: 7 | 30 | 90, n
 
 // ─── Household members (no-database fallback) ──────────────────────
 
-const g = globalThis as typeof globalThis & { __neoMemoryMembers?: Map<string, HouseholdMember[]> };
-
-function memberMap(): Map<string, HouseholdMember[]> {
-  g.__neoMemoryMembers ??= new Map();
-  return g.__neoMemoryMembers;
-}
-
-/** Test/dev helper: set the members of an in-memory household. */
-export function setMemoryMembers(tenantId: string, members: HouseholdMember[]): void {
-  memberMap().set(tenantId, members);
-}
-
-export function resetMemoryMembers(): void {
-  g.__neoMemoryMembers = new Map();
-}
-
 export async function memoryListMembers(tenantId: string): Promise<HouseholdMember[]> {
-  return [...(memberMap().get(tenantId) ?? [])];
+  return listMemoryMembers(tenantId);
 }
-
-export type { VerdictSource };

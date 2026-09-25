@@ -8,7 +8,11 @@ import { GET as settingsGET, POST as settingsPOST } from "@/app/api/settings/for
 import { inngest } from "@/inngest/client";
 import type { ForwardingSettings } from "@/lib/forwarding-types";
 import { memorySentEmails, registerMockReceivedEmail, resetMockReceivedEmails } from "@/lib/server/email/resend";
-import { memoryInbound, memoryInboundState, resetMemoryInbound, setMemoryMembers } from "@/lib/server/inbound/memory";
+import { GET as verdictsGET } from "@/app/api/verdicts/route";
+import { GET as verdictGET } from "@/app/api/verdicts/[id]/route";
+import type { VerdictDetailResponse, VerdictListResponse } from "@/lib/dashboard-types";
+import { memoryInbound } from "@/lib/server/inbound/memory";
+import { memoryState, setMemoryMembers } from "@/lib/server/memory-state";
 import { DEV_SESSION_IDS } from "@/lib/session";
 import { GMAIL_CONFIRMATION_BODY, GMAIL_CONFIRMATION_SUBJECT, forwardedPhish, rawEmail } from "./inbound-fixtures";
 import { post, resetMemoryState, stubBaseEnv } from "./helpers/routes";
@@ -64,13 +68,12 @@ function registerPhish(emailId: string, to: string, from = DEV_EMAIL): void {
 }
 
 function messages() {
-  return memoryInboundState().messages;
+  return memoryState().inboundMessages;
 }
 
 beforeEach(() => {
   stubBaseEnv(vi);
   resetMemoryState();
-  resetMemoryInbound();
   resetMockReceivedEmails();
   memorySentEmails().length = 0;
   authState.session = null;
@@ -160,12 +163,30 @@ describe("POST /api/inbound/resend: routing", () => {
     expect(m).toMatchObject({ providerMessageId: "em_ok", tenantId: DEV_SESSION_IDS.tenantId, status: "done", forwarderUserId: DEV_SESSION_IDS.userId });
     expect(m!.fromAddressHash).toMatch(/^[0-9a-f]{16}$/);
     expect(m!.artifactId).toBeTruthy();
-    const verdict = memoryInboundState().verdicts.find((v) => v.id === m!.verdictId)!;
+    const verdict = memoryState().verdicts.find((v) => v.id === m!.verdictId)!;
     expect(verdict.source).toBe("inbound");
+    expect(verdict.artifactId).toBe(m!.artifactId);
     const sent = memorySentEmails();
     expect(sent).toHaveLength(1);
     expect(sent[0]).toMatchObject({ to: DEV_EMAIL, idempotencyKey: `verdict-${verdict.id}` });
     expect(sent[0]!.html).toContain(`https://neo.example.test/verdicts/${verdict.id}`);
+  });
+
+  it("the inbound verdict is on the dashboard: GET /api/verdicts and /api/verdicts/[id] (one shared memory state)", async () => {
+    const to = await devAddress();
+    registerPhish("em_dash", to);
+    expect(await (await inboundPOST(signed(received("em_dash", [to])))).json()).toEqual({ accepted: true });
+    const [m] = messages();
+
+    const list = (await (await verdictsGET(new Request("http://localhost/api/verdicts?source=inbound"))).json()) as VerdictListResponse;
+    expect(list.items.map((i) => i.id)).toEqual([m!.verdictId]);
+    expect(list.items[0]).toMatchObject({ source: "inbound", subjectType: "email", artifactId: m!.artifactId, conversationId: null });
+
+    const detail = (await (
+      await verdictGET(new Request("http://localhost/x"), { params: Promise.resolve({ id: m!.verdictId! }) })
+    ).json()) as VerdictDetailResponse;
+    expect(detail.inbound).toMatchObject({ status: "done", forwardedBy: expect.any(String) });
+    expect(detail.artifact).toMatchObject({ id: m!.artifactId, kind: "inbound_eml", expired: false });
   });
 
   it("uses received_for (envelope recipient) when To: is the original recipient", async () => {

@@ -3,7 +3,7 @@
  * and delete rejected/failed inbound rows older than 90 days.
  */
 import { logger } from "@neo/core";
-import type { ArtifactStore } from "../phase1-stubs-inbound";
+import type { ArtifactStore } from "@neo/db";
 import type { StepRunner } from "./email-received-job";
 import { inlineSteps } from "./email-received-job";
 
@@ -12,8 +12,8 @@ export const INBOUND_ROW_RETENTION_DAYS = 90;
 
 export interface ExpireDeps {
   artifacts: ArtifactStore | null;
-  purgeOldInbound(before: Date): Promise<number>;
-  now?: () => Date;
+  /** Delete rejected/failed inbound rows older than this many days, across tenants. */
+  purgeOldInbound(olderThanDays: number): Promise<number>;
 }
 
 export async function runArtifactsExpire(
@@ -27,27 +27,22 @@ export async function runArtifactsExpire(
     let errors = 0;
     for (const a of expired) {
       try {
-        await deps.artifacts.purge(a.id);
+        // The app role must pass the tenant from listExpired() (RLS).
+        await deps.artifacts.purge(a.id, a.tenantId);
         purged++;
       } catch (err) {
         errors++;
         logger.error("Artifact purge failed", "retention", {
           artifactId: a.id,
+          tenantId: a.tenantId,
           errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300),
         });
       }
     }
     return { purged, errors };
   });
-  const inboundRowsDeleted = await step.run("purge-inbound-rows", async () => {
-    const now = deps.now ? deps.now() : new Date();
-    return deps.purgeOldInbound(new Date(now.getTime() - INBOUND_ROW_RETENTION_DAYS * 86_400_000));
-  });
+  const inboundRowsDeleted = await step.run("purge-inbound-rows", () => deps.purgeOldInbound(INBOUND_ROW_RETENTION_DAYS));
   const result = { artifactsPurged: artifacts.purged, artifactErrors: artifacts.errors, inboundRowsDeleted };
-  // Counts go in the message: logger metadata is allowlisted (SAFE_METADATA_FIELDS) and drops unknown keys.
-  logger.info(
-    `Retention run finished: ${result.artifactsPurged} artifacts purged, ${result.artifactErrors} errors, ${result.inboundRowsDeleted} inbound rows deleted`,
-    "retention",
-  );
+  logger.info("Retention run finished", "retention", result);
   return result;
 }

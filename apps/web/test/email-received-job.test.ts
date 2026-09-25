@@ -1,5 +1,7 @@
 // @vitest-environment node
-import { utcWindows, type CapCheckResult } from "@neo/db";
+import { createMockTriageClient, runTriage } from "@neo/core";
+import { createMemoryBlobClient, utcWindows, type ArtifactStore, type CapCheckResult } from "@neo/db";
+import { analyzeEmail } from "@neo/tools";
 import { VerdictSchema } from "@neo/verdict";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -19,8 +21,9 @@ import {
   type EmailJobDeps,
   type StepRunner,
 } from "@/lib/server/inbound/email-received-job";
-import { memoryInbound, memoryInboundState, resetMemoryInbound, setMemoryMembers } from "@/lib/server/inbound/memory";
-import { analyzeEmail, runTriage } from "@/lib/server/phase1-stubs-inbound";
+import { memoryInbound } from "@/lib/server/inbound/memory";
+import { createInMemoryArtifactStore } from "@/lib/server/memory-artifact-store";
+import { memoryListMembers, memoryState, resetMemoryState, saveMemoryVerdict, setMemoryMembers } from "@/lib/server/memory-state";
 import {
   GMAIL_CONFIRMATION_BODY,
   GMAIL_CONFIRMATION_SUBJECT,
@@ -76,24 +79,28 @@ async function newMessage(emailId: string): Promise<{ inboundMessageId: string; 
 }
 
 function row(id: string) {
-  return memoryInboundState().messages.find((m) => m.id === id)!;
+  return memoryState().inboundMessages.find((m) => m.id === id)!;
 }
+
+let blob: ReturnType<typeof createMemoryBlobClient>;
+let artifacts: ArtifactStore;
 
 function makeDeps(mail: ReceivedMailClient, overrides: Partial<EmailJobDeps> = {}): EmailJobDeps {
   return {
     mail,
-    artifacts: memoryInbound.artifacts,
+    artifacts,
     mailer: createMockMailer("Neo <neo@example.test>"),
-    listMembers: memoryInbound.listMembers,
+    listMembers: async (t) => memoryListMembers(t),
     updateMessage: memoryInbound.updateMessage,
-    findMessage: async (id, t) => (await memoryInbound.listRecent(t, 100)).find((m) => m.id === id),
+    findMessage: memoryInbound.getMessage,
     checkCaps: vi.fn(async () => caps(true)),
     noteCapHit: vi.fn(async () => {}),
     recordUsage: vi.fn(async () => {}),
-    analyzeEmail: vi.fn(analyzeEmail),
-    runTriage: vi.fn(runTriage),
+    // The real analyzer (offline fixtures) and triage (deterministic MOCK_MODE client).
+    analyzeEmail: vi.fn((input, opts) => analyzeEmail(input, { ...opts, deps: { mock: true } })),
+    runTriage: vi.fn((input) => runTriage({ ...input, client: createMockTriageClient(), model: "claude-sonnet-5" })),
     triageGuidance: "guidance",
-    saveVerdict: memoryInbound.saveVerdict,
+    saveVerdict: async (input) => saveMemoryVerdict(input),
     audit: vi.fn(async () => {}),
     appUrl: "https://neo.example.test",
     ...overrides,
@@ -115,7 +122,9 @@ function recordingSteps(): StepRunner & { names: string[] } {
 }
 
 beforeEach(() => {
-  resetMemoryInbound();
+  resetMemoryState();
+  blob = createMemoryBlobClient();
+  artifacts = createInMemoryArtifactStore({ blob });
   memorySentEmails().length = 0;
   setMemoryMembers(TENANT, [OWNER, MEMBER]);
 });
@@ -141,20 +150,20 @@ describe("email-received job", () => {
     expect(r.artifactId).toBeTruthy();
 
     // artifact
-    const art = await memoryInbound.artifacts.get(r.artifactId!, TENANT);
+    const art = await artifacts.get(r.artifactId!, TENANT);
     expect(art).toMatchObject({ kind: "inbound_eml", source: "inbound", mimeType: "message/rfc822" });
-    expect(await memoryInbound.artifacts.get(r.artifactId!, "another-tenant")).toBeUndefined();
+    expect(await artifacts.get(r.artifactId!, "another-tenant")).toBeUndefined();
 
     // analysis + triage inputs
     expect(deps.analyzeEmail).toHaveBeenCalledWith({ raw: expect.any(Uint8Array) }, { maxUrls: MAX_URLS });
     expect(deps.runTriage).toHaveBeenCalledWith(expect.objectContaining({ evidenceKind: "email", guidance: "guidance" }));
 
     // verdict
-    const v = memoryInboundState().verdicts.find((x) => x.id === r.verdictId)!;
+    const v = memoryState().verdicts.find((x) => x.id === r.verdictId)!;
     expect(v).toMatchObject({ tenantId: TENANT, userId: MEMBER.userId, source: "inbound", artifactId: r.artifactId });
     expect(v.verdict.raw_ref).toBe(r.artifactId);
     expect(VerdictSchema.safeParse(v.verdict).success).toBe(true);
-    expect(v.verdict.verdict).toBe("malicious"); // lookalike_domain from the stub analyzer
+    expect(v.verdict.verdict).toBe("malicious"); // lookalike sender + phishing URL from the real analyzer
 
     // usage
     expect(deps.recordUsage).toHaveBeenCalledWith(
@@ -190,7 +199,7 @@ describe("email-received job", () => {
 
     expect(out).toEqual({ status: "rejected", reason: "unknown_sender" });
     expect(row(data.inboundMessageId)).toMatchObject({ status: "rejected", error: "unknown_sender", artifactId: null });
-    expect(memoryInboundState().artifacts.size).toBe(0);
+    expect(blob.size).toBe(0);
     expect(memorySentEmails()).toHaveLength(0);
     expect(deps.analyzeEmail).not.toHaveBeenCalled();
     expect(deps.runTriage).not.toHaveBeenCalled();
@@ -248,7 +257,7 @@ describe("email-received job", () => {
 
     expect(out).toEqual({ status: "rejected", reason: "gmail_confirmation" });
     expect(row(data.inboundMessageId)).toMatchObject({ status: "rejected", error: "gmail_confirmation:482915736", artifactId: null });
-    expect(memoryInboundState().artifacts.size).toBe(0);
+    expect(blob.size).toBe(0);
     expect(deps.analyzeEmail).not.toHaveBeenCalled();
     expect(memorySentEmails()).toHaveLength(0);
     expect(deps.audit).toHaveBeenCalledWith(TENANT, null, "inbound.gmail_forwarding_confirmation", expect.any(Object));
@@ -280,7 +289,7 @@ describe("email-received job", () => {
     expect(deps.noteCapHit).toHaveBeenCalled();
     const r = row(data.inboundMessageId);
     expect(r.status).toBe("over_cap");
-    const v = memoryInboundState().verdicts.find((x) => x.id === r.verdictId)!;
+    const v = memoryState().verdicts.find((x) => x.id === r.verdictId)!;
     expect(v.source).toBe("inbound");
     expect(v.verdict.verdict).toBe("insufficient_evidence");
     expect(v.verdict.headline).toBe("Not analyzed: your household reached its monthly limit");
@@ -306,7 +315,7 @@ describe("email-received job", () => {
 
     expect(out).toEqual({ status: "failed", reason: "too_large" });
     expect(row(data.inboundMessageId)).toMatchObject({ status: "failed", error: "too_large" });
-    expect(memoryInboundState().artifacts.size).toBe(0);
+    expect(blob.size).toBe(0);
     expect(deps.runTriage).not.toHaveBeenCalled();
     const sent = memorySentEmails();
     expect(sent).toHaveLength(1);
@@ -372,7 +381,7 @@ describe("email-received job", () => {
 describe("artifacts-expire job", () => {
   it("purges expired artifacts, keeps fresh ones, and deletes old rejected/failed inbound rows", async () => {
     const put = (bytes: string) =>
-      memoryInbound.artifacts.put({
+      artifacts.put({
         tenantId: TENANT,
         userId: OWNER.userId,
         kind: "inbound_eml",
@@ -380,9 +389,12 @@ describe("artifacts-expire job", () => {
         bytes: new TextEncoder().encode(bytes),
         source: "inbound",
       });
+    // "old" was stored 40 days ago (default retention 30 days).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.now() - 40 * 86_400_000));
     const old = await put("old");
+    vi.useRealTimers();
     const fresh = await put("fresh");
-    memoryInboundState().artifacts.get(old.id)!.meta.expiresAt = new Date(Date.now() - 1000);
 
     const oldRejected = await newMessage("em_r_old");
     const oldDone = await newMessage("em_d_old");
@@ -393,13 +405,14 @@ describe("artifacts-expire job", () => {
     Object.assign(row(newFailed.inboundMessageId), { status: "failed" });
 
     const steps = recordingSteps();
-    const result = await runArtifactsExpire({ artifacts: memoryInbound.artifacts, purgeOldInbound: memoryInbound.purgeOld }, steps);
+    const result = await runArtifactsExpire({ artifacts, purgeOldInbound: memoryInbound.purgeOld }, steps);
 
     expect(steps.names).toEqual(["purge-artifacts", "purge-inbound-rows"]);
     expect(result).toEqual({ artifactsPurged: 1, artifactErrors: 0, inboundRowsDeleted: 1 });
-    expect(memoryInboundState().artifacts.has(old.id)).toBe(false);
-    expect(memoryInboundState().artifacts.has(fresh.id)).toBe(true);
-    const ids = memoryInboundState().messages.map((m) => m.id);
+    expect(blob.size).toBe(1); // only "fresh" is left
+    expect(await artifacts.get(old.id, TENANT)).toBeUndefined();
+    expect(await artifacts.get(fresh.id, TENANT)).toBeDefined();
+    const ids = memoryState().inboundMessages.map((m) => m.id);
     expect(ids).not.toContain(oldRejected.inboundMessageId);
     expect(ids).toContain(oldDone.inboundMessageId);
     expect(ids).toContain(newFailed.inboundMessageId);
@@ -407,8 +420,8 @@ describe("artifacts-expire job", () => {
 
   it("counts purge errors and keeps going", async () => {
     const store = {
-      ...memoryInbound.artifacts,
-      listExpired: async () => [{ id: "a" }, { id: "b" }] as never,
+      ...artifacts,
+      listExpired: async () => [{ id: "a", tenantId: TENANT }, { id: "b", tenantId: TENANT }] as never,
       purge: vi.fn(async (id: string) => {
         if (id === "a") throw new Error("blob down");
       }),

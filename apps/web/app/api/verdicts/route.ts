@@ -5,12 +5,13 @@
  *   404 not_found (owner filtering by a user outside the household) · 503 storage_unavailable
  * Members always get only their own verdicts.
  */
+import { InvalidCursorError } from "@neo/db";
 import { SUBJECT_TYPES, VERDICTS } from "@neo/verdict";
 import { VERDICT_SOURCES } from "@/lib/dashboard-types";
 import { accessErrorResponse, enumParam, NO_STORE, storageError } from "@/lib/server/dashboard-http";
 import { jsonError } from "@/lib/server/http";
 import { listVerdicts } from "@/lib/server/verdict-data";
-import { decodeVerdictCursor, MAX_VERDICT_PAGE } from "@/lib/server/verdict-memory";
+import { MAX_VERDICT_PAGE } from "@/lib/server/verdict-memory";
 import { requireApiSession } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -32,7 +33,7 @@ export async function GET(req: Request): Promise<Response> {
     return jsonError(400, `limit must be 1..${MAX_VERDICT_PAGE}.`, "bad_request");
   }
   const cursor = p.get("cursor") || undefined;
-  if (cursor && (cursor.length > 200 || !decodeVerdictCursor(cursor))) return jsonError(400, "Invalid cursor.", "bad_request");
+  if (cursor && cursor.length > 200) return jsonError(400, "Invalid cursor.", "bad_request");
   const userId = p.get("userId") || undefined;
   if (userId && userId.length > 200) return jsonError(400, "Invalid userId.", "bad_request");
 
@@ -48,6 +49,8 @@ export async function GET(req: Request): Promise<Response> {
     if (!result.ok) return accessErrorResponse(result.error);
     return Response.json(result.value, { headers: NO_STORE });
   } catch (err) {
+    // Both the @neo/db and the in-memory query throw InvalidCursorError for a malformed cursor.
+    if (err instanceof InvalidCursorError) return jsonError(400, "Invalid cursor.", "bad_request");
     return storageError(err, "api.verdicts", session.tenantId);
   }
 }

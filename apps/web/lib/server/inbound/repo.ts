@@ -1,88 +1,85 @@
 /**
- * Inbound persistence for the app: the @neo/db `inbound` helpers when
- * DATABASE_URL is set, else the in-memory fallback (MOCK_MODE / tests).
- * Contract calls go through lib/server/phase1-stubs-inbound.ts, the single
- * place the integration pass swaps for the real package exports.
+ * Inbound persistence for the app: @neo/db `inbound` when DATABASE_URL is set,
+ * else the in-memory fallback (MOCK_MODE / tests). Verdicts, members and
+ * artifacts go through the app-wide paths (lib/server/verdicts.ts,
+ * lib/server/memory-state.ts, lib/server/artifacts.ts), so inbound results
+ * land where the dashboard reads them.
  */
-import type { Db } from "@neo/db";
-import { getDb } from "../db";
 import {
-  getInboundArtifactStore,
   inbound,
   listMembers,
-  purgeOldInboundMessages,
-  saveVerdict,
   type ArtifactStore,
+  type Db,
+  type HouseholdMember,
   type InboundMessagePatch,
   type InboundMessageRow,
-  type InboundStatus,
-  type MemberRow,
-  type VerdictSource,
-} from "../phase1-stubs-inbound";
+  type RecordMessageInput,
+} from "@neo/db";
+import { getArtifactStore } from "../artifacts";
+import { getDb } from "../db";
+import { memoryListMembers } from "../memory-state";
+import { saveVerdict, type SaveVerdictInput } from "../verdicts";
 import { memoryInbound } from "./memory";
-import { env } from "@/lib/env";
-import type { Verdict } from "@neo/verdict";
+
+export type { HouseholdMember, InboundMessagePatch, InboundMessageRow };
 
 export interface InboundRepo {
   ensureAddress(tenantId: string): Promise<{ id: string; localPart: string }>;
   rotateAddress(tenantId: string): Promise<{ id: string; localPart: string }>;
   findActiveByLocalPart(localPart: string): Promise<{ id: string; tenantId: string } | undefined>;
-  recordMessage(input: {
-    tenantId: string;
-    addressId: string;
-    providerMessageId: string;
-    fromAddressHash: string;
-    status: InboundStatus;
-  }): Promise<{ id: string }>;
+  /** Idempotent on `providerMessageId`: a repeat returns the existing id with `duplicate: true`. */
+  recordMessage(input: RecordMessageInput): Promise<{ id: string; duplicate: boolean }>;
   updateMessage(id: string, tenantId: string, patch: InboundMessagePatch): Promise<void>;
-  countRecent(addressId: string, windowMs: number): Promise<number>;
+  countRecent(tenantId: string, addressId: string, windowMs: number): Promise<number>;
   listRecent(tenantId: string, limit: number): Promise<InboundMessageRow[]>;
-  /** Not in the contract: implemented with listRecent (a message is looked up only while it is recent). */
   findMessage(id: string, tenantId: string): Promise<InboundMessageRow | undefined>;
-  purgeOld(before: Date): Promise<number>;
-  listMembers(tenantId: string): Promise<MemberRow[]>;
-  saveVerdict(input: { tenantId: string; userId: string; artifactId?: string; source: VerdictSource; verdict: Verdict }): Promise<{ id: string }>;
+  /** Delete rejected/failed rows older than `olderThanDays`, across tenants (retention job). */
+  purgeOld(olderThanDays: number): Promise<number>;
+  listMembers(tenantId: string): Promise<HouseholdMember[]>;
+  saveVerdict(input: Omit<SaveVerdictInput, "conversationId">): Promise<{ id: string }>;
+  /** The app's artifact store, or null when artifacts are unconfigured. */
   artifacts: ArtifactStore | null;
 }
 
 function fromDb(db: Db): InboundRepo {
-  const repo: InboundRepo = {
+  return {
     ensureAddress: (t) => inbound.ensureAddress(db, t),
     rotateAddress: (t) => inbound.rotateAddress(db, t),
     findActiveByLocalPart: (lp) => inbound.findActiveByLocalPart(db, lp),
     recordMessage: (input) => inbound.recordMessage(db, input),
     updateMessage: (id, t, patch) => inbound.updateMessage(db, id, t, patch),
-    countRecent: (a, w) => inbound.countRecent(db, a, w),
+    countRecent: (t, a, w) => inbound.countRecent(db, t, a, w),
     listRecent: (t, n) => inbound.listRecent(db, t, n),
-    findMessage: async (id, t) => (await inbound.listRecent(db, t, 200)).find((m) => m.id === id),
-    purgeOld: (before) => purgeOldInboundMessages(db, before),
+    findMessage: (id, t) => inbound.getMessage(db, id, t),
+    purgeOld: (days) => inbound.purgeOld(db, days),
     listMembers: (t) => listMembers(db, t),
-    saveVerdict: (input) => saveVerdict(db, input),
-    artifacts: getInboundArtifactStore(db, env().MOCK_MODE),
+    saveVerdict: (input) => saveVerdict(input),
+    artifacts: getArtifactStore(),
   };
-  return repo;
 }
 
-const memoryRepo: InboundRepo = {
-  ensureAddress: memoryInbound.ensureAddress,
-  rotateAddress: memoryInbound.rotateAddress,
-  findActiveByLocalPart: memoryInbound.findActiveByLocalPart,
-  recordMessage: memoryInbound.recordMessage,
-  updateMessage: memoryInbound.updateMessage,
-  countRecent: memoryInbound.countRecent,
-  listRecent: memoryInbound.listRecent,
-  findMessage: async (id, t) => (await memoryInbound.listRecent(t, 10_000)).find((m) => m.id === id),
-  purgeOld: memoryInbound.purgeOld,
-  listMembers: memoryInbound.listMembers,
-  saveVerdict: memoryInbound.saveVerdict,
-  artifacts: memoryInbound.artifacts,
-};
+function fromMemory(): InboundRepo {
+  return {
+    ensureAddress: memoryInbound.ensureAddress,
+    rotateAddress: memoryInbound.rotateAddress,
+    findActiveByLocalPart: memoryInbound.findActiveByLocalPart,
+    recordMessage: memoryInbound.recordMessage,
+    updateMessage: memoryInbound.updateMessage,
+    countRecent: memoryInbound.countRecent,
+    listRecent: memoryInbound.listRecent,
+    findMessage: memoryInbound.getMessage,
+    purgeOld: memoryInbound.purgeOld,
+    listMembers: async (t) => memoryListMembers(t),
+    saveVerdict: (input) => saveVerdict(input),
+    artifacts: getArtifactStore(),
+  };
+}
 
 export function inboundRepo(db: Db | null = getDb()): InboundRepo {
-  return db ? fromDb(db) : memoryRepo;
+  return db ? fromDb(db) : fromMemory();
 }
 
-/** True for a Postgres unique violation (duplicate provider_message_id). */
+/** True for a Postgres unique violation (e.g. a provider_message_id race). */
 export function isUniqueViolation(err: unknown): boolean {
   for (let e: unknown = err, i = 0; e && i < 3; i++) {
     if (typeof e === "object" && e !== null && (e as { code?: unknown }).code === "23505") return true;

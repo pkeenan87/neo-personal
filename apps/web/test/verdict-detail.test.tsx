@@ -90,8 +90,8 @@ describe("VerdictDetail", () => {
       }),
     );
     const evidence = screen.getByRole("region", { name: "Evidence" });
-    expect(within(evidence).getByRole("img", { name: "Evidence: shot.png" })).toHaveAttribute("src", "/api/artifacts/a1");
-    expect(within(evidence).getByRole("link", { name: /Download/ })).toHaveAttribute("href", "/api/artifacts/a1?download=1");
+    expect(within(evidence).getByRole("img", { name: "Evidence: shot.png" })).toHaveAttribute("src", "/api/artifacts/a1?inline=1");
+    expect(within(evidence).getByRole("link", { name: /Download/ })).toHaveAttribute("href", "/api/artifacts/a1");
     expect(evidence).toHaveTextContent(/kept until October 20, 2026/);
   });
 

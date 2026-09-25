@@ -1,6 +1,6 @@
 "use client";
 
-import { TriangleAlert, ArrowLeft, Inbox, Mail, RefreshCw } from "lucide-react";
+import { TriangleAlert, Inbox, Mail, RefreshCw } from "lucide-react";
 import Link from "next/link";
 import { useId, useState } from "react";
 import type { ForwardingMessage, ForwardingSettings, InboundMessageStatus } from "@/lib/forwarding-types";
@@ -158,12 +158,8 @@ export function ForwardingSettingsView({ initial }: { initial: ForwardingSetting
   }
 
   return (
-    <main className="mx-auto w-full max-w-2xl px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-      <Link href="/chat" className="inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
-        <ArrowLeft className="size-4" aria-hidden="true" />
-        Back to Neo
-      </Link>
-      <h1 className="mt-3 text-2xl font-semibold">Forward suspicious email</h1>
+    <div className="mx-auto w-full max-w-2xl">
+      <h1 className="text-2xl font-semibold">Forward suspicious email</h1>
       <p className="mt-1 text-sm text-muted">
         Forward any email you&apos;re unsure about to your household&apos;s Neo address. Neo checks it and emails you the
         result.
@@ -300,6 +296,6 @@ export function ForwardingSettingsView({ initial }: { initial: ForwardingSetting
           </ul>
         )}
       </section>
-    </main>
+    </div>
   );
 }

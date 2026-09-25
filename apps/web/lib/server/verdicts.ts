@@ -1,14 +1,16 @@
 /**
  * Pull the ```verdict block out of the agent's final answer and store it as a
- * `verdicts` row (tenant-scoped). The block is validated with VerdictSchema
+ * `verdicts` row (tenant-scoped). The one verdict persistence path for chat and
+ * inbound mail. The block is validated with VerdictSchema
  * (via splitVerdictSegments); invalid blocks are ignored here and rendered by
  * the UI as an "invalid verdict" notice.
  */
 import { hashPii, logger, type MessageParam } from "@neo/core";
-import { tenantScoped, verdicts } from "@neo/db";
+import { saveVerdict as dbSaveVerdict, type VerdictSource } from "@neo/db";
 import type { Verdict } from "@neo/verdict";
 import { splitVerdictSegments } from "@/lib/verdict-fence";
 import { getDb } from "./db";
+import { saveMemoryVerdict } from "./memory-state";
 
 /** Text of the last assistant message in `messages` (text blocks joined). */
 export function finalAssistantText(messages: readonly MessageParam[]): string {
@@ -34,62 +36,41 @@ export function extractVerdict(messages: readonly MessageParam[]): Verdict | nul
   return null;
 }
 
-export interface MemoryVerdictRow {
-  // --- dashboard (agent E): id/source/artifactId so the no-database fallback can serve /api/verdicts ---
-  id?: string;
-  source?: "chat" | "inbound" | "api";
+export { memoryVerdicts, type MemoryVerdictRow } from "./memory-state";
+
+export interface SaveVerdictInput {
+  tenantId: string;
+  userId: string;
+  /** Null for verdicts that did not come from a chat (inbound mail). */
+  conversationId?: string | null;
+  /** The artifact the verdict is about (first chat attachment, or the forwarded .eml). */
   artifactId?: string | null;
-  // --- end dashboard ---
-  tenantId: string;
-  userId: string;
-  conversationId: string | null;
+  source: VerdictSource;
   verdict: Verdict;
-  /** Phase 1 intake: the first artifact attached to the turn that produced the verdict. */
-  artifactId?: string;
-  createdAt: Date;
 }
 
-const g = globalThis as typeof globalThis & { __neoMemoryVerdicts?: MemoryVerdictRow[] };
-
-/** No-database fallback (MOCK_MODE / tests). */
-export function memoryVerdicts(): MemoryVerdictRow[] {
-  g.__neoMemoryVerdicts ??= [];
-  return g.__neoMemoryVerdicts;
+/**
+ * Store a verdict: @neo/db `saveVerdict` with a database, else the shared
+ * in-memory rows (lib/server/memory-state.ts). Throws on failure; chat callers
+ * use `saveChatVerdict`, which never throws.
+ */
+export async function saveVerdict(input: SaveVerdictInput): Promise<{ id: string }> {
+  const db = getDb();
+  if (!db) return saveMemoryVerdict(input);
+  return dbSaveVerdict(db, input);
 }
 
-/** Store a verdict. Never throws: the user already has their answer. */
-export async function saveVerdict(input: {
-  tenantId: string;
-  userId: string;
-  conversationId: string;
-  verdict: Verdict;
-  /** Phase 1 intake. TODO(integration): write verdicts.artifact_id (migration 0003_phase1) via @neo/db saveVerdict. */
-  artifactId?: string;
-}): Promise<void> {
-  const { tenantId, userId, conversationId, verdict } = input;
+/** Store a chat verdict. Never throws: the user already has their answer. */
+export async function saveChatVerdict(input: Omit<SaveVerdictInput, "source">): Promise<string | undefined> {
   try {
-    const db = getDb();
-    if (!db) {
-      const rows = memoryVerdicts();
-      rows.push({ id: crypto.randomUUID(), source: "chat", artifactId: null, ...input, createdAt: new Date() });
-      if (rows.length > 1000) rows.splice(0, rows.length - 1000);
-      return;
-    }
-    await tenantScoped(db, tenantId).insert(verdicts, {
-      userId,
-      conversationId,
-      subjectType: verdict.subject_type,
-      verdict: verdict.verdict,
-      confidence: verdict.confidence,
-      headline: verdict.headline,
-      body: verdict as unknown as Record<string, unknown>,
-    });
+    return (await saveVerdict({ ...input, source: "chat" })).id;
   } catch (err) {
     logger.error("Verdict write failed", "verdicts", {
-      tenantId,
-      userIdHash: hashPii(userId),
-      conversationId,
+      tenantId: input.tenantId,
+      userIdHash: hashPii(input.userId),
+      ...(input.conversationId ? { conversationId: input.conversationId } : {}),
       errorMessage: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
     });
+    return undefined;
   }
 }

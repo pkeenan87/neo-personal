@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AppShell } from "@/components/AppShell";
 import { DevBypassBanner } from "@/components/DevBypassBanner";
 import { ForwardingSettingsView } from "@/components/ForwardingSettings";
 import { env } from "@/lib/env";
@@ -14,7 +15,9 @@ export default async function ForwardingSettingsPage() {
   return (
     <>
       {env().DEV_AUTH_BYPASS ? <DevBypassBanner /> : null}
-      <ForwardingSettingsView initial={settings} />
+      <AppShell active="settings">
+        <ForwardingSettingsView initial={settings} />
+      </AppShell>
     </>
   );
 }

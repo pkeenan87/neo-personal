@@ -13,17 +13,9 @@ import type { Verdict } from "@neo/verdict";
 import type { AuditEventType } from "../audit";
 import { overCapVerdict, renderNoticeEmail, renderVerdictEmail, type NoticeKind } from "../email/verdict-email";
 import { TooLargeError, type Mailer, type ReceivedEmail, type ReceivedMailClient } from "../email/resend";
-import type {
-  ArtifactStore,
-  EmailAnalysis,
-  EmailInput,
-  InboundMessagePatch,
-  InboundMessageRow,
-  MemberRow,
-  TriageInput,
-  TriageResult,
-  VerdictSource,
-} from "../phase1-stubs-inbound";
+import type { RunTriageInput, TriageResult } from "@neo/core";
+import type { ArtifactStore, HouseholdMember, InboundMessagePatch, InboundMessageRow, VerdictSource } from "@neo/db";
+import type { AnalyzeEmailOptions, EmailAnalysis, EmailInput } from "@neo/tools";
 import type { CapCheckResult, RecordCheckInput } from "../usage";
 import {
   GMAIL_CONFIRMATION_PREFIX,
@@ -55,16 +47,16 @@ export interface EmailJobDeps {
   mail: ReceivedMailClient;
   artifacts: ArtifactStore | null;
   mailer: Mailer | null;
-  listMembers(tenantId: string): Promise<MemberRow[]>;
+  listMembers(tenantId: string): Promise<HouseholdMember[]>;
   updateMessage(id: string, tenantId: string, patch: InboundMessagePatch): Promise<void>;
   findMessage(id: string, tenantId: string): Promise<InboundMessageRow | undefined>;
   checkCaps(tenantId: string): Promise<CapCheckResult>;
   noteCapHit?(tenantId: string, userId: string, caps: CapCheckResult): Promise<void>;
   recordUsage(input: RecordCheckInput): Promise<void>;
-  analyzeEmail(input: EmailInput, opts: { maxUrls: number }): Promise<EmailAnalysis>;
-  runTriage(input: TriageInput): Promise<TriageResult>;
+  analyzeEmail(input: EmailInput, opts: Pick<AnalyzeEmailOptions, "maxUrls">): Promise<EmailAnalysis>;
+  runTriage(input: RunTriageInput): Promise<TriageResult>;
   triageGuidance: string;
-  saveVerdict(input: { tenantId: string; userId: string; artifactId?: string; source: VerdictSource; verdict: Verdict }): Promise<{ id: string }>;
+  saveVerdict(input: { tenantId: string; userId: string; artifactId?: string | null; source: VerdictSource; verdict: Verdict }): Promise<{ id: string }>;
   audit(tenantId: string, userId: string | null, type: AuditEventType, metadata: Record<string, unknown>): Promise<void>;
   appUrl: string;
   now?: () => Date;
@@ -256,6 +248,16 @@ export async function runEmailReceived(data: EmailReceivedData, deps: EmailJobDe
     });
     await deps.updateMessage(id, tenantId, { status: "done", completedAt: now() });
     return null;
+  });
+  logger.info("Inbound email analyzed", "inbound", {
+    tenantId,
+    inboundMessageId: id,
+    verdictId,
+    artifactId,
+    source: "inbound",
+    status: "done",
+    verdict: verdict.verdict,
+    model: triage.model,
   });
   return { status: "done", verdictId };
 }

@@ -1,5 +1,4 @@
-// TODO(integration): import these types from @neo/db instead of the stubs.
-import type { ArtifactMeta, ArtifactStore, BlobClient } from "./phase1-stubs";
+import type { ArtifactMeta, ArtifactStore, BlobClient } from "@neo/db";
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>);
@@ -61,9 +60,9 @@ export function createInMemoryArtifactStore(opts: { blob: BlobClient; retentionD
       const now = Date.now();
       return [...rows.values()].filter((r) => r.expiresAt && r.expiresAt.getTime() <= now).slice(0, limit).map(strip);
     },
-    async purge(id) {
+    async purge(id, tenantId) {
       const r = rows.get(id);
-      if (!r) return;
+      if (!r || (tenantId !== undefined && r.tenantId !== tenantId)) return;
       await opts.blob.del(r.url);
       rows.delete(id);
     },

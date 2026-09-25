@@ -8,8 +8,8 @@
  *   - owners may filter by any current member (`not_found` for a user who is
  *     not in the household).
  *
- * Postgres via the @neo/db contract (currently the typed stubs in
- * phase1-stubs-dashboard.ts) when DATABASE_URL is set, else the in-memory fallback.
+ * Postgres via @neo/db when DATABASE_URL is set, else the shared in-memory
+ * fallback (lib/server/memory-state.ts via verdict-memory.ts).
  */
 import { hashPii, logger } from "@neo/core";
 import { VerdictSchema, type Verdict } from "@neo/verdict";
@@ -26,15 +26,17 @@ import { recordAudit } from "./audit";
 import { getConversationStore } from "./conversation-store";
 import { getDb } from "./db";
 import {
-  getArtifactStore,
   getHouseholdName,
   inbound,
   listMembers,
   verdictQueries,
   type HouseholdMember,
-  type VerdictListOpts,
+  type InboundMessageRow,
+  type VerdictListOptions as VerdictListOpts,
   type VerdictRow,
-} from "./phase1-stubs-dashboard";
+} from "@neo/db";
+import { getArtifactStore } from "./artifacts";
+import { memoryState } from "./memory-state";
 import { memoryListMembers, memoryVerdictQueries } from "./verdict-memory";
 
 export const VERDICT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -143,10 +145,8 @@ export async function verdictDetail(session: NeoSession, id: string, now = new D
 
   const [conversation, artifact, inboundRow, members] = await Promise.all([
     row.conversationId ? conversationTitle(session.tenantId, row.userId, row.conversationId) : null,
-    row.artifactId ? safe(() => getArtifactStore().get(row.artifactId!, session.tenantId), "artifact lookup") : undefined,
-    row.source === "inbound"
-      ? safe(async () => (await inbound.listRecent(db(), session.tenantId, 200)).find((m) => m.verdictId === row.id), "inbound lookup")
-      : undefined,
+    row.artifactId ? safe(async () => getArtifactStore()?.get(row.artifactId!, session.tenantId), "artifact lookup") : undefined,
+    row.source === "inbound" ? safe(() => inboundByVerdictId(session.tenantId, row.id), "inbound lookup") : undefined,
     householdMembers(session),
   ]);
   const nameOf = (userId: string | null | undefined) => {
@@ -175,6 +175,12 @@ export async function verdictDetail(session: NeoSession, id: string, now = new D
       : null,
     memberName: nameOf(row.userId),
   };
+}
+
+async function inboundByVerdictId(tenantId: string, verdictId: string): Promise<InboundMessageRow | undefined> {
+  const d = db();
+  if (d) return inbound.findByVerdictId(d, tenantId, verdictId);
+  return memoryState().inboundMessages.find((m) => m.tenantId === tenantId && m.verdictId === verdictId);
 }
 
 async function conversationTitle(tenantId: string, userId: string, id: string): Promise<{ id: string; title: string | null } | null> {
@@ -206,8 +212,11 @@ export async function deleteVerdict(session: NeoSession, id: string): Promise<bo
   let artifactDeleted = false;
   if (row.artifactId) {
     try {
-      await getArtifactStore().delete(row.artifactId, session.tenantId);
-      artifactDeleted = true;
+      const store = getArtifactStore();
+      if (store) {
+        await store.delete(row.artifactId, session.tenantId);
+        artifactDeleted = true;
+      }
     } catch (err) {
       // The verdict is gone; the retention job purges the artifact at expiry.
       logger.error("Artifact delete failed", "dashboard", {
@@ -227,7 +236,8 @@ export async function deleteVerdict(session: NeoSession, id: string): Promise<bo
 
 export async function household(session: NeoSession): Promise<HouseholdResponse> {
   const members = await householdMembers(session);
-  const name = (await safe(() => getHouseholdName(db(), session.tenantId), "household name")) ?? "Your household";
+  const d = db();
+  const name = (d ? await safe(() => getHouseholdName(d, session.tenantId), "household name") : undefined) ?? "Your household";
   return {
     tenantId: session.tenantId,
     name,
@@ -243,6 +253,8 @@ export async function household(session: NeoSession): Promise<HouseholdResponse>
 
 /** True once the household's forwarding address has received at least one message. */
 export async function forwardingUsed(session: NeoSession): Promise<boolean> {
-  const rows = await safe(() => inbound.listRecent(db(), session.tenantId, 1), "inbound list");
+  const d = db();
+  if (!d) return memoryState().inboundMessages.some((m) => m.tenantId === session.tenantId);
+  const rows = await safe(() => inbound.listRecent(d, session.tenantId, 1), "inbound list");
   return (rows?.length ?? 0) > 0;
 }

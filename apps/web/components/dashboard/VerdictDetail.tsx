@@ -8,6 +8,7 @@ import type { Severity, Verdict } from "@neo/verdict";
 import { CopyButton } from "@/components/CopyButton";
 import { useToast } from "@/components/toast-context";
 import { defang, VerdictCard } from "@/components/VerdictCard";
+import { artifactUrl as artifactHref } from "@/lib/attachments";
 import type { VerdictDetailResponse } from "@/lib/dashboard-types";
 
 const SEVERITY_CHIP: Record<Severity, string> = {
@@ -112,7 +113,9 @@ export function VerdictDetail({ detail }: { detail: VerdictDetailResponse }) {
   const indicators = [...v.indicators].sort((a, b) => SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity));
   const iocGroups = (Object.keys(IOC_LABELS) as Array<keyof Verdict["iocs"]>).filter((k) => v.iocs[k].length > 0);
   const artifact = detail.artifact;
-  const artifactUrl = artifact ? `/api/artifacts/${artifact.id}` : null;
+  // GET /api/artifacts/[id] downloads by default; ?inline=1 displays an image (_specs/intake.md).
+  const downloadUrl = artifact ? artifactHref(artifact.id) : null;
+  const inlineUrl = artifact ? artifactHref(artifact.id, true) : null;
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">
@@ -246,14 +249,14 @@ export function VerdictDetail({ detail }: { detail: VerdictDetailResponse }) {
               {artifact.kind === "image" && (
                 // eslint-disable-next-line @next/next/no-img-element -- private, auth-gated artifact; not optimizable
                 <img
-                  src={artifactUrl!}
+                  src={inlineUrl!}
                   alt={artifact.filename ? `Evidence: ${artifact.filename}` : "Evidence screenshot"}
                   className="max-h-[32rem] rounded-xl border border-border"
                 />
               )}
               <div className="flex flex-wrap items-center gap-3 text-sm">
                 <a
-                  href={`${artifactUrl}?download=1`}
+                  href={downloadUrl!}
                   download={artifact.filename ?? undefined}
                   className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border px-3 font-medium hover:bg-surface-2"
                 >

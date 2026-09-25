@@ -8,19 +8,30 @@
 import type { MessageParam } from "@neo/core";
 import { ATTACHMENT_LIMITS, attachmentNote, isImageMimeType, type AttachmentKind, type ImageMimeType } from "@/lib/attachments";
 import { env, isDeployedEnvironment } from "@/lib/env";
-import { getDb } from "./db";
-import { createInMemoryArtifactStore } from "./memory-artifact-store";
-// TODO(integration): replace with @neo/db (store, blob clients, types) and @neo/core (masterKeyFromEnv).
+import { logger, masterKeyFromEnv as coreMasterKeyFromEnv } from "@neo/core";
 import {
   createArtifactStore,
   createMemoryBlobClient,
   createVercelBlobClient,
-  masterKeyFromEnv,
   type ArtifactMeta,
   type ArtifactStore,
-} from "./phase1-stubs";
+} from "@neo/db";
+import { getDb } from "./db";
+import { createInMemoryArtifactStore } from "./memory-artifact-store";
 
 export type { ArtifactMeta, ArtifactStore };
+
+/** NEO_MASTER_KEY as 32 bytes; undefined when unset or malformed (logged; artifacts then report "unconfigured"). */
+export function masterKeyFromEnv(): Uint8Array | undefined {
+  try {
+    return coreMasterKeyFromEnv();
+  } catch (err) {
+    logger.error("NEO_MASTER_KEY is malformed", "artifacts", {
+      errorMessage: err instanceof Error ? err.message.slice(0, 200) : String(err).slice(0, 200),
+    });
+    return undefined;
+  }
+}
 
 // ─── Type detection ────────────────────────────────────────────────
 
@@ -130,6 +141,7 @@ export function artifactsStatus(): ArtifactsStatus {
   const hasKey = masterKeyFromEnv() !== undefined;
   // Production always requires the key; with a database, so does everything but MOCK_MODE.
   if (!hasKey && (e.VERCEL_ENV === "production" || (e.DATABASE_URL && !e.MOCK_MODE))) return "unconfigured";
+  if (!hasKey && process.env.NEO_MASTER_KEY?.trim()) return "unconfigured"; // set but malformed
   if (!e.HAS_BLOB_TOKEN) {
     // A per-instance memory blob store loses files between serverless instances.
     if (isDeployedEnvironment() && !e.MOCK_MODE) return "unconfigured";
@@ -140,7 +152,14 @@ export function artifactsStatus(): ArtifactsStatus {
 
 const g = globalThis as typeof globalThis & { __neoArtifactStore?: { key: string; store: ArtifactStore } };
 
-/** The artifact store, or null when artifacts are unconfigured (callers return 503 storage_unavailable). */
+/**
+ * The app's single artifact store (uploads, inbound mail, dashboard evidence,
+ * retention job), or null when artifacts are unconfigured (callers return 503
+ * storage_unavailable). With a database: @neo/db `createArtifactStore` over
+ * Vercel Blob (or the memory blob client in MOCK_MODE / local), encrypted with
+ * NEO_MASTER_KEY; plaintext only where artifactsStatus() tolerates a missing
+ * key (MOCK_MODE or no database). Without a database: the in-memory store.
+ */
 export function getArtifactStore(): ArtifactStore | null {
   const status = artifactsStatus();
   if (status === "unconfigured") return null;
@@ -149,7 +168,7 @@ export function getArtifactStore(): ArtifactStore | null {
   const db = getDb();
   const key = [status, e.DATABASE_URL ?? "", masterKey ? "k" : "", e.ARTIFACT_RETENTION_DAYS].join("|");
   if (g.__neoArtifactStore?.key !== key) {
-    const blob = status === "memory" ? createMemoryBlobClient() : createVercelBlobClient();
+    const blob = status === "memory" ? createMemoryBlobClient() : createVercelBlobClient(process.env.BLOB_READ_WRITE_TOKEN);
     const store = db
       ? createArtifactStore(db, {
           blob,

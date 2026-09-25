@@ -1,8 +1,10 @@
 /** Production wiring for the inbound jobs (tests build their own deps). */
+import { runTriage } from "@neo/core";
+import { analyzeEmail, EMAIL_ANALYSIS_GUIDANCE } from "@neo/tools";
 import { inboundEnv } from "@/lib/env";
+import { sharedUrlCache } from "../agent-run";
 import { recordAudit } from "../audit";
 import { getMailer, getReceivedMailClient } from "../email/resend";
-import { analyzeEmail, EMAIL_ANALYSIS_GUIDANCE, runTriage } from "../phase1-stubs-inbound";
 import { checkCaps, noteCapHit, recordUsage } from "../usage";
 import type { ExpireDeps } from "./artifacts-expire-job";
 import type { EmailJobDeps } from "./email-received-job";
@@ -22,7 +24,8 @@ export function createEmailJobDeps(): EmailJobDeps {
       if (caps.reason) await noteCapHit(tenantId, userId, caps, caps.reason);
     },
     recordUsage,
-    analyzeEmail,
+    // Same URL reputation cache as the chat tools.
+    analyzeEmail: (input, opts) => analyzeEmail(input, { ...opts, deps: { cache: sharedUrlCache() } }),
     runTriage,
     triageGuidance: EMAIL_ANALYSIS_GUIDANCE,
     saveVerdict: repo.saveVerdict,

@@ -239,10 +239,12 @@ export async function analyzeSms(input: SmsInput, opts: AnalyzeSmsOptions = {}):
   };
   if (deps.mock) result.mock = true;
 
-  logger.info(`sms analyzed: sender=${sender.kind} urls=${urls.length} analyzed=${analyzed} phones=${phone_numbers.length}`, "tools.sms", {
+  logger.info(`sms analyzed: analyzed=${analyzed} phones=${phone_numbers.length}`, "tools.sms", {
     toolName: "analyze_sms",
     durationMs: Date.now() - started,
     labels: result.heuristics,
+    kind: sender.kind,
+    urlCount: urls.length,
   });
   return boundStrings(result, 2048);
 }

@@ -20,9 +20,7 @@ import {
   type ToolContext,
   type ToolRegistry,
 } from "@neo/core";
-import { createCheckUrlTool, createInMemoryCache } from "@neo/tools";
-// ── Phase 1: intake tools. TODO(integration): import these two from "@neo/tools" instead. ──
-import { createAnalyzeEmailTool, createAnalyzeSmsTool } from "./phase1-stubs";
+import { createAnalyzeEmailTool, createAnalyzeSmsTool, createCheckUrlTool, createInMemoryCache } from "@neo/tools";
 import { parseAttachmentNote } from "@/lib/attachments";
 import { env } from "@/lib/env";
 import { playbookMarker, type PlaybookId } from "@/lib/playbooks";
@@ -33,18 +31,24 @@ import { NDJSON_HEADERS } from "./http";
 import { createMockAnthropicClient, mockReportPhishTool } from "./mock-model";
 import { NEO_SYSTEM_PROMPT } from "./system-prompt";
 import { recordUsage } from "./usage";
-import { extractVerdict, saveVerdict } from "./verdicts";
+import { extractVerdict, saveChatVerdict } from "./verdicts";
 
 const g = globalThis as typeof globalThis & { __neoUrlCache?: ReturnType<typeof createInMemoryCache> };
 
-/** check_url with a process-wide reputation cache; MOCK_MODE adds a destructive demo tool. */
-export function buildToolRegistry(opts: { mock: boolean } = { mock: env().MOCK_MODE }): ToolRegistry {
+/** The process-wide URL reputation cache shared by chat tools and the inbound job. */
+export function sharedUrlCache(): ReturnType<typeof createInMemoryCache> {
   g.__neoUrlCache ??= createInMemoryCache();
-  const tools: RegisteredTool[] = [createCheckUrlTool({ deps: { cache: g.__neoUrlCache } })];
+  return g.__neoUrlCache;
+}
+
+/** check_url, analyze_email and analyze_sms with a shared reputation cache; MOCK_MODE adds a destructive demo tool. */
+export function buildToolRegistry(opts: { mock: boolean } = { mock: env().MOCK_MODE }): ToolRegistry {
+  const cache = sharedUrlCache();
+  const tools: RegisteredTool[] = [createCheckUrlTool({ deps: { cache } })];
   // ── Phase 1: intake tools (analyze_email, analyze_sms) ──
   tools.push(
-    createAnalyzeEmailTool({ deps: { cache: g.__neoUrlCache }, loadArtifact: loadArtifactForTool }),
-    createAnalyzeSmsTool({ deps: { cache: g.__neoUrlCache } }),
+    createAnalyzeEmailTool({ deps: { cache }, loadArtifact: loadArtifactForTool }),
+    createAnalyzeSmsTool({ deps: { cache } }),
   );
   // ── end Phase 1: intake tools ──
   if (opts.mock) tools.push(mockReportPhishTool);
@@ -213,10 +217,13 @@ export function streamAgentRun(input: AgentRunInput): Response {
       // ── Phase 1: intake — link the verdict to the turn's first attachment ──
       const artifactId = firstAttachmentId(prefix);
       if (artifactId && !verdict.raw_ref) verdict.raw_ref = artifactId;
-      await saveVerdict({ tenantId: session.tenantId, userId: session.userId, conversationId, verdict, ...(artifactId ? { artifactId } : {}) });
+      const verdictId = await saveChatVerdict({ tenantId: session.tenantId, userId: session.userId, conversationId, verdict, ...(artifactId ? { artifactId } : {}) });
       logger.info("Verdict stored", "api.agent", {
         conversationId,
         tenantId: session.tenantId,
+        ...(verdictId ? { verdictId } : {}),
+        ...(artifactId ? { artifactId } : {}),
+        source: "chat",
         verdict: verdict.verdict,
         subjectType: verdict.subject_type,
         confidence: verdict.confidence,

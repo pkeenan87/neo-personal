@@ -2,10 +2,8 @@ import type { AgentEvent } from "@neo/core";
 import { readAgentEvents } from "@/lib/ndjson";
 import { resetArtifactStore } from "@/lib/server/artifacts";
 import { memoryAuditLog } from "@/lib/server/audit";
+import { resetMemoryState as resetPhase1MemoryState } from "@/lib/server/memory-state";
 import { resetMemoryUsage } from "@/lib/server/usage";
-import { memoryVerdicts } from "@/lib/server/verdicts";
-import { resetStubArtifacts, resetStubInbound } from "@/lib/server/phase1-stubs-dashboard";
-import { resetMemoryMembers } from "@/lib/server/verdict-memory";
 import { collect } from "../fixtures";
 
 export function post(url: string, body: unknown): Request {
@@ -49,10 +47,7 @@ export function resetMemoryState(): void {
   g.__neoMemoryConversationStore = undefined;
   resetMemoryUsage();
   memoryAuditLog().length = 0;
-  memoryVerdicts().length = 0;
+  // Verdicts, members and inbound rows (one shared module), and the artifact store.
+  resetPhase1MemoryState();
   resetArtifactStore();
-  // dashboard (agent E)
-  resetMemoryMembers();
-  resetStubArtifacts();
-  resetStubInbound();
 }

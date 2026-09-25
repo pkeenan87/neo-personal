@@ -327,10 +327,17 @@ export async function analyzeEmail(input: EmailInput, opts: AnalyzeEmailOptions 
   };
   if (deps.mock) result.mock = true;
 
-  logger.info(
-    `email analyzed: spf=${authentication.spf} dkim=${authentication.dkim} dmarc=${authentication.dmarc} urls=${urls.length} analyzed=${analyzedCount} attachments=${att.attachments.length} forwarded=${forwarded}`,
-    "tools.email",
-    { toolName: "analyze_email", durationMs: Date.now() - started, labels: result.heuristics },
-  );
+  logger.info(`email analyzed: analyzed=${analyzedCount} forwarded=${forwarded}`, "tools.email", {
+    toolName: "analyze_email",
+    durationMs: Date.now() - started,
+    labels: result.heuristics,
+    spf: authentication.spf,
+    dkim: authentication.dkim,
+    dmarc: authentication.dmarc,
+    urlCount: urls.length,
+    attachmentCount: att.attachments.length,
+    // The analyzed sender's domain (bounded, lowercased): never the user's own address.
+    ...(result.sender.from.registrable ? { senderDomain: result.sender.from.registrable.slice(0, 253) } : {}),
+  });
   return boundStrings(result, 2048);
 }

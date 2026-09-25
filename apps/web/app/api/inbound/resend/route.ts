@@ -17,6 +17,7 @@
  * INNGEST_EVENT_KEY runs the job inline (awaited).
  */
 import { hashPii, logger } from "@neo/core";
+import { isInboundLocalPart } from "@neo/db";
 import { Webhook } from "svix";
 import { inngest } from "@/inngest/client";
 import { env, inboundEnv, isDeployedEnvironment } from "@/lib/env";
@@ -24,7 +25,6 @@ import { registerMockReceivedEmail } from "@/lib/server/email/resend";
 import { jsonError } from "@/lib/server/http";
 import { createEmailJobDeps } from "@/lib/server/inbound/deps";
 import { EMAIL_RECEIVED_EVENT, runEmailReceivedInline, type EmailReceivedData } from "@/lib/server/inbound/email-received-job";
-import { isInboundLocalPart } from "@/lib/server/inbound/local-part";
 import { inboundRepo, isUniqueViolation } from "@/lib/server/inbound/repo";
 import { extractAddress, extractAddresses, parseRawHeaders } from "@/lib/server/inbound/senders";
 
@@ -150,7 +150,7 @@ export async function POST(req: Request): Promise<Response> {
   const fromAddressHash = hashPii(extractAddress(data.from) ?? data.from.toLowerCase());
   let messageId: string;
   try {
-    const recent = await repo.countRecent(address.id, HOUR_MS);
+    const recent = await repo.countRecent(tenantId, address.id, HOUR_MS);
     const limited = recent >= ie.NEO_INBOUND_RATE_LIMIT_PER_HOUR;
     const row = await repo.recordMessage({
       tenantId,
@@ -159,10 +159,11 @@ export async function POST(req: Request): Promise<Response> {
       fromAddressHash,
       status: limited ? "rejected" : "received",
     });
+    if (row.duplicate) return json({ duplicate: true });
     messageId = row.id;
     if (limited) {
       await repo.updateMessage(row.id, tenantId, { error: "rate_limited", completedAt: new Date() });
-      logger.warn("Inbound address rate limited", "api.inbound", { tenantId });
+      logger.warn("Inbound address rate limited", "api.inbound", { tenantId, addressId: address.id, inboundMessageId: row.id });
       return json({ accepted: true });
     }
   } catch (err) {

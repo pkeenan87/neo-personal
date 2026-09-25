@@ -12,9 +12,8 @@ import type { HouseholdResponse, VerdictDetailResponse, VerdictListResponse, Ver
 import { messagesFromStored, type StoredMessage } from "@/lib/chat-state";
 import { memoryAuditLog } from "@/lib/server/audit";
 import { getConversationStore } from "@/lib/server/conversation-store";
-import { getArtifactStore, putStubArtifact, putStubInbound } from "@/lib/server/phase1-stubs-dashboard";
-import { setMemoryMembers } from "@/lib/server/verdict-memory";
-import { memoryVerdicts } from "@/lib/server/verdicts";
+import { getArtifactStore } from "@/lib/server/artifacts";
+import { memoryState, memoryVerdicts, setMemoryMembers } from "@/lib/server/memory-state";
 import { DEV_SESSION_IDS } from "@/lib/session";
 import { VERDICT_FIXTURE } from "./fixtures";
 import { events, post, resetMemoryState, stubBaseEnv } from "./helpers/routes";
@@ -230,20 +229,14 @@ describe("summary", () => {
 
 describe("DELETE /api/verdicts/[id]", () => {
   it("removes the verdict and its artifact, writes verdict.deleted, then 404s", async () => {
-    const artifactId = "art-1";
-    putStubArtifact({
-      id: artifactId,
+    const { id: artifactId } = await getArtifactStore()!.put({
       tenantId: TENANT,
       userId: MEMBER.userId,
       kind: "eml",
       filename: "message.eml",
       mimeType: "message/rfc822",
-      sizeBytes: 2048,
-      sha256: "abc",
-      encrypted: true,
+      bytes: new Uint8Array(2048).fill(65),
       source: "upload",
-      createdAt: new Date(),
-      expiresAt: new Date(Date.now() + 86_400_000),
     });
     const id = seed(MEMBER.userId, {}, { artifactId });
 
@@ -253,7 +246,7 @@ describe("DELETE /api/verdicts/[id]", () => {
 
     const res = await verdictDELETE(get("/x"), params(id));
     expect(res.status).toBe(204);
-    expect(await getArtifactStore().get(artifactId, TENANT)).toBeUndefined();
+    expect(await getArtifactStore()!.get(artifactId, TENANT)).toBeUndefined();
     const audit = memoryAuditLog().filter((e) => e.eventType === "verdict.deleted");
     expect(audit).toHaveLength(1);
     expect(audit[0]).toMatchObject({ tenantId: TENANT, userId: MEMBER.userId, metadata: { verdictId: id, artifactDeleted: true } });
@@ -269,34 +262,38 @@ describe("DELETE /api/verdicts/[id]", () => {
   });
 
   it("reports expired evidence and forwarded origin", async () => {
-    putStubArtifact({
-      id: "art-old",
+    // Stored 40 days ago with the default 30-day retention: expired, so the store no longer returns it.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.now() - 40 * 86_400_000));
+    const { id: artifactId } = await getArtifactStore()!.put({
       tenantId: TENANT,
       userId: MEMBER.userId,
       kind: "inbound_eml",
       mimeType: "message/rfc822",
-      sizeBytes: 10,
-      sha256: "x",
-      encrypted: true,
+      bytes: new TextEncoder().encode("x"),
       source: "inbound",
-      createdAt: new Date(Date.now() - 40 * 86_400_000),
-      expiresAt: new Date(Date.now() - 86_400_000),
     });
-    const id = seed(MEMBER.userId, { subject_type: "email" }, { artifactId: "art-old", source: "inbound" });
-    putStubInbound({
-      id: "in-1",
+    vi.useRealTimers();
+    const id = seed(MEMBER.userId, { subject_type: "email" }, { artifactId, source: "inbound" });
+    memoryState().inboundMessages.push({
+      id: "00000000-0000-4000-8000-0000000000a1",
       tenantId: TENANT,
+      addressId: "00000000-0000-4000-8000-0000000000a2",
+      providerMessageId: "em_1",
+      fromAddressHash: "h",
       status: "done",
+      error: null,
       forwarderUserId: MEMBER.userId,
       verdictId: id,
-      artifactId: "art-old",
+      artifactId,
       receivedAt: new Date("2026-09-01T10:00:00Z"),
       completedAt: new Date("2026-09-01T10:01:00Z"),
     });
     signIn(OWNER);
     const d = await json<VerdictDetailResponse>(verdictGET(get("/x"), params(id)));
     expect(d.source).toBe("inbound");
-    expect(d.artifact).toMatchObject({ expired: true });
+    expect(d.artifactId).toBe(artifactId);
+    expect(d.artifact).toBeNull(); // expired evidence is gone; the page says so
     expect(d.inbound).toEqual({ status: "done", receivedAt: "2026-09-01T10:00:00.000Z", forwardedBy: "Max" });
   });
 });
