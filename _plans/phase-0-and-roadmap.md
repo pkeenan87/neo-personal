@@ -264,6 +264,8 @@ Weeks are calendar weeks for one developer using Claude Code heavily. Each phase
 
 ### Phase 1 — Email and SMS analysis (weeks 3–5)
 
+Detailed plan and status: [`_plans/phase-1.md`](phase-1.md).
+
 - Email parser (`mailparser`), header auth analysis, URL/attachment extraction, verdict schema + card component.
 - Paste, `.eml` upload, screenshot (vision) intake for both email and SMS.
 - Forward-to-address via Resend inbound webhook → Inngest job → Sonnet 5 triage → verdict stored → user notified by email. Onboarding guides for Gmail, iCloud, Outlook, and Yahoo forwarding rules.

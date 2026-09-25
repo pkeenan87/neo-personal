@@ -154,7 +154,7 @@ The system prompt (`apps/web/lib/server/system-prompt.ts`) tells the model to en
 
 # Package contracts (Phase 1)
 
-Additive to Phase 0. Full shapes live in the specs; this section fixes the names and ownership so parallel work lines up. Rule: an agent that needs an interface from another package builds against **this** shape and, if the owning package is not merged yet, a local stub under `test/` or a typed placeholder; the integration pass swaps in the real export.
+Additive to Phase 0, as shipped. Full behaviour lives in the specs under `_specs/`; the signatures below are authoritative.
 
 ## @neo/tools (spec `_specs/email-analysis.md`, `_specs/sms-analysis.md`)
 
@@ -162,17 +162,28 @@ Additive to Phase 0. Full shapes live in the specs; this section fixes the names
 export function parseEmail(raw: string | Uint8Array): Promise<ParsedEmail>;
 export function analyzeEmail(input: EmailInput, opts?: { deps?: Partial<UrlAnalysisDeps>; signal?: AbortSignal; maxUrls?: number }): Promise<EmailAnalysis>;
 export const analyzeEmailTool: RegisteredTool;                       // "analyze_email"; input { artifact_ref? | raw? | pasted? } (exactly one)
-export function createAnalyzeEmailTool(opts: { deps?: Partial<UrlAnalysisDeps>; loadArtifact?: (ref: string, ctx: ToolContext) => Promise<Uint8Array | undefined> }): RegisteredTool;
+export function createAnalyzeEmailTool(opts?: { deps?: Partial<UrlAnalysisDeps>; loadArtifact?: (ref: string, ctx: ToolContext) => Promise<Uint8Array | undefined> }): RegisteredTool;
 export const EMAIL_ANALYSIS_GUIDANCE: string;
 export function extractEmailIocs(a: EmailAnalysis): Verdict["iocs"];
-export function analyzeSms(input: SmsInput, opts?: { deps?: Partial<UrlAnalysisDeps>; signal?: AbortSignal }): Promise<SmsAnalysis>;
+export function analyzeSms(input: SmsInput, opts?: { deps?: Partial<UrlAnalysisDeps>; signal?: AbortSignal; maxUrls?: number }): Promise<SmsAnalysis>;
 export const analyzeSmsTool: RegisteredTool;                         // "analyze_sms"; input { sender?, body, received_at?, user_country? }
-export function createAnalyzeSmsTool(opts: { deps?: Partial<UrlAnalysisDeps> }): RegisteredTool;
+export function createAnalyzeSmsTool(opts?: { deps?: Partial<UrlAnalysisDeps> }): RegisteredTool;
 export const SMS_ANALYSIS_GUIDANCE: string;
 export function extractSmsIocs(a: SmsAnalysis): Verdict["iocs"];
 export type { ParsedEmail, EmailInput, EmailAnalysis, SmsInput, SmsAnalysis };
 ```
 Both tools are read-only, `strict: true`, never throw for analysis failures (`errors[]`), and never fetch attachments or render HTML. Mock mode: offline parsing plus the Phase 0 URL mock. `loadArtifact` receives the `ToolContext` and must scope by `ctx.tenantId`.
+
+Notes:
+- `execute` throws (zod) only for invalid input: not exactly one of `artifact_ref`/`raw`/`pasted`, `raw` over 512 KB (UTF-8 bytes), SMS `body` over 4000 chars, `user_country` not two letters. `null` for an optional field is treated as absent. Artifact problems are results, not throws: `errors: ["artifact_not_found"]` (loader returned `undefined`), `["artifact_load_failed"]` (loader threw; logged with `tenantId` only), `["artifact_store_unavailable"]` (no loader: the default `analyzeEmailTool`). apps/web must register `createAnalyzeEmailTool({ deps, loadArtifact })`, with `loadArtifact = (ref, ctx) => artifactStore.read(ref, ctx.tenantId)` (return `undefined` for other tenants' ids and for `image` artifacts). `eml`/`inbound_eml` bytes are parsed as MIME; bytes with no recognizable message headers (a `text` artifact) are analyzed as a pasted body (`input_kind: "raw"`, `headers_present: false`).
+- Other analyzer errors: `unsupported_format` (OLE/.msg), `parse_failed`, `empty_input`, `truncated: ...` (message > 4 MB or HTML > 512 KB was cut), `virustotal_file: ...`, SMS `urls_truncated: ...`.
+- `analyzeEmail` options also take `maxUrls` (default 8, hard cap 8); `analyzeSms` takes `maxUrls` (default 5, hard cap 5; at most 5 URLs listed). Email lists at most 50 URLs (duplicates are merged, not listed; `skipped: "duplicate"` is never emitted) and 50 attachments; strings are capped at 2048 chars, `text_excerpt` at 2000, `body_excerpt` at 1000. `analyzed_at` is fixed (`2026-01-15T12:00:00.000Z`) in mock mode.
+- `EmailAnalysis` also has `phone_numbers` (callback numbers, E.164 when parseable), `authentication.compauth` (Microsoft), and per attachment `extension` and `flags` (`ole_document`, `archive_not_inspected`, `macro_enabled`, `rtlo_in_name`, `inline`); attachment `virustotal` is a file report (`GET /files/{sha256}`, lookup only, at most 5 per message) or `{ status: "not_found" }` or `{ skipped: "no_api_key" | "mock" | "limit" | "not_applicable" | "error" }`. `ParsedEmail` adds `fromCount`, `headersSynthetic`, `truncated`.
+- Heuristic catalogs with descriptions: `EMAIL_HEURISTIC_CODES`, `SMS_HEURISTIC_CODES`. Codes beyond the spec lists: email `missing_from`, `multiple_from`, `unicode_tricks_in_display_name`, `display_name_address_mismatch`, `spf_softfail`, `url_reputation_flagged`, `url_brand_lookalike`, `url_non_web_scheme`, `many_urls`, `ole_document`, `archive_not_inspected`, `callback_number_present`; SMS `reply_to_activate_link`, `group_message`, `non_english_body`, `link_only_message`, `first_seen_domain_lt_30d`, `url_reputation_flagged`, `url_brand_lookalike`.
+- Also exported: `createAnalyzeSmsTool`/`createAnalyzeEmailTool` definitions and zod schemas (`analyzeEmailDefinition`, `AnalyzeEmailInputSchema`, `analyzeSmsDefinition`, `AnalyzeSmsInputSchema`), `emailErrorResult`, `parsePasted`, `detectMagic`, `EmailParseError`, `evaluateAuthentication`, `parseAuthResultsValue`, `analyzeHtml`, `triageAttachment`, `checkVirusTotalFile`, `classifySmsSender`, `stripChrome`, `parsePhone`, `extractPhoneNumbers`, `extractTextUrls`, `refang`, `isFreeMailDomain`.
+- Data tables that can grow without code changes live in `packages/tools/src/data/` (`sms-lures.json`, `email-signals.json`, `injection-patterns.json`, `free-mail-providers.json`, `dangerous-extensions.json`, `country-calling-codes.json`, `nanp-area-codes.json`). New runtime dependency: `postal-mime` 3.0.0. No new env vars (`VIRUSTOTAL_API_KEY` is reused).
+- Logging: one `info` line per analysis; metadata `labels` (heuristic codes), `spf`, `dkim`, `dmarc`, `urlCount`, `attachmentCount`, `senderDomain` (the analyzed sender's registrable domain) for email, `kind` (sender type) and `urlCount` for SMS. Never subjects, addresses or bodies.
+- Result size: an `analyze_email` result with 8 URL analyses measured about 15 KB of JSON (~4.4k estimated tokens) with mock URL reports; real reports are larger but stay well under `NEO_TOOL_RESULT_MAX_TOKENS` (default 25000), which truncates anything bigger when it enters the model.
 
 ## @neo/core (spec `_specs/intake.md`, `_specs/forward-to-address.md`)
 
@@ -185,16 +196,25 @@ export function decryptArtifact(key: Uint8Array, blob: Uint8Array, aad: string):
 export class ArtifactDecryptError extends Error {}
 
 // Bulk triage: one structured-output call on NEO_TRIAGE_MODEL (default claude-sonnet-5), effort low
-export function runTriage(input: { evidence: unknown; evidenceKind: "email" | "sms"; guidance: string; client?: Anthropic; model?: string; signal?: AbortSignal }): Promise<{ verdict: Verdict; usage: AgentUsage; model: string }>;
+export function runTriage(input: { evidence: unknown; evidenceKind: "email" | "sms"; guidance: string; client?: Anthropic; model?: string; signal?: AbortSignal; maxTokens?: number }): Promise<{ verdict: Verdict; usage: AgentUsage; model: string; attempts: number; fallback: boolean }>;
 export const TRIAGE_SYSTEM_PROMPT: string;
 export function triageModel(): string;                                                   // NEO_TRIAGE_MODEL
 
-// Context manager: image blocks count 1600 tokens; compression replaces older images with "[image omitted]" text blocks.
+// Context manager: image blocks count 1600 tokens; past the compression trigger, images before the latest
+// user turn become "[image omitted]" text blocks first, and Haiku compression runs only if that is not enough.
+export const IMAGE_OMITTED_TEXT: string;
+export function omitOlderImages(messages: readonly MessageParam[]): { messages: MessageParam[]; omitted: number };
 ```
+
+Notes:
+- `masterKeyFromEnv` accepts standard or URL-safe base64, returns `undefined` when unset/blank, and **throws** when set but not 32 bytes. HKDF uses a fixed salt (`neo-artifact-hkdf-salt-v1`) plus info `neo-artifact-v1:<tenantId>`. Also exported: `ARTIFACT_CIPHERTEXT_OVERHEAD` (32 bytes).
+- `runTriage` returns `{ verdict, usage, model, attempts, fallback }` (`fallback: true` = the `triage_failed` verdict). It takes `maxTokens?` (default 4096, not 2048: adaptive thinking shares the budget). Request: `messages.create({ model, max_tokens, system, messages: [one user message], thinking: { type: "adaptive" }, output_config: { effort: "low" | "medium", format: { type: "json_schema", schema: verdictJsonSchema } } })` (non-beta; SDK type `OutputConfig`). `subject_type` is forced to `evidenceKind`. Refusal / `max_tokens` / invalid JSON / schema mismatch → one retry at `medium` → fallback. API errors are thrown (so Inngest retries). Without `client`, `MOCK_MODE=true` uses `createMockTriageClient()` (verdict from analyzer heuristic codes).
+- Also exported: `DEFAULT_TRIAGE_MODEL`, `DEFAULT_TRIAGE_MAX_TOKENS`, `buildTriageRequest`, `parseTriageResponse`, `triageFailedVerdict`, `createMockTriageClient`, types `RunTriageInput`, `TriageResult`, `TriageEvidenceKind`. `@neo/core` now depends on `@neo/verdict`.
+- `SAFE_METADATA_FIELDS` adds `inboundMessageId`, `verdictId`, `artifactId`, `addressId`, `senderDomain`, `spf`, `dkim`, `dmarc`, `urlCount`, `attachmentCount`, `status`, `kind`, `source`, `playbook`, `artifactsPurged`, `artifactErrors`, `inboundRowsDeleted` (`effort` was already allowed).
 
 ## @neo/db (specs `_specs/intake.md`, `_specs/forward-to-address.md`, `_specs/dashboard.md`)
 
-Migration `0003_phase1`: `artifacts` + `filename`, `mime_type`, `source`; `verdicts` + `source` (`chat|inbound|api`, default `chat`), `artifact_id`; new `inbound_addresses`, `inbound_messages` with RLS; `security definer` function `resolve_inbound_address(local_part)`.
+Migration `0003_phase1` (additive; run as the owner before deploying): `artifacts` + `filename`, `mime_type` (backfilled), `source` (`upload|inbound`, checked); `verdicts` + `source` (`chat|inbound|api`, default `chat`), `artifact_id` (FK, `on delete set null`), indexes; new `inbound_addresses` (unique `local_part`, one active address per tenant) and `inbound_messages` (unique `provider_message_id`, status check, FKs to artifacts/verdicts `on delete set null`), both with the `tenant_isolation` RLS policy and in `tenantTables`. Three `security definer` functions, `EXECUTE` revoked from `PUBLIC` and granted to `app_user` (in the migration when the role exists, else by `sql/create-app-user.sql`): `resolve_inbound_address(text)`, `list_expired_artifacts(integer)`, `purge_old_inbound_messages(integer)` (see `packages/db/docs/rls.md`).
 
 ```ts
 export interface BlobClient { put(path: string, bytes: Uint8Array, contentType: string): Promise<{ url: string }>; get(url: string): Promise<Uint8Array | undefined>; del(url: string): Promise<void> }
@@ -207,36 +227,97 @@ export interface ArtifactStore {
   get(id, tenantId): Promise<ArtifactMeta | undefined>;
   read(id, tenantId): Promise<Uint8Array | undefined>;                 // decrypted
   delete(id, tenantId): Promise<void>;
-  listExpired(limit: number): Promise<ArtifactMeta[]>;
-  purge(id: string): Promise<void>;
+  listExpired(limit: number): Promise<ArtifactMeta[]>;                  // across tenants, via list_expired_artifacts()
+  purge(id: string, tenantId?: string): Promise<void>;                  // app role: pass the tenantId from listExpired()
 }
-export function createArtifactStore(db: Db, opts: { blob: BlobClient; masterKey?: Uint8Array; retentionDays?: number; allowPlaintext?: boolean }): ArtifactStore;
+export function createArtifactStore(db: Db, opts: { blob: BlobClient; masterKey?: Uint8Array; retentionDays?: number; allowPlaintext?: boolean; now?: () => Date }): ArtifactStore;
+export class ArtifactStoreUnavailableError extends Error {}           // put() without a key and without allowPlaintext → 503
 
 export const inbound: {
-  ensureAddress(db, tenantId): Promise<{ id: string; localPart: string }>;
-  rotateAddress(db, tenantId): Promise<{ id: string; localPart: string }>;
+  ensureAddress(db, tenantId): Promise<{ id: string; localPart: string; address: string | null }>;   // address null without NEO_INBOUND_DOMAIN
+  rotateAddress(db, tenantId): Promise<{ id: string; localPart: string; address: string | null }>;
   findActiveByLocalPart(db, localPart): Promise<{ id: string; tenantId: string } | undefined>;  // via resolve_inbound_address()
-  recordMessage(db, input: { tenantId; addressId; providerMessageId; fromAddressHash; status: InboundStatus }): Promise<{ id: string }>;
+  recordMessage(db, input: { tenantId; addressId; providerMessageId; fromAddressHash; status: InboundStatus; error? }): Promise<{ id: string; duplicate: boolean }>;
   updateMessage(db, id, tenantId, patch: Partial<{ status: InboundStatus; forwarderUserId; artifactId; verdictId; error; completedAt }>): Promise<void>;
-  countRecent(db, addressId, windowMs): Promise<number>;
-  listRecent(db, tenantId, limit): Promise<InboundMessageRow[]>;
+  getMessage(db, id, tenantId): Promise<InboundMessageRow | undefined>;
+  countRecent(db, tenantId, addressId, windowMs): Promise<number>;
+  listRecent(db, tenantId, limit?): Promise<InboundMessageRow[]>;                       // newest first, limit ≤ 100
+  findByVerdictId(db, tenantId, verdictId): Promise<InboundMessageRow | undefined>;
+  purgeOld(db, olderThanDays?): Promise<number>;                                        // rejected/failed rows, all tenants, via purge_old_inbound_messages()
 };
 export type InboundStatus = "received" | "analyzing" | "done" | "rejected" | "over_cap" | "failed";
 export function generateLocalPart(): string;                            // "check-" + 12 lowercase Crockford base32 chars
+export function isInboundLocalPart(s: string): boolean;
+export function inboundAddressFor(localPart: string, env?): string | null;
 
 export const verdictQueries: {
-  list(db, tenantId, opts: { userId?; label?; subjectType?; source?; cursor?; limit? }): Promise<{ items: VerdictRow[]; nextCursor?: string }>;
+  list(db, tenantId, opts: { userId?; label?; subjectType?; source?; cursor?; limit? }): Promise<{ items: VerdictRow[]; nextCursor?: string }>;  // throws InvalidCursorError
   get(db, tenantId, id): Promise<VerdictRow | undefined>;
   summary(db, tenantId, opts: { userId?; sinceDays: 7 | 30 | 90 }): Promise<VerdictSummary>;
   remove(db, tenantId, id): Promise<boolean>;
 };
-export function saveVerdict(db, input: { tenantId; userId; conversationId?; artifactId?; source: "chat" | "inbound" | "api"; verdict: Verdict }): Promise<{ id: string }>;
+export function saveVerdict(db, input: { tenantId; userId; conversationId?: string | null; artifactId?: string | null; source: "chat" | "inbound" | "api"; verdict: Verdict }): Promise<{ id: string }>;  // throws
 export function listMembers(db, tenantId): Promise<{ userId; name: string | null; email: string | null; role: "owner" | "member" }[]>;
+export function getHouseholdName(db, tenantId): Promise<string | undefined>;   // tenants is keyed by id (no tenant_id column)
 ```
+
+Notes:
+- `ArtifactStore.get` / `read` treat expired artifacts as missing. `put` without a master key throws `ArtifactStoreUnavailableError` unless `allowPlaintext` (ignored when `VERCEL_ENV=production`). `retentionDays` defaults to `NEO_ARTIFACT_RETENTION_DAYS` (30). Also exported: `artifactBlobPath`, `artifactRetentionDays`, `DEFAULT_ARTIFACT_RETENTION_DAYS`, types `PutArtifactInput`, `ArtifactStoreOptions`, `ArtifactSource`.
+- `inbound.countRecent` is tenant-scoped (the webhook has the tenant from `findActiveByLocalPart`). `recordMessage` is idempotent on `providerMessageId` and bumps the address's `last_used_at`. `findActiveByLocalPart` lowercases/trims and returns undefined for anything not shaped like `check-<12 crockford>` without querying.
+- `saveVerdict` validates with `VerdictSchema` (throws on invalid), sets `raw_ref` from `artifactId` when absent, and throws on DB errors (callers that must not fail catch). `verdictQueries.list` throws `InvalidCursorError` on a malformed cursor (route → 400); the cursor carries microsecond precision. `summary` covers whole UTC days (today and the previous `sinceDays - 1`), `perDay` has one entry per day (zero-filled), `topIndicators` / `topDomains` count verdicts (not occurrences), domains lowercased; it also takes `now?`. `remove` does not delete the linked artifact (the app does, via `ArtifactStore.delete`). Types exported: `VerdictRow` (`body: Verdict`), `VerdictSummary`, `VerdictListOptions`, `HouseholdMember`, `InboundMessageRow`, `InboundStatus`, `VerdictSource`, `ArtifactKind`.
+- New tables are in `tenantTables`.
 
 ## apps/web
 
-New routes: `POST /api/artifacts`, `GET /api/artifacts/[id]`, `POST /api/inbound/resend`, `GET|POST|PUT /api/inngest`, `GET /api/verdicts`, `GET /api/verdicts/summary`, `GET|DELETE /api/verdicts/[id]`, `GET /api/household`, `GET|POST /api/settings/forwarding` (POST = rotate). Pages: `/dashboard`, `/verdicts/[id]`, `/settings/forwarding`.
-`POST /api/agent` body gains `attachments?: { id: string }[]` (≤ 5) and `playbook?: PlaybookId`. Tool registry: `check_url`, `analyze_email`, `analyze_sms` (+ mock demo tool).
-Inngest: client `apps/web/inngest/client.ts` (id `neo`), functions `email-received` (`neo/email.received`), `artifacts-expire` (cron `0 4 * * *`). `MOCK_MODE` without `INNGEST_EVENT_KEY` runs `email-received` inline from the webhook.
-Env added: `NEO_INBOUND_DOMAIN`, `RESEND_WEBHOOK_SECRET`, `RESEND_API_KEY` (alias of `AUTH_RESEND_KEY`), `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`, `BLOB_READ_WRITE_TOKEN`, `NEO_MASTER_KEY`, `NEO_ARTIFACT_RETENTION_DAYS`, `NEO_INBOUND_RATE_LIMIT_PER_HOUR`.
+Routes added: `POST /api/artifacts`, `GET /api/artifacts/[id]`, `POST /api/inbound/resend`, `GET|POST|PUT /api/inngest`, `GET /api/verdicts`, `GET /api/verdicts/summary`, `GET|DELETE /api/verdicts/[id]`, `GET /api/household`, `GET|POST /api/settings/forwarding` (POST = rotate). Pages: `/dashboard` (where `/` sends signed-in users), `/verdicts/[id]`, `/settings/forwarding`; every signed-in page outside the chat uses `AppShell` (nav: Dashboard, Chat, Settings), and the chat sidebar links to Dashboard and Settings.
+Tool registry: `check_url`, `createAnalyzeEmailTool({ deps: { cache }, loadArtifact: loadArtifactForTool })`, `createAnalyzeSmsTool({ deps: { cache } })` (+ the MOCK_MODE demo tool), sharing one URL reputation cache with the inbound job. `loadArtifactForTool(ref, ctx)` reads through the app artifact store with `ctx.tenantId` and returns `undefined` for malformed, foreign, expired and `image` artifacts. The system prompt (byte-stable) adds `INTAKE_GUIDANCE`, `EMAIL_ANALYSIS_GUIDANCE`, `SMS_ANALYSIS_GUIDANCE` and `## Incident playbooks`.
+Inngest: client `apps/web/inngest/client.ts` (id `neo`), functions `email-received` (event `neo/email.received`) and `artifacts-expire` (cron `0 4 * * *`). `MOCK_MODE` without `INNGEST_EVENT_KEY` runs `email-received` inline from the webhook.
+
+Server wiring (one of each):
+- **Artifact store**: `getArtifactStore()` in `lib/server/artifacts.ts`, used by uploads, `/api/agent` attachments, `analyze_email`, the inbound job, the dashboard and the retention job. With a database: `createArtifactStore(db, { blob: createVercelBlobClient(BLOB_READ_WRITE_TOKEN) or createMemoryBlobClient(), masterKey: masterKeyFromEnv(), allowPlaintext: no key })`, where a missing key is tolerated only in MOCK_MODE; without a database: an in-memory store. Returns null (routes answer 503 `storage_unavailable`) when `artifactsStatus()` is `unconfigured`.
+- **Verdicts**: `saveVerdict()` in `lib/server/verdicts.ts` → `@neo/db` `saveVerdict` with a database, else the shared in-memory rows. Chat verdicts are saved with `source: "chat"` (`saveChatVerdict`, never throws; `artifactId` = first attachment), inbound verdicts with `source: "inbound"`, `conversationId: null`, `artifactId` = the forwarded `.eml`.
+- **No-database state**: `lib/server/memory-state.ts` holds verdicts, household members and inbound addresses/messages for MOCK_MODE and tests (`resetMemoryState()`), so an inbound verdict appears on `/dashboard` and `/verdicts/[id]` with zero infrastructure.
+
+Env added (all listed in `.env.example`, all optional locally): `BLOB_READ_WRITE_TOKEN`, `NEO_MASTER_KEY`, `NEO_ARTIFACT_RETENTION_DAYS`, `NEO_INBOUND_DOMAIN`, `RESEND_WEBHOOK_SECRET`, `RESEND_API_KEY` (defaults to `AUTH_RESEND_KEY`), `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY`, `NEO_INBOUND_RATE_LIMIT_PER_HOUR`.
+
+### HTTP contract: intake (`_specs/intake.md`)
+
+Wire types live in `apps/web/lib/api-types.ts` (`AgentRequestBody`, `AttachmentInput`, `UploadedArtifact`, `ArtifactUploadResponse`, `UsageResponse`); the browser client is `uploadArtifacts()` / `getUsage()` / `streamAgent({ attachments })` in `lib/agent-client.ts`.
+
+- `POST /api/artifacts` multipart/form-data, one or more `file` fields (≤ 4 per request, ≤ 4 MB total). Kind is decided by content, not the declared type: `.eml` / `message/rfc822` must be UTF-8 without NUL bytes and start with an RFC 5322 header block (≤ 2 MB) → `eml`; PNG / JPEG / WebP / GIF by magic bytes (≤ 3 MB; `mimeType` is the detected type) → `image`; `text/plain` / `.txt` valid UTF-8 (≤ 512 KB) → `text`. Filenames are sanitized (no control/bidi characters, quotes or brackets; ≤ 100 chars). All files are validated before any is stored.
+  → 200 `{ artifacts: [{ id, kind, filename, mimeType, sizeBytes, sha256 }] }` in file order. Errors: 400 `bad_request` (not multipart, no `file`, > 4 files), 401 `unauthenticated`, 413 `too_large`, 415 `unsupported_type` (HEIC has its own message), 429 `rate_limited` + `Retry-After` (30 files per tenant per rolling hour, in memory per instance in Phase 1), 503 `storage_unavailable`.
+- `GET /api/artifacts/[id]` → 200 decrypted bytes, `Content-Disposition: attachment` (RFC 6266 `filename` + `filename*`), `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy: default-src 'none'; …; sandbox`, `Cross-Origin-Resource-Policy: same-origin`. `?inline=1` on an image artifact → `Content-Disposition: inline` with `Content-Type` fixed to the stored image type; ignored for other kinds. 404 `not_found` for malformed, unknown, expired or another tenant's ids; 401; 503 `storage_unavailable`.
+- `POST /api/agent` body `{ conversationId?, message, attachments?: { id }[] }`: ≤ 5 UUID ids (de-duplicated; else 400 `bad_request`); `message` may be empty when attachments are given (the stored text becomes "Can you check this for me?"). Each id is looked up in the session tenant: 404 `not_found` if any is missing, expired or foreign; 503 `storage_unavailable` if artifacts are unconfigured. The user `MessageParam` is persisted as content blocks: the text, then per attachment a note text block, and for images the image itself:
+  - `[Attached file: <filename> (<eml|text>, <size>). Use analyze_email with artifact_ref "<id>".]` (the bytes are never inlined; the model reaches them only through `analyze_email`, whose `loadArtifact` reads `ctx.tenantId` and refuses image artifacts)
+  - `[Attached image: <filename> (image, <size>), id "<id>".]` followed by `{ type: "image", source: { type: "base64", media_type, data } }`
+
+  The UI parses the notes back (`parseAttachmentNote` in `lib/attachments.ts`) into thumbnails (`/api/artifacts/<id>?inline=1`) and file chips. A verdict from a turn with attachments gets `raw_ref` = the first attachment id (when the model did not set one) and is saved with `artifactId`.
+- `GET /api/health` also returns `artifacts: "ok" | "memory" | "unconfigured"`: `unconfigured` when `NEO_MASTER_KEY` is missing on `VERCEL_ENV=production` or with a database outside `MOCK_MODE`, or when `BLOB_READ_WRITE_TOKEN` is missing on a deployment outside `MOCK_MODE`; `memory` = in-memory blob client (no token; MOCK_MODE / local); `ok` otherwise.
+- Without `DATABASE_URL`, artifacts use an in-memory store (per process, plaintext) like the other no-database fallbacks.
+- `GET /api/artifacts/[id]` is the only artifact URL: plain = download (`attachment`), `?inline=1` = display an image. The chat thumbnails and the verdict detail page's evidence both use it.
+
+### HTTP contract: forward-to-address (`_specs/forward-to-address.md`)
+
+- `POST /api/inbound/resend` (Resend `email.received` webhook, unauthenticated; Svix-signed with `RESEND_WEBHOOK_SECRET`). 401 `invalid_signature`; 503 `inbound_unconfigured` when the secret is unset (MOCK_MODE local bypass: header `x-neo-mock-inbound: 1`, localhost URL, not a deployment; the mock payload may carry `data.raw` for the mock Resend client); 413 `too_large` (body > 512 KB); 400 `bad_request`; 503 `storage_unavailable` (lookup/insert failed, Resend retries). 200 bodies: `{ ignored: true }` (other event types; no recipient in `received_for` ∪ `to` ∪ `cc` that is `check-<12 Crockford>@NEO_INBOUND_DOMAIN` and active), `{ duplicate: true }` (repeated `email_id`), `{ accepted: true }` (row inserted; over `NEO_INBOUND_RATE_LIMIT_PER_HOUR` the row is `rejected` with `error: "rate_limited"` and no job). If `inngest.send` fails the row becomes `failed` / `queue_unavailable`.
+- Event `neo/email.received` data: `{ inboundMessageId: string; tenantId: string; emailId: string }` (`emailId` = Resend `email_id` = `provider_message_id`; added so the job needs no extra row lookup).
+- Inngest function `email-received`: `retries: 3`, `concurrency: { limit: 5, key: "event.data.tenantId" }`, `timeouts: { finish: "4m" }`, `onFailure` → `failed` / `job_failed` + "could not analyze" email when the forwarder is known. Steps: `fetch-raw`, `store-artifact`, `identify-forwarder`, `check-caps`, `analyze`, `triage`, `save-verdict`, `notify` (one of the last two branches per run). Logic: `apps/web/lib/server/inbound/email-received-job.ts` (`runEmailReceived(data, deps, step)`; tests pass `inlineSteps`). `inbound_messages.error` codes: `unknown_sender`, `rate_limited`, `too_large`, `storage_unavailable`, `no_members`, `job_failed`, `queue_unavailable`, `gmail_confirmation:<digits>`, `gmail_confirmation_unparsed`.
+- Inngest function `artifacts-expire`: cron `0 4 * * *`, steps `purge-artifacts` (`for (const m of await store.listExpired(200)) await store.purge(m.id, m.tenantId)`), `purge-inbound-rows` (`inbound.purgeOld(db, 90)`: rejected/failed rows older than 90 days, all tenants).
+- `GET|POST|PUT /api/inngest` (`serve` from `inngest/next`, `maxDuration` 300 in `apps/web/vercel.json`). Client id `neo`.
+- `GET /api/settings/forwarding` → `ForwardingSettings` (`apps/web/lib/forwarding-types.ts`): `{ address | null, localPart, configured, acceptedSenders[], canRotate, gmailConfirmation: { code, receivedAt } | null (owner only), messages: [{ id, status, reason, receivedAt, completedAt, verdictId }] }` (last 20). `POST` `{ action: "rotate" }` → same body with the new address; 403 `forbidden` for non-owners; 400 `bad_request`.
+- `GET /api/health` adds `inbound: "ok" | "unconfigured"` (ok = domain, webhook secret, Resend key, Inngest event + signing keys all set).
+- Notifications: `renderVerdictEmail(verdict, { detailUrl, forwardedSubject, usage? })` and `renderNoticeEmail(kind, …)` in `apps/web/lib/server/email/verdict-email.ts`; sent with the Resend REST API (`Idempotency-Key: verdict-<id>` / `inbound-<messageId>-<kind>`), recorded by a mock mailer in MOCK_MODE (`memorySentEmails()`).
+- Audit events added: `inbound.rejected_unknown_sender`, `inbound.address_rotated`, `inbound.gmail_forwarding_confirmation`.
+- Persistence goes through `inboundRepo()` (`lib/server/inbound/repo.ts`): `@neo/db` `inbound` with a database, else `lib/server/inbound/memory.ts` over the shared memory state. The webhook flow is `findActiveByLocalPart → countRecent(tenantId, addressId, 1 h) → recordMessage` (`duplicate` → 200 `{ duplicate: true }`).
+
+### HTTP contract: dashboard and playbooks (`_specs/dashboard.md`, `_specs/incident-playbooks.md`)
+
+Wire types: `apps/web/lib/dashboard-types.ts`. All routes: Node runtime, `force-dynamic`, `Cache-Control: no-store`, JSON errors `{ error, code? }`, 401 `unauthenticated` without a session, 503 `storage_unavailable` when the store fails. Role rule everywhere: members are pinned to their own `userId`; owners see the whole household or filter by a current member.
+
+- `GET /api/verdicts?label&subjectType&source&userId&cursor&limit` → `{ items: [{ id, subjectType, verdict, confidence, headline, source, createdAt, userId, conversationId, artifactId }], nextCursor: string | null }`. Newest first; `limit` 1..50 (default 20); `cursor` is the opaque keyset cursor from the previous page (`base64url(createdAt ISO|id)`). 400 `bad_request` for an unknown `label`/`subjectType`/`source`, a bad `limit` or cursor; 403 `forbidden` when a member passes another user's `userId`; 404 `not_found` when an owner passes a user who is not in the household.
+- `GET /api/verdicts/summary?sinceDays=7|30|90&userId` (default 30) → `{ sinceDays, total, byLabel, bySubjectType, topIndicators: [{ category, count }] (top 8), topDomains: [{ domain, count }] (top 8, excluding likely_safe), perDay: [{ day: "YYYY-MM-DD", malicious, suspicious, likely_safe, insufficient_evidence }] }` (zero-filled per UTC day with a database; the in-memory fallback may be sparse and the UI zero-fills). Same 400/403/404 rules.
+- `GET /api/verdicts/[id]` → list item fields + `body: Verdict`, `conversation: { id, title } | null`, `artifact: { id, kind, filename, mimeType, sizeBytes, expiresAt, expired } | null`, `inbound: { status, receivedAt, forwardedBy } | null` (looked up with `inbound.findByVerdictId`), `memberName`. `artifact` is null once the evidence expired or was deleted (the page says so). 404 `not_found` for malformed ids, other tenants' verdicts and, for members, other members' verdicts.
+- `DELETE /api/verdicts/[id]` → 204 for the owner or the member the verdict belongs to (404 otherwise); deletes the linked artifact (`ArtifactStore.delete`) and writes audit event `verdict.deleted` `{ verdictId, ownerUserIdHash, artifactId, artifactDeleted }`.
+- `GET /api/household` → `{ tenantId, name, role, members: [{ userId, name, email, role }] }`; `name` from `getHouseholdName` ("Your household" without a database); `email` is `null` for every member unless the caller is an owner.
+- `POST /api/agent` body also takes `playbook?: PlaybookId` (400 when unknown) and `verdictId?: string` (400 malformed, 404 when not visible to the caller). `playbook` runs the turn with `effort: "high"`; effort also stays `high` for the turn after an assistant turn whose text starts with `<!-- playbook:<id> -->` (the UI hides the marker). `verdictId` makes the server load the stored verdict (tenant + role scoped) and append it to the user message as a second text block, prefixed `[neo:context]` and wrapped with `wrapToolResult("stored_verdict", …)`; the chat UI hides that block on reload.
+- `PlaybookId` = `clicked_link | entered_password | sent_gift_cards | shared_code | paid_scammer | device_compromised` (`apps/web/lib/playbooks.ts`). Playbook text: `apps/web/lib/server/playbooks/*.md`, bundled into `generated.ts` (`pnpm --filter @neo/web playbooks:generate`; a test fails when stale) and included in the system prompt under `## Incident playbooks`.
+- Pages: `/dashboard`, `/verdicts/[id]`; `/` redirects signed-in users to `/dashboard`. Chat entry points: `/chat?playbook=<id>` (auto-sends "I think I …. Help me." with `playbook`), `/chat?verdict=<id>` (auto-sends "Tell me more about this check: …" with `verdictId`), `/chat?check=<url>` (pre-fills the composer only). Evidence links: `GET /api/artifacts/<id>?inline=1` for image display, plain `GET /api/artifacts/<id>` to download.

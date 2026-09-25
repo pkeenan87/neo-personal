@@ -12,16 +12,20 @@ import {
   deleteConversation,
   listConversations,
   streamAgent,
+  uploadArtifacts,
 } from "@/lib/agent-client";
 import type { ConversationSummary } from "@/lib/api-types";
 import { signOut } from "@/lib/auth-client";
 import { chatReducer, initialChatState, pendingConfirmation, type ChatMessage } from "@/lib/chat-state";
+import { releaseAttachments, toAttachmentRef, type PendingAttachment } from "@/lib/pending-attachments";
 import { ChatMessageView } from "./ChatMessageView";
-import { Composer } from "./Composer";
+import { Composer, INTAKE_HINTS } from "./Composer";
 import { ConversationSidebar } from "./ConversationSidebar";
 import { EmptyState, type Suggestion } from "./EmptyState";
+import { playbookPrompt, type PlaybookId } from "@/lib/playbooks";
 import { NeoMark } from "./NeoMark";
 import { useToast } from "./toast-context";
+import { UsageIndicator } from "./UsageIndicator";
 
 export interface ChatInterfaceProps {
   user: { name: string; email: string };
@@ -29,12 +33,18 @@ export interface ChatInterfaceProps {
   /** null → a new, unsaved conversation (/chat). */
   conversationId: string | null;
   initialMessages?: ChatMessage[];
+  // --- dashboard + incident playbooks ---
+  /** Sent once on mount (from /chat?playbook= or /chat?verdict=). */
+  autoStart?: { message: string; playbook?: PlaybookId; verdictId?: string };
+  /** Placed in the composer (not sent), e.g. from /chat?check=<url>. */
+  prefill?: string;
+  // --- end dashboard + incident playbooks ---
 }
 
+/** Client-side message id. randomUUID needs a secure context; getRandomValues works everywhere. */
 function newId(): string {
-  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-    ? crypto.randomUUID()
-    : `m-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `m-${Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function isAbortError(err: unknown): boolean {
@@ -48,15 +58,26 @@ function errorMessage(err: unknown): string {
 
 const NEAR_BOTTOM_PX = 120;
 
-export function ChatInterface({ user, initialConversations, conversationId, initialMessages = [] }: ChatInterfaceProps) {
+export function ChatInterface({
+  user,
+  initialConversations,
+  conversationId,
+  initialMessages = [],
+  autoStart,
+  prefill,
+}: ChatInterfaceProps) {
   const router = useRouter();
   const { toast } = useToast();
   const [state, dispatch] = useReducer(chatReducer, initialMessages, initialChatState);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(prefill ?? "");
   const [activeId, setActiveId] = useState<string | null>(conversationId);
   const [conversations, setConversations] = useState(initialConversations);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [announcement, setAnnouncement] = useState("");
+  // Phase 1 intake: files for the next message, and the usage indicator refresh tick.
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [usageTick, setUsageTick] = useState(0);
   // Messages that arrived during this session (vs. loaded history): used to
   // auto-focus a fresh confirmation prompt but not one restored on reload.
   const [liveFrom] = useState(initialMessages.length);
@@ -117,30 +138,85 @@ export function ChatInterface({ user, initialConversations, conversationId, init
       } finally {
         if (abortRef.current === controller) abortRef.current = null;
         void refreshConversations();
+        setUsageTick((n) => n + 1);
       }
     },
     [refreshConversations],
   );
 
   const send = useCallback(
-    async (textOverride?: string) => {
+    async (textOverride?: string, extra: { playbook?: PlaybookId; verdictId?: string } = {}) => {
       const text = (textOverride ?? input).trim();
-      if (!text || state.streaming || pending) return;
+      const files = textOverride === undefined ? attachments : [];
+      if ((!text && files.length === 0) || state.streaming || pending || uploading) return;
+
+      // Upload on send (not on attach). Files already uploaded by a failed
+      // earlier attempt are reused, so a resend doesn't upload them again.
+      let sent = files;
+      const toUpload = files.filter((a) => !a.uploaded);
+      if (toUpload.length > 0) {
+        setUploading(true);
+        try {
+          const stored = await uploadArtifacts(toUpload.map((a) => a.file));
+          const byLocal = new Map(toUpload.map((a, i) => [a.localId, stored[i]]));
+          sent = files.map((a) => (byLocal.get(a.localId) ? { ...a, uploaded: byLocal.get(a.localId) } : a));
+          setAttachments(sent);
+        } catch (err) {
+          toast({ intent: "error", title: "Couldn't upload your files", description: errorMessage(err) });
+          return;
+        } finally {
+          setUploading(false);
+        }
+      }
+      const uploaded = sent.flatMap((a) => (a.uploaded ? [a.uploaded] : []));
+
       setInput("");
-      dispatch({ type: "send", userId: newId(), assistantId: newId(), text });
+      dispatch({ type: "send", userId: newId(), assistantId: newId(), text, attachments: uploaded.map(toAttachmentRef) });
       announce("Neo is responding");
       await runStream((signal) =>
         streamAgent({
           conversationId: activeIdRef.current,
           message: text,
+          ...(uploaded.length ? { attachments: uploaded.map((u) => u.id) } : {}),
+          ...extra,
           signal,
           onConversationId: adoptConversationId,
+          // Keep the chips until the server accepts the turn, so a failed request can be resent.
+          onAccepted: () => {
+            if (sent.length === 0) return;
+            setAttachments((prev) => {
+              const done = prev.filter((a) => sent.some((s) => s.localId === a.localId));
+              releaseAttachments(done);
+              return prev.filter((a) => !done.includes(a));
+            });
+          },
           onEvent: (event) => dispatch({ type: "event", event }),
         }),
       );
     },
-    [input, state.streaming, pending, announce, runStream, adoptConversationId],
+    [input, attachments, uploading, state.streaming, pending, announce, runStream, adoptConversationId, toast],
   );
+
+  // --- dashboard + incident playbooks ---
+  // Auto-send once. Deferred so React StrictMode's mount/unmount/mount in dev
+  // does not abort the stream (the unmount cleanup aborts in-flight requests).
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!autoStart || autoStarted.current) return;
+    const t = setTimeout(() => {
+      if (autoStarted.current) return;
+      autoStarted.current = true;
+      if (window.location.search) window.history.replaceState(null, "", window.location.pathname);
+      void send(autoStart.message, {
+        ...(autoStart.playbook ? { playbook: autoStart.playbook } : {}),
+        ...(autoStart.verdictId ? { verdictId: autoStart.verdictId } : {}),
+      });
+    }, 0);
+    return () => clearTimeout(t);
+  }, [autoStart, send]);
+
+  const startPlaybook = useCallback((id: PlaybookId) => void send(playbookPrompt(id), { playbook: id }), [send]);
+  // --- end dashboard + incident playbooks ---
 
   const stop = useCallback(() => {
     abortRef.current?.abort();
@@ -187,6 +263,10 @@ export function ChatInterface({ user, initialConversations, conversationId, init
     abortRef.current?.abort();
     dispatch({ type: "reset", messages: [] });
     setInput("");
+    setAttachments((prev) => {
+      releaseAttachments(prev);
+      return [];
+    });
     activeIdRef.current = null;
     setActiveId(null);
     setSidebarOpen(false);
@@ -253,6 +333,7 @@ export function ChatInterface({ user, initialConversations, conversationId, init
           </button>
           <NeoMark className="size-5 text-accent md:hidden" />
           <h1 className="min-w-0 flex-1 truncate py-3 text-sm font-medium">{title}</h1>
+          <UsageIndicator refreshKey={usageTick} />
         </header>
 
         <div
@@ -264,7 +345,7 @@ export function ChatInterface({ user, initialConversations, conversationId, init
           }}
         >
           {state.messages.length === 0 ? (
-            <EmptyState onPick={pickSuggestion} />
+            <EmptyState onPick={pickSuggestion} onPlaybook={startPlaybook} />
           ) : (
             <div
               className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6"
@@ -304,7 +385,11 @@ export function ChatInterface({ user, initialConversations, conversationId, init
                   ? "Reply to Neo…"
                   : "Paste a link, email, or message…"
             }
+            {...(!pending && state.messages.length === 0 ? { placeholderHints: INTAKE_HINTS } : {})}
             textareaRef={textareaRef}
+            attachments={attachments}
+            onAttachmentsChange={setAttachments}
+            uploading={uploading}
           />
         </div>
       </main>

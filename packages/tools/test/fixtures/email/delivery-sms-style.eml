@@ -1,0 +1,15 @@
+Received: from relay.example.org (relay.example.org [203.0.113.60])
+	by mx.example.com; Thu, 15 Jan 2026 10:01:00 +0000
+From: "USPS" <alerts@usps-redelivery.example.org>
+To: jordan@example.com
+Subject: USPS: Your package is on hold
+Date: Thu, 15 Jan 2026 10:00:00 +0000
+Message-ID: <fixture-delivery-04@usps-redelivery.example.org>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+USPS: Your package could not be delivered due to an incomplete address.
+Please update your address within 12 hours or it will be returned to the sender:
+https://usps-redelivery.example.org/track?id=US9514901185421
+
+A redelivery fee of $0.30 applies.

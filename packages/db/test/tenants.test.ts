@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createTenantForUser, findTenantForUser } from "../src/tenants.js";
+import { createTenantForUser, findTenantForUser, getHouseholdName } from "../src/tenants.js";
 import { auditEvents, memberships, tenants } from "../src/schema/index.js";
 import { createTestDb, createUser, type TestDb } from "./helpers.js";
 
@@ -37,6 +37,13 @@ describe("createTenantForUser", () => {
     expect(a.tenantId).toBe(b.tenantId);
     expect(await t.db.select().from(memberships).where(eq(memberships.userId, userId))).toHaveLength(1);
     expect(await findTenantForUser(t.db, userId)).toEqual({ tenantId: a.tenantId, role: "owner" });
+  });
+
+  it("getHouseholdName reads the tenant's name by id", async () => {
+    const userId = await createUser(t.db, "Carol");
+    const { tenantId } = await createTenantForUser(t.db, { userId, name: "Carol's household" });
+    expect(await getHouseholdName(t.db, tenantId)).toBe("Carol's household");
+    expect(await getHouseholdName(t.db, "00000000-0000-4000-8000-000000000000")).toBeUndefined();
   });
 
   it("returns undefined for a user without a tenant", async () => {

@@ -1,8 +1,9 @@
 import type { AgentEvent } from "@neo/core";
 import { readAgentEvents } from "@/lib/ndjson";
+import { resetArtifactStore } from "@/lib/server/artifacts";
 import { memoryAuditLog } from "@/lib/server/audit";
+import { resetMemoryState as resetPhase1MemoryState } from "@/lib/server/memory-state";
 import { resetMemoryUsage } from "@/lib/server/usage";
-import { memoryVerdicts } from "@/lib/server/verdicts";
 import { collect } from "../fixtures";
 
 export function post(url: string, body: unknown): Request {
@@ -35,6 +36,9 @@ export function stubBaseEnv(vi: { stubEnv: (k: string, v: string) => unknown }):
   vi.stubEnv("INJECTION_GUARD_MODE", "monitor");
   vi.stubEnv("USAGE_CAP_MONTHLY_CHECKS", "");
   vi.stubEnv("USAGE_CAP_DAILY_TOKENS", "");
+  // Phase 1 intake: in-memory blob client, plaintext artifacts.
+  vi.stubEnv("BLOB_READ_WRITE_TOKEN", "");
+  vi.stubEnv("NEO_MASTER_KEY", "");
 }
 
 /** Clear every no-database fallback between tests. */
@@ -43,5 +47,7 @@ export function resetMemoryState(): void {
   g.__neoMemoryConversationStore = undefined;
   resetMemoryUsage();
   memoryAuditLog().length = 0;
-  memoryVerdicts().length = 0;
+  // Verdicts, members and inbound rows (one shared module), and the artifact store.
+  resetPhase1MemoryState();
+  resetArtifactStore();
 }

@@ -14,6 +14,9 @@
  *   error                 → mark the message errored with the text         [error]
  */
 import type { AgentEvent } from "@neo/core";
+import { parseAttachmentNote, type AttachmentRef } from "./attachments";
+import { isHiddenContextText } from "./hidden-context";
+import { stripPlaybookMarker } from "./playbooks";
 
 export type ToolStatus = "running" | "done" | "error";
 
@@ -41,7 +44,9 @@ export type MessagePart =
   | { kind: "text"; text: string }
   | { kind: "thinking"; text: string }
   | { kind: "tool"; trace: ToolTrace }
-  | { kind: "confirmation"; confirmation: ConfirmationRequest };
+  | { kind: "confirmation"; confirmation: ConfirmationRequest }
+  /** A file or screenshot the user attached (user messages only). */
+  | { kind: "attachment"; attachment: AttachmentRef };
 
 export type MessageStatus = "streaming" | "complete" | "interrupted" | "error";
 
@@ -61,7 +66,7 @@ export interface ChatState {
 }
 
 export type ChatAction =
-  | { type: "send"; userId: string; assistantId: string; text: string }
+  | { type: "send"; userId: string; assistantId: string; text: string; attachments?: AttachmentRef[] }
   | { type: "resume"; assistantId: string }
   | { type: "event"; event: AgentEvent; now?: number }
   | { type: "finish" }
@@ -174,7 +179,15 @@ export function chatReducer(state: ChatState, action: ChatAction): ChatState {
         streaming: true,
         messages: [
           ...state.messages,
-          { id: action.userId, role: "user", parts: [{ kind: "text", text: action.text }], status: "complete" },
+          {
+            id: action.userId,
+            role: "user",
+            parts: [
+              ...(action.text ? [{ kind: "text" as const, text: action.text }] : []),
+              ...(action.attachments ?? []).map((attachment) => ({ kind: "attachment" as const, attachment })),
+            ],
+            status: "complete",
+          },
           { id: action.assistantId, role: "assistant", parts: [], status: "streaming" },
         ],
       };
@@ -240,7 +253,7 @@ export function pendingConfirmation(state: ChatState): ConfirmationRequest | nul
 export function messageText(m: ChatMessage): string {
   return m.parts
     .filter((p): p is { kind: "text"; text: string } => p.kind === "text")
-    .map((p) => p.text)
+    .map((p) => stripPlaybookMarker(p.text))
     .join("\n\n")
     .trim();
 }
@@ -315,11 +328,18 @@ export function messagesFromStored(
 
     if (msg.role === "user") {
       closeCurrent();
-      const text = blocks(msg.content)
-        .filter((b): b is { type: "text"; text: string } => b.type === "text" && typeof b.text === "string")
-        .map((b) => b.text)
-        .join("\n");
-      if (text.trim()) out.push({ id: nextId(), role: "user", parts: [{ kind: "text", text }], status: "complete" });
+      const texts: string[] = [];
+      const attachments: MessagePart[] = [];
+      for (const b of blocks(msg.content)) {
+        if (b.type !== "text" || typeof b.text !== "string") continue; // image blocks are shown via their note
+        if (isHiddenContextText(b.text)) continue; // server-added context ("Ask Neo about this")
+        const ref = parseAttachmentNote(b.text);
+        if (ref) attachments.push({ kind: "attachment", attachment: ref });
+        else texts.push(b.text);
+      }
+      const text = texts.join("\n");
+      const parts: MessagePart[] = [...(text.trim() ? [{ kind: "text" as const, text }] : []), ...attachments];
+      if (parts.length) out.push({ id: nextId(), role: "user", parts, status: "complete" });
       continue;
     }
 

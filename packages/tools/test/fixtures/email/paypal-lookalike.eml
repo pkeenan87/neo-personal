@@ -1,0 +1,47 @@
+Return-Path: <bounce-7731@mailer.example.net>
+Received: from mx.neo.test (mx.neo.test [192.0.2.25])
+	by mx.neo.test with ESMTPS id fixture01
+	for <jordan@neo.test>; Mon, 12 Jan 2026 09:14:05 +0000
+Authentication-Results: mx.neo.test;
+	spf=softfail (mx.neo.test: domain of transitioning bounce-7731@mailer.example.net does not designate 198.51.100.7 as permitted sender) smtp.mailfrom=bounce-7731@mailer.example.net;
+	dkim=none;
+	dmarc=fail (p=NONE sp=NONE dis=NONE) header.from=paypa1-secure.example.org
+Received: from mailer.example.net (unknown [198.51.100.7])
+	by relay.example.net; Mon, 12 Jan 2026 09:14:03 +0000
+From: "PayPal Service" <service@paypa1-secure.example.org>
+Reply-To: "PayPal Resolution" <resolution-center@example.net>
+To: jordan@neo.test
+Subject: Your account has been limited - action required
+Date: Mon, 12 Jan 2026 09:14:00 +0000
+Message-ID: <fixture-paypal-01@paypa1-secure.example.org>
+MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="alt-boundary-01"
+
+--alt-boundary-01
+Content-Type: text/plain; charset=utf-8
+
+Dear Customer,
+
+We noticed unusual activity on your account and it has been temporarily limited.
+To restore access, verify your account within 24 hours:
+https://www.paypal.com/signin
+
+If you do not verify your account, it will be permanently suspended.
+
+PayPal Security Team
+
+--alt-boundary-01
+Content-Type: text/html; charset=utf-8
+
+<html><body>
+<div style="display:none;font-size:0">Your account notice</div>
+<p>Dear Customer,</p>
+<p>We noticed unusual activity on your account and it has been temporarily limited.</p>
+<p>To restore access, verify your account within 24 hours:
+<a href="https://paypa1-secure.example.org/verify?case=PP-4471">https://www.paypal.com/signin</a></p>
+<p>If you do not verify your account, it will be permanently suspended.</p>
+<p>PayPal Security Team</p>
+<img src="https://paypa1-secure.example.org/open.gif" width="1" height="1">
+</body></html>
+
+--alt-boundary-01--

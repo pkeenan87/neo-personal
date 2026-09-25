@@ -99,6 +99,25 @@ export const SAFE_METADATA_FIELDS: ReadonlySet<string> = new Set([
   "verdict",
   "subjectType",
   "confidence",
+  // Phase 1: artifacts, forward-to-address, dashboard, playbooks (ids are opaque uuids;
+  // senderDomain is the analyzed sender's domain, never the user's address)
+  "inboundMessageId",
+  "verdictId",
+  "artifactId",
+  "addressId",
+  "senderDomain",
+  "spf",
+  "dkim",
+  "dmarc",
+  "urlCount",
+  "attachmentCount",
+  "status",
+  "kind",
+  "source",
+  "playbook",
+  "artifactsPurged",
+  "artifactErrors",
+  "inboundRowsDeleted",
 ]);
 
 function sanitizeMetadata(meta: Record<string, unknown> | undefined): Record<string, unknown> | undefined {

@@ -68,6 +68,14 @@ export interface WebEnv {
   HAS_ANTHROPIC_CREDENTIALS: boolean;
   /** Registered sign-in providers (a provider is registered only when configured). */
   AUTH_PROVIDERS: { google: boolean; resend: boolean };
+  // ── Phase 1: intake artifacts (_specs/intake.md) ──
+  /** BLOB_READ_WRITE_TOKEN is set (Vercel Blob). Unset → in-memory blob client (MOCK_MODE / local only). */
+  HAS_BLOB_TOKEN: boolean;
+  /** NEO_MASTER_KEY is set (artifact encryption). Validity is checked by masterKeyFromEnv. */
+  HAS_MASTER_KEY: boolean;
+  /** NEO_ARTIFACT_RETENTION_DAYS, default 30. */
+  ARTIFACT_RETENTION_DAYS: number;
+  // ── end Phase 1: intake artifacts ──
 }
 
 /**
@@ -94,6 +102,11 @@ export function readEnv(source: EnvSource = process.env): WebEnv {
     DATABASE_URL: database,
     HAS_ANTHROPIC_CREDENTIALS: Boolean(nonEmpty(source.ANTHROPIC_API_KEY) ?? nonEmpty(source.ANTHROPIC_AUTH_TOKEN)),
     AUTH_PROVIDERS: authProviders(source),
+    // ── Phase 1: intake artifacts ──
+    HAS_BLOB_TOKEN: Boolean(nonEmpty(source.BLOB_READ_WRITE_TOKEN)),
+    HAS_MASTER_KEY: Boolean(nonEmpty(source.NEO_MASTER_KEY)),
+    ARTIFACT_RETENTION_DAYS: int(source.NEO_ARTIFACT_RETENTION_DAYS, 30) || 30,
+    // ── end Phase 1: intake artifacts ──
   };
 }
 
@@ -114,3 +127,51 @@ export function authProviders(source: EnvSource = process.env): { google: boolea
 export function env(): WebEnv {
   return readEnv(process.env);
 }
+
+// ---------------------------------------------------------------------------
+// BEGIN forward-to-address (Phase 1, _specs/forward-to-address.md)
+// ---------------------------------------------------------------------------
+
+export interface InboundEnv {
+  /** Domain the household addresses live on (`check-…@<domain>`). Unset → the feature is unconfigured. */
+  NEO_INBOUND_DOMAIN: string | undefined;
+  /** Svix signing secret of the Resend `email.received` webhook (`whsec_…`). */
+  RESEND_WEBHOOK_SECRET: string | undefined;
+  /** Resend API key for fetching received mail and sending notifications: RESEND_API_KEY, else AUTH_RESEND_KEY. */
+  RESEND_API_KEY: string | undefined;
+  /** Inngest Cloud event key. Unset + MOCK_MODE → the job runs inline from the webhook. */
+  INNGEST_EVENT_KEY: string | undefined;
+  /** Inngest signing key (verifies calls to /api/inngest). */
+  INNGEST_SIGNING_KEY: string | undefined;
+  /** Accepted messages per inbound address per hour; the rest are recorded as rejected. Default 30. */
+  NEO_INBOUND_RATE_LIMIT_PER_HOUR: number;
+  /** Sender of notification emails. */
+  EMAIL_FROM: string;
+  /** Absolute base URL for links in notification emails (AUTH_URL, else the Vercel production host). */
+  APP_URL: string;
+}
+
+export function inboundEnv(source: EnvSource = process.env): InboundEnv {
+  const vercelHost = nonEmpty(source.VERCEL_PROJECT_PRODUCTION_URL);
+  const base = nonEmpty(source.AUTH_URL) ?? (vercelHost ? `https://${vercelHost}` : "http://localhost:3000");
+  return {
+    NEO_INBOUND_DOMAIN: nonEmpty(source.NEO_INBOUND_DOMAIN)?.toLowerCase(),
+    RESEND_WEBHOOK_SECRET: nonEmpty(source.RESEND_WEBHOOK_SECRET),
+    RESEND_API_KEY: nonEmpty(source.RESEND_API_KEY) ?? nonEmpty(source.AUTH_RESEND_KEY),
+    INNGEST_EVENT_KEY: nonEmpty(source.INNGEST_EVENT_KEY),
+    INNGEST_SIGNING_KEY: nonEmpty(source.INNGEST_SIGNING_KEY),
+    NEO_INBOUND_RATE_LIMIT_PER_HOUR: int(source.NEO_INBOUND_RATE_LIMIT_PER_HOUR, 30),
+    EMAIL_FROM: nonEmpty(source.EMAIL_FROM) ?? "Neo <neo@example.com>",
+    APP_URL: base.replace(/\/+$/, ""),
+  };
+}
+
+/** "ok" when everything forward-to-address needs in production is set, else "unconfigured". */
+export function inboundStatus(source: EnvSource = process.env): "ok" | "unconfigured" {
+  const e = inboundEnv(source);
+  const ready =
+    e.NEO_INBOUND_DOMAIN && e.RESEND_WEBHOOK_SECRET && e.RESEND_API_KEY && e.INNGEST_EVENT_KEY && e.INNGEST_SIGNING_KEY;
+  return ready ? "ok" : "unconfigured";
+}
+
+// END forward-to-address

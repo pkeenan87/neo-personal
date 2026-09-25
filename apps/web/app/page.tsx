@@ -1,5 +1,5 @@
 import { KeyRound, Link2, MailWarning, ShieldCheck } from "lucide-react";
-import Link from "next/link";
+import { redirect } from "next/navigation";
 import { NeoMark } from "@/components/NeoMark";
 import { SignInPanel } from "@/components/SignInPanel";
 import { DevBypassBanner } from "@/components/DevBypassBanner";
@@ -36,6 +36,8 @@ export default async function LandingPage({
   searchParams: Promise<{ signin?: string; error?: string }>;
 }) {
   const [session, params] = await Promise.all([getSession(), searchParams]);
+  // Signed-in users land on their dashboard.
+  if (session) redirect("/dashboard");
   const e = env();
   const notice =
     params.signin === "required"
@@ -54,11 +56,6 @@ export default async function LandingPage({
           <NeoMark className="size-7 text-accent" />
           Neo
         </div>
-        {session && (
-          <Link href="/chat" className="text-sm font-medium text-accent hover:text-accent-hover">
-            Open Neo →
-          </Link>
-        )}
       </header>
 
       <main className="mx-auto grid w-full max-w-5xl flex-1 content-center items-center gap-10 px-4 py-8 md:grid-cols-[1.2fr_1fr] md:py-16">
@@ -90,19 +87,7 @@ export default async function LandingPage({
         </section>
 
         <section aria-label="Sign in" className="flex justify-center md:justify-end">
-          {session ? (
-            <div className="w-full max-w-sm rounded-2xl border border-border bg-surface p-5 text-center shadow-sm">
-              <p className="text-sm text-muted">Signed in as {session.email}</p>
-              <Link
-                href="/chat"
-                className="mt-3 flex min-h-11 items-center justify-center rounded-xl bg-accent px-4 text-sm font-semibold text-accent-fg hover:bg-accent-hover"
-              >
-                Start a check
-              </Link>
-            </div>
-          ) : (
-            <SignInPanel notice={notice} providers={e.AUTH_PROVIDERS} />
-          )}
+          <SignInPanel notice={notice} providers={e.AUTH_PROVIDERS} />
         </section>
       </main>
 

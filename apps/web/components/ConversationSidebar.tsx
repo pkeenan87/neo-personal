@@ -1,7 +1,7 @@
 "use client";
 
 // Lifted from the sidebar in Neo ChatInterface.tsx (rename/settings/downloads/role dropped).
-import { LogOut, MessageSquare, MessageSquareDashed, Plus, Trash2, X } from "lucide-react";
+import { LayoutDashboard, LogOut, MessageSquare, MessageSquareDashed, Plus, Settings, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import type { ConversationSummary } from "@/lib/api-types";
@@ -76,6 +76,18 @@ export function ConversationSidebar({
             <X className="size-5" aria-hidden="true" />
           </button>
         </div>
+
+        {/* app navigation */}
+        <nav aria-label="Main" className="mb-2 space-y-0.5 px-2">
+          <Link href="/dashboard" className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm hover:bg-surface-2">
+            <LayoutDashboard className="size-4 text-muted" aria-hidden="true" />
+            Dashboard
+          </Link>
+          <Link href="/settings/forwarding" className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm hover:bg-surface-2">
+            <Settings className="size-4 text-muted" aria-hidden="true" />
+            Settings
+          </Link>
+        </nav>
 
         <div className="px-3">
           <button

@@ -17,27 +17,73 @@ import {
   type MessageParam,
   type RegisteredTool,
   type RunAgentOptions,
+  type ToolContext,
   type ToolRegistry,
 } from "@neo/core";
-import { createCheckUrlTool, createInMemoryCache } from "@neo/tools";
+import { createAnalyzeEmailTool, createAnalyzeSmsTool, createCheckUrlTool, createInMemoryCache } from "@neo/tools";
+import { parseAttachmentNote } from "@/lib/attachments";
 import { env } from "@/lib/env";
+import { playbookMarker, type PlaybookId } from "@/lib/playbooks";
 import type { NeoSession } from "@/lib/session";
+import { getArtifactStore } from "./artifacts";
 import { getConversationStore } from "./conversation-store";
 import { NDJSON_HEADERS } from "./http";
 import { createMockAnthropicClient, mockReportPhishTool } from "./mock-model";
 import { NEO_SYSTEM_PROMPT } from "./system-prompt";
 import { recordUsage } from "./usage";
-import { extractVerdict, saveVerdict } from "./verdicts";
+import { extractVerdict, saveChatVerdict } from "./verdicts";
 
 const g = globalThis as typeof globalThis & { __neoUrlCache?: ReturnType<typeof createInMemoryCache> };
 
-/** check_url with a process-wide reputation cache; MOCK_MODE adds a destructive demo tool. */
-export function buildToolRegistry(opts: { mock: boolean } = { mock: env().MOCK_MODE }): ToolRegistry {
+/** The process-wide URL reputation cache shared by chat tools and the inbound job. */
+export function sharedUrlCache(): ReturnType<typeof createInMemoryCache> {
   g.__neoUrlCache ??= createInMemoryCache();
-  const tools: RegisteredTool[] = [createCheckUrlTool({ deps: { cache: g.__neoUrlCache } })];
+  return g.__neoUrlCache;
+}
+
+/** check_url, analyze_email and analyze_sms with a shared reputation cache; MOCK_MODE adds a destructive demo tool. */
+export function buildToolRegistry(opts: { mock: boolean } = { mock: env().MOCK_MODE }): ToolRegistry {
+  const cache = sharedUrlCache();
+  const tools: RegisteredTool[] = [createCheckUrlTool({ deps: { cache } })];
+  // ── Phase 1: intake tools (analyze_email, analyze_sms) ──
+  tools.push(
+    createAnalyzeEmailTool({ deps: { cache }, loadArtifact: loadArtifactForTool }),
+    createAnalyzeSmsTool({ deps: { cache } }),
+  );
+  // ── end Phase 1: intake tools ──
   if (opts.mock) tools.push(mockReportPhishTool);
   return createToolRegistry(tools);
 }
+
+// ── Phase 1: intake tools ──
+const ARTIFACT_REF_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * analyze_email's `loadArtifact`: the tenant comes from the ToolContext the
+ * agent loop passes (the session tenant), never from the model's input.
+ */
+export async function loadArtifactForTool(ref: string, ctx: ToolContext): Promise<Uint8Array | undefined> {
+  if (!ARTIFACT_REF_RE.test(ref)) return undefined;
+  const store = getArtifactStore();
+  if (!store) return undefined;
+  const meta = await store.get(ref.toLowerCase(), ctx.tenantId);
+  // Screenshots are for the model's eyes, not the email parser.
+  if (!meta || meta.kind === "image") return undefined;
+  return store.read(meta.id, ctx.tenantId);
+}
+
+/** Id of the first attachment note in the given messages (the turn's user message), if any. */
+export function firstAttachmentId(messages: readonly MessageParam[]): string | undefined {
+  for (const m of messages) {
+    if (m.role !== "user" || typeof m.content === "string") continue;
+    for (const b of m.content) {
+      const ref = b.type === "text" ? parseAttachmentNote(b.text) : null;
+      if (ref) return ref.id;
+    }
+  }
+  return undefined;
+}
+// ── end Phase 1: intake tools ──
 
 /** The scripted client in MOCK_MODE; otherwise undefined (@neo/core builds the real one from env). */
 export function agentClient(): Anthropic | undefined {
@@ -45,10 +91,43 @@ export function agentClient(): Anthropic | undefined {
   return e.MOCK_MODE ? createMockAnthropicClient({ delayMs: e.MOCK_STREAM_DELAY_MS }) : undefined;
 }
 
-export function agentEffort(): Effort {
+/**
+ * Per-turn effort. `high` when this turn starts a playbook (`playbook` in the
+ * request) or the previous assistant turn declared one with the
+ * `<!-- playbook:<id> -->` marker; otherwise NEO_AGENT_EFFORT (default medium).
+ */
+export function agentEffort(turn: { playbook?: PlaybookId; history?: readonly MessageParam[] } = {}): Effort {
+  // --- incident playbooks ---
+  if (turn.playbook || (turn.history && previousTurnPlaybook(turn.history))) return "high";
+  // --- end incident playbooks ---
   const raw = process.env.NEO_AGENT_EFFORT?.trim().toLowerCase();
   return raw === "low" || raw === "high" ? raw : "medium";
 }
+
+// --- incident playbooks ---
+function isToolResultCarrier(m: MessageParam): boolean {
+  return Array.isArray(m.content) && m.content.length > 0 && m.content.every((b) => b.type === "tool_result");
+}
+
+/** The playbook declared by the previous assistant turn (any of its messages starting with the marker), if any. */
+export function previousTurnPlaybook(history: readonly MessageParam[]): PlaybookId | null {
+  for (let i = history.length - 1; i >= 0; i--) {
+    const m = history[i]!;
+    if (m.role === "user") {
+      if (isToolResultCarrier(m)) continue;
+      return null; // reached the user message that started the previous turn
+    }
+    const blocks = typeof m.content === "string" ? [{ type: "text" as const, text: m.content }] : m.content;
+    for (const b of blocks) {
+      if (b.type === "text") {
+        const id = playbookMarker(b.text);
+        if (id) return id;
+      }
+    }
+  }
+  return null;
+}
+// --- end incident playbooks ---
 
 /** Model name recorded in usage_events. */
 export function usageModel(): string {
@@ -65,6 +144,8 @@ export interface AgentRunInput {
   /** Start the loop; receives the options shared by runAgentLoop and resumeAfterConfirmation. */
   run: (common: Omit<RunAgentOptions, "messages">) => Promise<AgentResult>;
   headers?: Record<string, string>;
+  /** Per-turn effort (agentEffort({ playbook, history })); default agentEffort(). */
+  effort?: Effort;
 }
 
 /**
@@ -81,7 +162,7 @@ export function streamAgentRun(input: AgentRunInput): Response {
     system: NEO_SYSTEM_PROMPT,
     tools: buildToolRegistry(),
     ctx: { tenantId: session.tenantId, userId: session.userId, conversationId, signal },
-    effort: agentEffort(),
+    effort: input.effort ?? agentEffort(),
     onEvent: send,
     ...(client ? { client } : {}),
   };
@@ -133,10 +214,16 @@ export function streamAgentRun(input: AgentRunInput): Response {
     });
     const verdict = extractVerdict(newMessages);
     if (verdict) {
-      await saveVerdict({ tenantId: session.tenantId, userId: session.userId, conversationId, verdict });
+      // ── Phase 1: intake — link the verdict to the turn's first attachment ──
+      const artifactId = firstAttachmentId(prefix);
+      if (artifactId && !verdict.raw_ref) verdict.raw_ref = artifactId;
+      const verdictId = await saveChatVerdict({ tenantId: session.tenantId, userId: session.userId, conversationId, verdict, ...(artifactId ? { artifactId } : {}) });
       logger.info("Verdict stored", "api.agent", {
         conversationId,
         tenantId: session.tenantId,
+        ...(verdictId ? { verdictId } : {}),
+        ...(artifactId ? { artifactId } : {}),
+        source: "chat",
         verdict: verdict.verdict,
         subjectType: verdict.subject_type,
         confidence: verdict.confidence,

@@ -1,0 +1,15 @@
+{
+  "$comment": "Consumer mailbox providers: anyone can register an address here, so a brand name in the display name is not backed by the domain. 'domains' match the registrable domain exactly; 'labels_any_suffix' match the registrable label under any public suffix (yahoo.co.uk, hotmail.fr).",
+  "domains": [
+    "gmail.com", "googlemail.com", "outlook.com", "hotmail.com", "live.com", "msn.com", "icloud.com", "me.com", "mac.com",
+    "aol.com", "ymail.com", "rocketmail.com", "proton.me", "protonmail.com", "protonmail.ch", "pm.me", "tutanota.com",
+    "tuta.io", "tutamail.com", "zoho.com", "zohomail.com", "gmx.com", "gmx.net", "gmx.de", "web.de", "mail.com",
+    "yandex.com", "yandex.ru", "mail.ru", "inbox.ru", "list.ru", "bk.ru", "fastmail.com", "fastmail.fm", "hushmail.com",
+    "mailfence.com", "qq.com", "163.com", "126.com", "sina.com", "naver.com", "daum.net", "rediffmail.com", "comcast.net",
+    "verizon.net", "att.net", "sbcglobal.net", "bellsouth.net", "cox.net", "charter.net", "earthlink.net", "optonline.net",
+    "btinternet.com", "sky.com", "virginmedia.com", "talktalk.net", "orange.fr", "free.fr", "laposte.net", "libero.it",
+    "t-online.de", "seznam.cz", "wp.pl", "o2.pl", "interia.pl", "bigpond.com", "shaw.ca", "rogers.com", "sympatico.ca",
+    "cock.li", "guerrillamail.com", "mailinator.com", "sharklasers.com", "yopmail.com", "10minutemail.com", "temp-mail.org"
+  ],
+  "labels_any_suffix": ["yahoo", "hotmail", "outlook", "live", "gmx", "aol", "yandex"]
+}

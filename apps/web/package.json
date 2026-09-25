@@ -11,7 +11,8 @@
     "start": "next start",
     "typecheck": "next typegen && tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "playbooks:generate": "node scripts/generate-playbooks.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "0.128.0",
@@ -21,6 +22,7 @@
     "@neo/tools": "workspace:*",
     "@neo/verdict": "workspace:*",
     "drizzle-orm": "^0.45.3",
+    "inngest": "4.21.0",
     "lucide-react": "1.47.0",
     "next": "16.3.6",
     "next-auth": "5.0.0-beta.32",
@@ -28,7 +30,8 @@
     "react-dom": "19.3.0",
     "react-markdown": "10.1.0",
     "rehype-sanitize": "6.0.0",
-    "remark-gfm": "4.0.1"
+    "remark-gfm": "4.0.1",
+    "svix": "2.5.0"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",

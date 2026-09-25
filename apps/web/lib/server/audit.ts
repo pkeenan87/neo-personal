@@ -9,7 +9,15 @@ import { auditEvents, tenantScoped } from "@neo/db";
 import { logger } from "@neo/core";
 import { getDb } from "./db";
 
-export type AuditEventType = "auth.sign_in" | "auth.sign_out" | "usage.cap_hit" | "verdict.created";
+export type AuditEventType =
+  | "auth.sign_in"
+  | "auth.sign_out"
+  | "usage.cap_hit"
+  | "verdict.created"
+  | "verdict.deleted"
+  | "inbound.rejected_unknown_sender"
+  | "inbound.address_rotated"
+  | "inbound.gmail_forwarding_confirmation";
 
 export interface MemoryAuditEvent {
   tenantId: string;

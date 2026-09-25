@@ -5,3 +5,4 @@ export * from "./verdicts.js";
 export * from "./artifacts.js";
 export * from "./audit.js";
 export * from "./usage.js";
+export * from "./inbound.js";

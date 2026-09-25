@@ -1,6 +1,14 @@
 # Phase 1 — Email and SMS analysis
 
-Status: planned 2026-09-25. Parent plan: `phase-0-and-roadmap.md` §5 (Phase 1) and §2.1–2.2, 2.6. Exit criterion: **the core value proposition works on every mail provider without OAuth.**
+Status: built 2026-09-25, awaiting owner go-live (see "Status" below). Parent plan: `phase-0-and-roadmap.md` §5 (Phase 1) and §2.1–2.2, 2.6. Exit criterion: **the core value proposition works on every mail provider without OAuth.**
+
+## Status (2026-09-25)
+
+**Built** (five parallel branches, merged and wired in `claude/phase-1-integration`): `analyze_email` and `analyze_sms` (`@neo/tools`); migration `0003_phase1`, the encrypted artifact store, inbound and dashboard queries (`@neo/db`); artifact crypto and Sonnet structured-output triage (`@neo/core`); intake (uploads, screenshots, `.eml` in chat, usage indicator), forward-to-address (Resend webhook, Inngest `email-received` and `artifacts-expire`, result emails, `/settings/forwarding` with Gmail/iCloud/Outlook/Yahoo guides), dashboard and verdict detail, incident playbooks (`apps/web`). Interfaces as shipped: `docs/contracts.md` "Package contracts (Phase 1)".
+
+**Verified in MOCK_MODE** (CI and a local dev-server smoke test, no infrastructure): upload a `.eml` → chat turn with the attachment → `analyze_email` loads it through the tenant-scoped store → verdict saved with `source: "chat"` and the artifact linked; the inbound webhook (local bypass header) → inline job → artifact → real analyzer → mock triage → verdict with `source: "inbound"` → result email recorded → shown by `GET /api/verdicts`, `/dashboard` and `/verdicts/[id]` with "forwarded by"; duplicate deliveries answered `{ duplicate: true }`; retention job purging expired artifacts and old rejected rows; migration `0003` (including the three security-definer functions) under the `app_user` role in PGlite.
+
+**Not verified yet (needs the owner, `CHECKLIST.md` §9)**: real Resend inbound delivery and webhook signatures against the live service, the `GET /emails/receiving/{id}` raw download, Inngest Cloud sync and retries, Vercel Blob private reads/writes, Sonnet 5 structured-output triage against the real API, migration `0003` on Neon, and forwarding from real Gmail/iCloud/Outlook/Yahoo accounts.
 
 ## What Phase 1 delivers
 

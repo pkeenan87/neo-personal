@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { auditEvents, memberships, tenants, type MembershipRole } from "./schema/index.js";
-import { setTenantContext, setUserContext } from "./tenant.js";
+import { assertTenantId, setTenantContext, setUserContext, tenantScoped } from "./tenant.js";
 
 export type UserTenant = { tenantId: string; role: MembershipRole };
 
@@ -56,4 +56,17 @@ export async function findTenantForUser(db: Db, userId: string): Promise<UserTen
       .limit(1);
     return row;
   });
+}
+
+/**
+ * The household's display name, or undefined for an unknown tenant. `tenants` has no
+ * `tenant_id` column (its RLS policy keys on `id`), so this reads by primary key inside a
+ * tenant-scoped transaction.
+ */
+export async function getHouseholdName(db: Db, tenantId: string): Promise<string | undefined> {
+  assertTenantId(tenantId);
+  const [row] = await tenantScoped(db, tenantId).transaction((t) =>
+    t.tx.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, tenantId)).limit(1),
+  );
+  return row?.name;
 }

@@ -1,0 +1,27 @@
+Received: from mail-sor-f41.google.com (mail-sor-f41.google.com. [192.0.2.41])
+	by mx.example.com with ESMTPS id fixture03
+	for <jordan@example.com>; Wed, 14 Jan 2026 07:45:12 -0500
+Authentication-Results: mx.example.com;
+	dkim=pass header.i=@gmail.com header.s=20230601;
+	spf=pass smtp.mailfrom=neo.fixture.exec.0001@gmail.com;
+	dmarc=pass (p=NONE sp=QUARANTINE) header.from=gmail.com
+Return-Path: <neo.fixture.exec.0001@gmail.com>
+From: "Morgan Avery (CEO)" <neo.fixture.exec.0001@gmail.com>
+Reply-To: <morgan.avery.office@example.net>
+To: jordan@example.com
+Subject: Quick favor
+Date: Wed, 14 Jan 2026 07:45:00 -0500
+Message-ID: <fixture-giftcard-03@mail.gmail.com>
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+
+Hi Jordan,
+
+Are you available? I need you to handle something for me urgently and keep it confidential.
+I am in a meeting and cannot talk. Please purchase 5 Apple gift cards ($200 each) for a client
+appreciation gift today. Scratch the back of each card and send me pictures of the codes as soon as possible.
+
+I will reimburse you this afternoon.
+
+Morgan
+Sent from my iPhone

@@ -7,9 +7,12 @@ import type { AgentEvent } from "@neo/core";
 import {
   CONVERSATION_ID_HEADER,
   type AgentRequestBody,
+  type ArtifactUploadResponse,
   type ConfirmRequestBody,
   type ConversationListResponse,
   type ConversationSummary,
+  type UploadedArtifact,
+  type UsageResponse,
 } from "./api-types";
 import { readAgentEvents } from "./ndjson";
 
@@ -50,10 +53,18 @@ async function errorFrom(res: Response): Promise<ApiRequestError> {
 export interface StreamAgentOptions {
   conversationId?: string | null;
   message: string;
+  /** Artifact ids from uploadArtifacts (≤ 5). */
+  attachments?: string[];
   signal?: AbortSignal;
   onEvent: (e: AgentEvent) => void;
   /** Called as soon as response headers arrive, before any events. */
   onConversationId?: (id: string) => void;
+  /** Called once the server accepted the turn (2xx), before any events. */
+  onAccepted?: () => void;
+  // --- dashboard + incident playbooks ---
+  playbook?: AgentRequestBody["playbook"];
+  verdictId?: string;
+  // --- end dashboard + incident playbooks ---
 }
 
 export interface StreamResult {
@@ -73,11 +84,21 @@ async function consume(res: Response, onEvent: (e: AgentEvent) => void): Promise
 export async function streamAgent({
   conversationId,
   message,
+  attachments,
   signal,
   onEvent,
   onConversationId,
+  onAccepted,
+  playbook,
+  verdictId,
 }: StreamAgentOptions): Promise<StreamResult> {
-  const body: AgentRequestBody = { message, ...(conversationId ? { conversationId } : {}) };
+  const body: AgentRequestBody = {
+    message,
+    ...(conversationId ? { conversationId } : {}),
+    ...(attachments?.length ? { attachments: attachments.map((id) => ({ id })) } : {}),
+    ...(playbook ? { playbook } : {}),
+    ...(verdictId ? { verdictId } : {}),
+  };
   const res = await fetch("/api/agent", {
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
@@ -85,6 +106,7 @@ export async function streamAgent({
     signal,
   });
   if (!res.ok) throw await errorFrom(res);
+  onAccepted?.();
   const id = res.headers.get(CONVERSATION_ID_HEADER) ?? conversationId ?? null;
   if (id && onConversationId) onConversationId(id);
   await consume(res, onEvent);
@@ -132,4 +154,23 @@ export async function listConversations(signal?: AbortSignal): Promise<Conversat
 export async function deleteConversation(id: string): Promise<void> {
   const res = await fetch(`/api/conversations?id=${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!res.ok && res.status !== 404) throw await errorFrom(res);
+}
+
+// ── Phase 1: intake ──
+
+/** POST /api/artifacts (multipart, field "file"). Returns the stored artifacts in file order. */
+export async function uploadArtifacts(files: File[], signal?: AbortSignal): Promise<UploadedArtifact[]> {
+  const form = new FormData();
+  for (const f of files) form.append("file", f, f.name);
+  const res = await fetch("/api/artifacts", { method: "POST", body: form, signal });
+  if (!res.ok) throw await errorFrom(res);
+  const data = (await res.json()) as ArtifactUploadResponse;
+  return Array.isArray(data.artifacts) ? data.artifacts : [];
+}
+
+/** GET /api/usage */
+export async function getUsage(signal?: AbortSignal): Promise<UsageResponse> {
+  const res = await fetch("/api/usage", { signal, cache: "no-store" });
+  if (!res.ok) throw await errorFrom(res);
+  return (await res.json()) as UsageResponse;
 }

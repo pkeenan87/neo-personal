@@ -42,6 +42,12 @@ describe("logger metadata allowlist", () => {
     expect(last()).not.toHaveProperty("meta");
   });
 
+  it("allowlists the Phase 1 correlation and analysis keys", () => {
+    for (const key of ["inboundMessageId", "verdictId", "artifactId", "addressId", "senderDomain", "spf", "dkim", "dmarc", "urlCount", "attachmentCount", "status", "kind", "source", "effort", "playbook"]) {
+      expect(SAFE_METADATA_FIELDS.has(key), key).toBe(true);
+    }
+  });
+
   it("never allowlists raw identity or content fields", () => {
     for (const key of ["userId", "email", "body", "content", "input", "result", "text", "apiKey"]) {
       expect(SAFE_METADATA_FIELDS.has(key)).toBe(false);
