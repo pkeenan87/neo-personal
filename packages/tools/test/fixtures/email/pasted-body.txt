@@ -1,0 +1,10 @@
+From: Netflix <info@netf1ix-billing.example.net>
+Subject: Payment declined - update your billing information
+Date: Tue, 13 Jan 2026 08:30:00 +0000
+
+Dear Customer,
+
+We were unable to process your last payment. Your membership will be suspended within 24 hours unless you update your payment details:
+https://netf1ix-billing.example.net/update
+
+The Netflix Team

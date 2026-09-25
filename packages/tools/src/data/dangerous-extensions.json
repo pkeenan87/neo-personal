@@ -1,0 +1,14 @@
+{
+  "$comment": "Attachment extensions by risk class (lowercase, no dot). 'executable', 'active_markup' and 'macro_document' set dangerous_type. 'ole_document' and 'archive' are reported as ole_document / archive_not_inspected because Phase 1 does not look inside them. 'decoy' is the set of harmless-looking extensions used in double-extension names (invoice.pdf.exe).",
+  "executable": [
+    "exe", "scr", "com", "pif", "bat", "cmd", "ps1", "psm1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "msi", "msp",
+    "lnk", "iso", "img", "vhd", "vhdx", "jar", "apk", "dll", "cpl", "reg", "chm", "scf", "url", "xll", "appx", "msix",
+    "appxbundle", "msixbundle", "application", "gadget", "inf", "sct", "library-ms", "settingcontent-ms", "one", "iqy", "slk",
+    "dmg", "pkg", "command", "sh", "run", "elf", "deb", "rpm"
+  ],
+  "active_markup": ["html", "htm", "shtml", "xhtml", "mht", "mhtml", "svg", "svgz"],
+  "macro_document": ["docm", "dotm", "xlsm", "xltm", "xlam", "pptm", "potm", "ppam", "ppsm", "sldm"],
+  "ole_document": ["doc", "dot", "xls", "xlt", "ppt", "pps", "pot", "msg", "pub", "vsd"],
+  "archive": ["zip", "rar", "7z", "arj", "ace", "gz", "tgz", "bz2", "xz", "tar", "cab", "lzh", "uue", "zipx"],
+  "decoy": ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "txt", "rtf", "jpg", "jpeg", "png", "gif", "csv", "odt", "mp3", "mp4", "wav"]
+}

@@ -1,0 +1,57 @@
+Received: from smtp.example.org (smtp.example.org [198.51.100.30])
+	by mx.example.com; Sun, 18 Jan 2026 11:00:00 +0000
+Authentication-Results: mx.example.com; spf=pass smtp.mailfrom=hr@example.org; dkim=pass header.d=example.org; dmarc=pass header.from=example.org
+From: "HR Department" <hr@example.org>
+To: jordan@example.com
+Subject: Updated salary review
+Date: Sun, 18 Jan 2026 11:00:00 +0000
+Message-ID: <fixture-attach-07@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/mixed; boundary="att-boundary-07"
+
+--att-boundary-07
+Content-Type: text/plain; charset=UTF-8
+
+Hello,
+
+Please review the attached salary adjustment documents before Friday.
+
+HR Department
+
+--att-boundary-07
+Content-Type: application/pdf; name="Salary_Review_2026.pdf"
+Content-Disposition: attachment; filename="Salary_Review_2026.pdf"
+Content-Transfer-Encoding: base64
+
+TVqQAAMAAABUaGlzIHByb2dyYW0gY2Fubm90IGJlIHJ1biBpbiBET1MgbW9kZS4gTkVPIFNZTlRI
+RVRJQyBGSVhUVVJFLCBOT1QgQU4gRVhFQ1VUQUJMRS4NClRoaXMgcHJvZ3JhbSBjYW5ub3QgYmUg
+cnVuIGluIERPUyBtb2RlLiBORU8gU1lOVEhFVElDIEZJWFRVUkUsIE5PVCBBTiBFWEVDVVRBQkxF
+Lg0KVGhpcyBwcm9ncmFtIGNhbm5vdCBiZSBydW4gaW4gRE9TIG1vZGUuIE5FTyBTWU5USEVUSUMg
+RklYVFVSRSwgTk9UIEFOIEVYRUNVVEFCTEUuDQo=
+
+--att-boundary-07
+Content-Type: application/octet-stream; name="=?UTF-8?B?UGF5cm9sbF/igK5mZHAuc2Ny?="
+Content-Disposition: attachment; filename="=?UTF-8?B?UGF5cm9sbF/igK5mZHAuc2Ny?="
+Content-Transfer-Encoding: base64
+
+TVqQAE5FTyBTWU5USEVUSUMgRklYVFVSRSAoc2NyZWVuc2F2ZXIgbmFtZSBvbmx5KQ0KTkVPIFNZ
+TlRIRVRJQyBGSVhUVVJFIChzY3JlZW5zYXZlciBuYW1lIG9ubHkpDQo=
+
+--att-boundary-07
+Content-Type: application/zip; name="statements.zip"
+Content-Disposition: attachment; filename="statements.zip"
+Content-Transfer-Encoding: base64
+
+UEsDBBQAAABORU8gU1lOVEhFVElDIEZJWFRVUkUgWklQIEJZVEVTTkVPIFNZTlRIRVRJQyBGSVhU
+VVJFIFpJUCBCWVRFUw==
+
+--att-boundary-07
+Content-Type: text/html; name="benefits-portal.html"
+Content-Disposition: attachment; filename="benefits-portal.html"
+Content-Transfer-Encoding: base64
+
+PCFET0NUWVBFIGh0bWw+PGh0bWw+PGJvZHk+PGZvcm0gYWN0aW9uPSJodHRwczovL2hyLXBvcnRh
+bC5leGFtcGxlLm5ldC9sb2dpbiIgbWV0aG9kPSJwb3N0Ij48aW5wdXQgbmFtZT0idSI+PGlucHV0
+IHR5cGU9InBhc3N3b3JkIiBuYW1lPSJwIj48L2Zvcm0+PC9ib2R5PjwvaHRtbD4=
+
+--att-boundary-07--

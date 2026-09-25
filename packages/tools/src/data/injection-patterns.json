@@ -1,0 +1,13 @@
+{
+  "$comment": "Content that addresses an AI reviewer or tries to steer it. Matched case-insensitively against email/SMS text (including hidden HTML text). A match emits injection_attempt_in_content; it never changes how the result is produced.",
+  "patterns": [
+    "\\bignore (all |any )?(of )?(the |your )?(previous|prior|above|earlier|preceding|former) (instructions|prompts?|rules|messages|directions)\\b",
+    "\\b(disregard|forget|override|bypass) (all |any |your |the )?(previous |prior |above |earlier |system )?(instructions|prompts?|rules|guidelines|system prompt|safety)\\b",
+    "\\b(ai|a\\.i\\.|assistant|language model|llm|chatbot|gpt|claude|copilot|gemini)\\b.{0,40}\\b(classify|mark|treat|label|report|consider|rate|flag)\\b.{0,40}\\b(safe|legitimate|legit|benign|clean|trusted|not (spam|phishing|malicious))\\b",
+    "\\b(note|message|instructions?|attention) (to|for) (the |any )?(ai|assistant|language model|llm|model|reviewer bot|security (scanner|filter|bot|tool))\\b",
+    "\\byou are (now )?(an?|the) (ai|assistant|language model|llm|chatbot)\\b",
+    "\\b(system prompt|developer mode|jailbreak)\\b",
+    "\\bthis (email|message|text) (is|has been) (verified|confirmed|certified) (as )?(safe|legitimate)\\b.{0,40}\\b(ai|assistant|scanner|filter)\\b",
+    "</?(system|instructions?|assistant|user)>"
+  ]
+}
