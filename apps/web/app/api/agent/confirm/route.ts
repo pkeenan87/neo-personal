@@ -13,7 +13,7 @@
  * recorded with kind "resume" (_specs/usage-caps.md).
  */
 import { logger, resumeAfterConfirmation } from "@neo/core";
-import { streamAgentRun } from "@/lib/server/agent-run";
+import { agentEffort, streamAgentRun } from "@/lib/server/agent-run";
 import { CONVERSATION_ID_RE, getConversationStore, toPendingConfirmation } from "@/lib/server/conversation-store";
 import { jsonError, readJsonObject } from "@/lib/server/http";
 import { capExceededResponse, checkCaps, noteCapHit } from "@/lib/server/usage";
@@ -70,6 +70,8 @@ export async function POST(req: Request): Promise<Response> {
     prefix: [],
     kind: "resume",
     signal: req.signal,
+    // Same effort as the turn being resumed (high while a playbook is running).
+    effort: agentEffort({ history: conv.messages }),
     run: (common) =>
       resumeAfterConfirmation({
         ...common,
