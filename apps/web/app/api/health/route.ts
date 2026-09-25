@@ -1,4 +1,4 @@
-import { env } from "@/lib/env";
+import { env, inboundStatus } from "@/lib/env";
 import { artifactsStatus } from "@/lib/server/artifacts";
 
 export const runtime = "nodejs";
@@ -18,6 +18,7 @@ export function GET(): Response {
       ...(e.GIT_SHA ? { commit: e.GIT_SHA.slice(0, 7) } : {}),
       mock: e.MOCK_MODE,
       artifacts: artifactsStatus(),
+      inbound: inboundStatus(),
     },
     { headers: { "Cache-Control": "no-store" } },
   );

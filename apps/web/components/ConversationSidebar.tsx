@@ -1,7 +1,7 @@
 "use client";
 
 // Lifted from the sidebar in Neo ChatInterface.tsx (rename/settings/downloads/role dropped).
-import { LogOut, MessageSquare, MessageSquareDashed, Plus, Trash2, X } from "lucide-react";
+import { Forward, LogOut, MessageSquare, MessageSquareDashed, Plus, Trash2, X } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import type { ConversationSummary } from "@/lib/api-types";
@@ -143,6 +143,18 @@ export function ConversationSidebar({
             </ul>
           )}
         </nav>
+
+        {/* BEGIN forward-to-address nav */}
+        <div className="border-t border-border px-2 py-2">
+          <Link
+            href="/settings/forwarding"
+            className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm hover:bg-surface-2"
+          >
+            <Forward className="size-4 text-muted" aria-hidden="true" />
+            Forward emails to Neo
+          </Link>
+        </div>
+        {/* END forward-to-address nav */}
 
         <div className="flex items-center gap-2 border-t border-border p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <div
