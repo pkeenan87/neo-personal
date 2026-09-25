@@ -1,7 +1,7 @@
 // @vitest-environment node
 import type { Session } from "next-auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { buildProviders, householdName } from "@/auth";
+import { buildProviders, googleProfile, householdName } from "@/auth";
 import { authProviders, devAuthBypassActive } from "@/lib/env";
 import { resolveAuthRedirect, safeCallbackPath } from "@/lib/safe-redirect";
 import { DEV_SESSION_IDS, getSession } from "@/lib/session";
@@ -134,5 +134,15 @@ describe("databaseUrl precedence", () => {
     expect(databaseUrl({ DATABASE_URL: "postgres://owner@h/neo" })).toBe("postgres://owner@h/neo");
     expect(databaseUrl({ NEO_DATABASE_URL: "  ", DATABASE_URL: "" })).toBeUndefined();
     expect(readEnv({ NEO_DATABASE_URL: "postgres://app_user@h/neo" }).DATABASE_URL).toBe("postgres://app_user@h/neo");
+  });
+});
+
+describe("googleProfile", () => {
+  it("maps email_verified into emailVerified and tolerates missing fields", () => {
+    const verified = googleProfile({ sub: "g1", email: "a@example.com", email_verified: true, name: "A", picture: "p" });
+    expect(verified).toMatchObject({ id: "g1", email: "a@example.com", name: "A", image: "p" });
+    expect(verified.emailVerified).toBeInstanceOf(Date);
+    expect(googleProfile({ sub: "g2", email_verified: false }).emailVerified).toBeNull();
+    expect(googleProfile({ sub: "g3" })).toEqual({ id: "g3", name: null, email: null, image: null, emailVerified: null });
   });
 });
