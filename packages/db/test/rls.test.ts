@@ -6,7 +6,7 @@ import { tenantScoped } from "../src/tenant.js";
 import { createTenantForUser, findTenantForUser } from "../src/tenants.js";
 import { createTestDb, createUser, type TestDb } from "./helpers.js";
 
-const TENANT_OWNED = ["tenants", "memberships", "conversations", "turns", "verdicts", "artifacts", "audit_events", "usage_events"];
+const TENANT_OWNED = ["tenants", "memberships", "conversations", "turns", "verdicts", "artifacts", "audit_events", "usage_events", "inbound_addresses", "inbound_messages"];
 
 describe("RLS", () => {
   let t: TestDb;
@@ -55,6 +55,8 @@ describe("RLS", () => {
         create role app_user nologin nobypassrls;
         grant usage on schema public to app_user;
         grant select, insert, update, delete on all tables in schema public to app_user;
+        grant execute on function public.resolve_inbound_address(text) to app_user;
+        grant execute on function public.list_expired_artifacts(integer) to app_user;
         set role app_user;
       `);
     });

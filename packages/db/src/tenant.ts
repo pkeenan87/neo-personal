@@ -1,7 +1,17 @@
 import { and, count, eq, sql, type SQL } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import type { Db, Tx } from "./client.js";
-import { artifacts, auditEvents, conversations, memberships, turns, usageEvents, verdicts } from "./schema/index.js";
+import {
+  artifacts,
+  auditEvents,
+  conversations,
+  inboundAddresses,
+  inboundMessages,
+  memberships,
+  turns,
+  usageEvents,
+  verdicts,
+} from "./schema/index.js";
 
 /** Tables owned by a tenant (carry a non-null `tenant_id`). */
 export const tenantTables = {
@@ -12,6 +22,8 @@ export const tenantTables = {
   artifacts,
   auditEvents,
   usageEvents,
+  inboundAddresses,
+  inboundMessages,
 } as const;
 
 /** Any table with a `tenantId` column. */

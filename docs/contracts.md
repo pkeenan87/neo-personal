@@ -192,6 +192,11 @@ export function triageModel(): string;                                          
 // Context manager: image blocks count 1600 tokens; compression replaces older images with "[image omitted]" text blocks.
 ```
 
+Shipped additions (@neo/core, branch `claude/feature/db-artifacts`):
+- `masterKeyFromEnv` accepts standard or URL-safe base64, returns `undefined` when unset/blank, and **throws** when set but not 32 bytes. HKDF uses a fixed salt (`neo-artifact-hkdf-salt-v1`) plus info `neo-artifact-v1:<tenantId>`. Also exported: `ARTIFACT_CIPHERTEXT_OVERHEAD` (32 bytes).
+- `runTriage` returns `{ verdict, usage, model, attempts, fallback }` (`fallback: true` = the `triage_failed` verdict). It takes `maxTokens?` (default 4096, not 2048: adaptive thinking shares the budget). Request: `messages.create({ model, max_tokens, system, messages: [one user message], thinking: { type: "adaptive" }, output_config: { effort: "low" | "medium", format: { type: "json_schema", schema: verdictJsonSchema } } })` (non-beta; SDK type `OutputConfig`). `subject_type` is forced to `evidenceKind`. Refusal / `max_tokens` / invalid JSON / schema mismatch → one retry at `medium` → fallback. API errors are thrown (so Inngest retries). Without `client`, `MOCK_MODE=true` uses `createMockTriageClient()` (verdict from analyzer heuristic codes).
+- Also exported: `DEFAULT_TRIAGE_MODEL`, `DEFAULT_TRIAGE_MAX_TOKENS`, `buildTriageRequest`, `parseTriageResponse`, `triageFailedVerdict`, `createMockTriageClient`, types `RunTriageInput`, `TriageResult`, `TriageEvidenceKind`. `@neo/core` now depends on `@neo/verdict`.
+
 ## @neo/db (specs `_specs/intake.md`, `_specs/forward-to-address.md`, `_specs/dashboard.md`)
 
 Migration `0003_phase1`: `artifacts` + `filename`, `mime_type`, `source`; `verdicts` + `source` (`chat|inbound|api`, default `chat`), `artifact_id`; new `inbound_addresses`, `inbound_messages` with RLS; `security definer` function `resolve_inbound_address(local_part)`.
@@ -233,6 +238,13 @@ export const verdictQueries: {
 export function saveVerdict(db, input: { tenantId; userId; conversationId?; artifactId?; source: "chat" | "inbound" | "api"; verdict: Verdict }): Promise<{ id: string }>;
 export function listMembers(db, tenantId): Promise<{ userId; name: string | null; email: string | null; role: "owner" | "member" }[]>;
 ```
+
+Shipped differences and additions (@neo/db, branch `claude/feature/db-artifacts`):
+- Migration `0003_phase1` also adds `artifacts_source_check` (`upload|inbound`), `verdicts_artifact_idx`, a partial unique index "one active inbound address per tenant", FKs `inbound_messages.artifact_id → artifacts` and `verdict_id → verdicts` (both `on delete set null`), and a second `security definer` function `list_expired_artifacts(max_rows)` so retention works as the app role. Both functions: `EXECUTE` revoked from `PUBLIC`, granted to `app_user` (see `packages/db/docs/rls.md`).
+- `ArtifactStore.get` / `read` treat expired artifacts as missing. `purge(id, tenantId?)`: pass the `tenantId` from `listExpired()` when running as the app role. `put` without a master key throws `ArtifactStoreUnavailableError` unless `allowPlaintext` (ignored when `VERCEL_ENV=production`). `createArtifactStore` also takes `now?`. `retentionDays` defaults to `NEO_ARTIFACT_RETENTION_DAYS` (30). Also exported: `artifactBlobPath`, `artifactRetentionDays`, `DEFAULT_ARTIFACT_RETENTION_DAYS`, types `PutArtifactInput`, `ArtifactStoreOptions`, `ArtifactSource`.
+- `inbound.countRecent(db, tenantId, addressId, windowMs)` takes a **tenantId** (tenant-scoped, RLS-safe; the webhook has it from `findActiveByLocalPart`). `ensureAddress` / `rotateAddress` return `{ id, localPart, address }` (`address` null without `NEO_INBOUND_DOMAIN`). `recordMessage` returns `{ id, duplicate }` (idempotent on `providerMessageId`) and bumps the address's `last_used_at`; its input also takes `error?`. Added `inbound.getMessage(db, id, tenantId)`, `isInboundLocalPart`, `inboundAddressFor`. `findActiveByLocalPart` lowercases/trims and returns undefined for anything not shaped like `check-<12 crockford>` without querying.
+- `saveVerdict` validates with `VerdictSchema` (throws on invalid), sets `raw_ref` from `artifactId` when absent, and throws on DB errors (callers that must not fail catch). `verdictQueries.list` throws `InvalidCursorError` on a malformed cursor (route → 400); the cursor carries microsecond precision. `summary` covers whole UTC days (today and the previous `sinceDays - 1`), `perDay` has one entry per day (zero-filled), `topIndicators` / `topDomains` count verdicts (not occurrences), domains lowercased; it also takes `now?`. `remove` does not delete the linked artifact (the route does, via `ArtifactStore.delete`). Types exported: `VerdictRow` (`body: Verdict`), `VerdictSummary`, `VerdictListOptions`, `HouseholdMember`, `InboundMessageRow`, `InboundStatus`, `VerdictSource`, `ArtifactKind`.
+- New tables are in `tenantTables`.
 
 ## apps/web
 
