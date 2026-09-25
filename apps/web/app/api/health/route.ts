@@ -1,4 +1,4 @@
-import { env } from "@/lib/env";
+import { env, inboundStatus } from "@/lib/env";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export function GET(): Response {
   const e = env();
   return Response.json(
-    { ok: true, version: e.APP_VERSION, ...(e.GIT_SHA ? { commit: e.GIT_SHA.slice(0, 7) } : {}), mock: e.MOCK_MODE },
+    { ok: true, version: e.APP_VERSION, ...(e.GIT_SHA ? { commit: e.GIT_SHA.slice(0, 7) } : {}), mock: e.MOCK_MODE, inbound: inboundStatus() },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
