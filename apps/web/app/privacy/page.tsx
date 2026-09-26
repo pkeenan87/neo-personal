@@ -84,6 +84,23 @@ function sections(email: string): Section[] {
               order to produce the analysis. Anthropic does not use API data to train its models.
             </li>
             <li>
+              <strong>Vercel AI Gateway</strong> routes each request to a model provider and brokers the inference. Every
+              request requires zero data retention (the provider may not keep the prompt or the answer) and inference in
+              the United States; a request that cannot meet both is refused rather than sent elsewhere.
+            </li>
+            <li>
+              The <strong>model family</strong> each household member picks in Settings decides which model provider
+              processes their chat messages: Anthropic by default, or <strong>OpenAI</strong>,{" "}
+              <strong>Moonshot AI</strong> (Kimi) or <strong>xAI</strong> (Grok) when the operator has enabled them.
+              Background work, such as analyzing forwarded email, always uses Anthropic.
+            </li>
+            <li>
+              <strong>TypeSafe AI</strong> (Jev), only when enabled, receives a shortened, redacted excerpt of your chat
+              message (links reduced to their domain, email addresses and phone numbers masked) to decide how large a
+              model the question needs. It never receives attachments, analysis results, or the rest of the
+              conversation.
+            </li>
+            <li>
               <strong>Google Safe Browsing</strong> and <strong>VirusTotal</strong> receive links (and, for attachments,
               a fingerprint hash of the file, never the file itself) to check against known-threat databases. The hosted
               service only looks links up; it does not submit new links for public scanning.

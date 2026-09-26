@@ -1,5 +1,5 @@
 import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
-import type { MessageParam } from "@neo/core";
+import type { MessageParam, Route } from "@neo/core";
 import { users } from "./auth.js";
 import { tenants } from "./tenants.js";
 
@@ -38,6 +38,8 @@ export const turns = pgTable(
     seq: integer("seq").notNull(),
     messages: jsonb("messages").$type<MessageParam[]>().notNull(),
     usage: jsonb("usage").$type<TurnUsage>(),
+    /** How the turn was routed (model, tier, effort, preference); null for turns before Phase 2. */
+    route: jsonb("route").$type<Route>(),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

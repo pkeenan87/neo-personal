@@ -21,14 +21,18 @@ export function createConversationStore(db: Db): ConversationStore {
         const convo = await t.first(conversations, eq(conversations.id, id));
         if (!convo) return undefined;
         const rows = await t.tx
-          .select({ messages: turns.messages })
+          .select({ messages: turns.messages, route: turns.route })
           .from(turns)
           .where(and(eq(turns.tenantId, tenantId), eq(turns.conversationId, id)))
           .orderBy(asc(turns.seq));
         const messages: MessageParam[] = rows.flatMap((r) => r.messages);
-        return convo.pendingConfirmation == null
-          ? { id: convo.id, messages }
-          : { id: convo.id, messages, pendingConfirmation: convo.pendingConfirmation };
+        const lastRoute = rows.findLast((r) => r.route != null)?.route ?? undefined;
+        return {
+          id: convo.id,
+          messages,
+          ...(convo.pendingConfirmation == null ? {} : { pendingConfirmation: convo.pendingConfirmation }),
+          ...(lastRoute ? { lastRoute } : {}),
+        };
       });
     },
 
@@ -51,6 +55,7 @@ export function createConversationStore(db: Db): ConversationStore {
           seq: sql`(select coalesce(max(${turns.seq}), 0) + 1 from ${turns} where ${turns.conversationId} = ${id})`,
           messages: turn.messages,
           usage: turn.usage ?? null,
+          route: turn.route ?? null,
         });
       });
     },

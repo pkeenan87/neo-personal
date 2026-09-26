@@ -23,7 +23,7 @@ export type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 export { createToolRegistry } from "./tool-registry.js";
 
 // Agent loop
-export { REFUSAL_MESSAGE, resumeAfterConfirmation, runAgentLoop } from "./agent.js";
+export { BUDGET_EXHAUSTED_MESSAGE, REFUSAL_MESSAGE, isBudgetExhaustedError, resumeAfterConfirmation, runAgentLoop } from "./agent.js";
 
 // Safeguards
 export { guardMode, scanUserInput, shouldBlock, wrapToolResult } from "./injection-guard.js";
@@ -40,10 +40,47 @@ export {
   DEFAULT_COMPRESSION_MODEL,
   DEFAULT_EFFORT,
   DEFAULT_MAX_TOKENS,
+  AI_GATEWAY_BASE_URL,
   agentModel,
   compressionModel,
+  enabledFamilies,
   fallbacksEnabled,
+  gatewayEnabled,
+  gatewayRegion,
+  refusalFallbacksEnabled,
 } from "./config.js";
+export type { EnvSource } from "./config.js";
+
+// Model client and gateway request policy (Phase 2)
+export {
+  createModelClient,
+  gatewayProviderOptions,
+  modelEntryFor,
+  requestShape,
+  resetModelClientForTests,
+  withGatewayOptions,
+} from "./client.js";
+export type { GatewayInferenceRegion, GatewayProviderOptions, RequestShape } from "./client.js";
+
+// Model catalog and routing (Phase 2)
+export {
+  MODEL_CATALOG,
+  MODEL_FAMILIES,
+  PREFERENCE_TABLE,
+  ROUTING_PREFERENCES,
+  TIERS,
+  anthropicModelFor,
+  catalogEntryFor,
+  catalogModel,
+  clampEffort,
+  directModelId,
+  displayNameFor,
+  gatewayModelId,
+  modelIdFor,
+  pinnedRoute,
+  resolveRoute,
+} from "./routing.js";
+export type { CatalogModel, ModelFamily, ResolveRouteInput, Route, RouteSignals, RouterKind, RoutingPreference, Tier } from "./routing.js";
 
 // Artifact crypto (envelope encryption at rest)
 export {

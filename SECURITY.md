@@ -64,7 +64,7 @@ In scope:
 
 Out of scope:
 
-- Vulnerabilities in third-party services Neo calls (Anthropic, Google Safe Browsing, VirusTotal, urlscan.io, Neon, Vercel, Resend, Inngest). Report those to the vendor.
+- Vulnerabilities in third-party services Neo calls (Anthropic, Vercel AI Gateway and the model providers behind it, Google Safe Browsing, VirusTotal, urlscan.io, Neon, Vercel, Resend, Inngest). Report those to the vendor.
 - A self-hoster's own misconfiguration (for example, running the app as a Postgres superuser, which bypasses RLS; see `docs/self-hosting.md`).
 - Verdict accuracy on its own (a phishing page Neo rated `likely_safe`). Please open a normal issue with a redacted sample. It becomes a security issue when an attacker can **reliably force** a wrong verdict through prompt injection or analyzer manipulation; report that privately.
 - Missing best-practice headers or findings with no demonstrated impact.
@@ -81,6 +81,19 @@ Every email, SMS, screenshot, web page, redirect target, and third-party API res
 - User messages are scanned by `scanUserInput` before the agent runs. `INJECTION_GUARD_MODE=monitor` logs detections; `block` refuses them.
 - Deterministic analyzers (Safe Browsing, VirusTotal, RDAP, redirect chain, lookalike checks) produce structured signals that page text cannot override. A verdict of `likely_safe` should never rest on the content's claims about itself.
 - The verdict is produced through a structured-output schema (`@neo/verdict`), so the model cannot return free-form content where a verdict is expected.
+
+### Where prompts go
+
+Prompts contain household data: chat messages, and analyzer output about submitted emails, messages and pages (itself wrapped as untrusted evidence).
+
+- **Direct mode** (`NEO_MODEL_GATEWAY` unset): every model call goes to the Anthropic API.
+- **Gateway mode** (`NEO_MODEL_GATEWAY=true`): every model call goes to Vercel AI Gateway, which forwards it to one provider. Each request sets `zeroDataRetention: true` and `inferenceRegion: { scope: "zone", geoRegion: "us" }`; the gateway fails the request closed rather than use a provider that retains data or serves outside the US. The provider order is fixed per model family: Anthropic models on `anthropic`, `bedrock`, `vertexAnthropic`, `claudeaws`; OpenAI on `openai`; Kimi on `baseten`, `fireworks`, `bedrock`; Grok (experimental) on `xai`, `vertex`, where the US pin is relaxed because the gateway reports no region for Grok (ZDR stays on). `NEO_GATEWAY_REGION=global` drops the US pin for an instance; non-Anthropic families are off unless listed in `NEO_MODEL_FAMILIES`.
+- Only the **chat turn** follows a member's chosen family. Context compression (Haiku 4.5), forwarded-email and SMS triage (Sonnet 5) and incident playbooks (Opus 5) always use Anthropic models.
+- `metadata.user_id` is a hash of the user id (`hashPii`), never an email address.
+
+### What the router sees
+
+With `NEO_ROUTER=jev`, each chat turn is classified by TypeSafe AI's Jev model through the gateway before the agent runs. Jev receives only a redacted excerpt of the latest user message (URLs reduced to their registrable domain, email addresses and phone numbers masked, capped at about 4,000 characters) plus structural signals (whether there is an attachment and its kind, how many turns the conversation has, the previous verdict label). It never receives tool results, attachments, or the rest of the conversation, and its answers only choose a model tier; they never reach the agent's context. The Jev call requests ZDR and fails closed; Jev has no ZDR endpoint today, so with default settings the deterministic rules route every turn and nothing is sent to Jev. The message text is never logged by the router. A crafted message can at most move its own turn to a bigger or smaller model, which the usage caps and gateway budget already bound.
 
 ### Prompt injection toward actions
 
@@ -120,7 +133,7 @@ From Phase 1 (raw artifacts) and Phase 2 (mailbox connectors):
 
 ### Abuse and spend
 
-Signup is open and each check costs real money. Per-tenant monthly check caps and daily token caps (`USAGE_CAP_MONTHLY_CHECKS`, `USAGE_CAP_DAILY_TOKENS`) are enforced before the agent runs and return HTTP 429 when exceeded. See `_specs/usage-caps.md`.
+Signup is open and each check costs real money. Per-tenant monthly check caps and daily token caps (`USAGE_CAP_MONTHLY_CHECKS`, `USAGE_CAP_DAILY_TOKENS`) are enforced before the agent runs and return HTTP 429 when exceeded. See `_specs/usage-caps.md`. In gateway mode the AI Gateway API key carries a monthly budget; once it is spent the gateway returns HTTP 402 and Neo shows a budget-exhausted message instead of running up cost.
 
 ### Supply chain
 

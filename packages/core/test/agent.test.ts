@@ -2,7 +2,9 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { REFUSAL_MESSAGE, resumeAfterConfirmation, runAgentLoop } from "../src/agent.js";
+import { resetModelClientForTests } from "../src/client.js";
 import { hashPii } from "../src/logger.js";
+import { pinnedRoute, resolveRoute } from "../src/routing.js";
 import type { AgentEvent, RunAgentOptions } from "../src/types.js";
 import {
   collector,
@@ -610,5 +612,107 @@ describe("runAgentLoop — errors and retries", () => {
     expect(last.role).toBe("assistant");
     expect(last.content).toEqual([{ type: "text", text: "[interrupted]" }]);
     expect(res.messages[2]!.role).toBe("user");
+  });
+});
+
+describe("runAgentLoop — model routing (Phase 2)", () => {
+  const GATEWAY = { NEO_MODEL_GATEWAY: "true", AI_GATEWAY_API_KEY: "test-gateway-key" };
+  const stubGateway = (extra: Record<string, string> = {}) => {
+    for (const [k, v] of Object.entries({ ...GATEWAY, ...extra })) vi.stubEnv(k, v);
+  };
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetModelClientForTests();
+  });
+
+  it("a route sets model and effort, is emitted first, and the served model is reported", async () => {
+    const route = resolveRoute({
+      tier: "medium",
+      preference: "balanced",
+      family: "anthropic",
+      router: "jev",
+      signals: { complexity: 1, reason: "needs a lookup" },
+      source: {},
+    });
+    const { fake, events, opts } = setup([{ ...endTurn("ok"), model: "claude-sonnet-5-20260901" }], {
+      route,
+      model: "claude-opus-5",
+      effort: "high",
+    });
+    const res = await runAgentLoop(opts);
+
+    const p = fake.streamCalls[0]!.params;
+    expect(p.model).toBe("claude-sonnet-5");
+    expect(p.output_config).toEqual({ effort: "medium" });
+    expect(p.thinking).toEqual({ type: "adaptive", display: "summarized" });
+    expect(p).not.toHaveProperty("providerOptions");
+
+    expect(events[0]).toEqual({
+      type: "route",
+      model: "claude-sonnet-5",
+      displayName: "Sonnet 5",
+      tier: "medium",
+      effort: "medium",
+      family: "anthropic",
+      preference: "balanced",
+      router: "jev",
+      reason: "needs a lookup",
+    });
+    expect(types(events).filter((t) => t === "route")).toHaveLength(1);
+    expect(events.find((e) => e.type === "usage")).toMatchObject({ model: "claude-sonnet-5-20260901" });
+    expect(res.servedModel).toBe("claude-sonnet-5-20260901");
+  });
+
+  it("emits the route once across tool iterations", async () => {
+    const route = pinnedRoute("playbook", {});
+    const { events, opts } = setup([toolTurn(toolUse("tu_1", "check_url")), endTurn()], { route });
+    await runAgentLoop(opts);
+    expect(types(events)[0]).toBe("route");
+    expect(types(events).filter((t) => t === "route")).toHaveLength(1);
+  });
+
+  it("sends Haiku no thinking and no effort", async () => {
+    const route = resolveRoute({ tier: "small", preference: "cost", family: "anthropic", router: "rule", source: {} });
+    const { fake, opts } = setup([endTurn()], { route });
+    await runAgentLoop(opts);
+    const p = fake.streamCalls[0]!.params;
+    expect(p.model).toBe("claude-haiku-4-5");
+    expect(p).not.toHaveProperty("thinking");
+    expect(p).not.toHaveProperty("output_config");
+  });
+
+  it("through the gateway: slugs, providerOptions, and no fallbacks beta by default", async () => {
+    stubGateway({ NEO_MODEL_FAMILIES: "kimi" });
+    const route = resolveRoute({ tier: "large", preference: "balanced", family: "kimi", router: "jev" });
+    const { fake, events, opts } = setup([{ ...endTurn(), model: "moonshotai/kimi-k3" }], { route });
+    const res = await runAgentLoop(opts);
+
+    const call = fake.streamCalls[0]!;
+    expect(call.beta).toBe(false);
+    expect(call.params).not.toHaveProperty("betas");
+    expect(call.params).not.toHaveProperty("fallbacks");
+    expect(call.params.model).toBe("moonshotai/kimi-k3");
+    expect(call.params.output_config).toEqual({ effort: "high" });
+    expect(call.params.providerOptions).toEqual({
+      gateway: {
+        zeroDataRetention: true,
+        inferenceRegion: { scope: "zone", geoRegion: "us" },
+        order: ["baseten", "fireworks", "bedrock"],
+      },
+    });
+    expect(events[0]).toMatchObject({ type: "route", family: "kimi", displayName: "Kimi K3" });
+    expect(res.servedModel).toBe("moonshotai/kimi-k3");
+  });
+
+  it("through the gateway without a route: the default model becomes a slug; NEO_ENABLE_FALLBACKS=true opts back in", async () => {
+    stubGateway({ NEO_ENABLE_FALLBACKS: "true" });
+    const { fake, events, opts } = setup([endTurn()]);
+    await runAgentLoop(opts);
+    const call = fake.streamCalls[0]!;
+    expect(call.params.model).toBe("anthropic/claude-opus-5");
+    expect(call.beta).toBe(true);
+    expect(call.params.fallbacks).toBe("default");
+    expect(call.params.providerOptions).toMatchObject({ gateway: { zeroDataRetention: true } });
+    expect(types(events)).not.toContain("route");
   });
 });

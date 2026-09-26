@@ -1,8 +1,9 @@
-import type { AgentEvent } from "@neo/core";
+import type { ChatEvent } from "@/lib/chat-state";
 import { readAgentEvents } from "@/lib/ndjson";
 import { resetArtifactStore } from "@/lib/server/artifacts";
 import { memoryAuditLog } from "@/lib/server/audit";
 import { resetMemoryState as resetPhase1MemoryState } from "@/lib/server/memory-state";
+import { resetMemoryRoutingPreferences } from "@/lib/server/routing-settings";
 import { resetMemoryUsage } from "@/lib/server/usage";
 import { collect } from "../fixtures";
 
@@ -15,11 +16,11 @@ export function post(url: string, body: unknown): Request {
 }
 
 /** Read the whole NDJSON body. The route persists the turn before closing the stream. */
-export async function events(res: Response): Promise<AgentEvent[]> {
+export async function events(res: Response): Promise<ChatEvent[]> {
   return collect(readAgentEvents(res.body!));
 }
 
-export function textOf(evs: AgentEvent[]): string {
+export function textOf(evs: ChatEvent[]): string {
   return evs.flatMap((e) => (e.type === "text_delta" ? [e.text] : [])).join("");
 }
 
@@ -50,4 +51,5 @@ export function resetMemoryState(): void {
   // Verdicts, members and inbound rows (one shared module), and the artifact store.
   resetPhase1MemoryState();
   resetArtifactStore();
+  resetMemoryRoutingPreferences();
 }

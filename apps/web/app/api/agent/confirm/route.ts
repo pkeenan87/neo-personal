@@ -13,7 +13,7 @@
  * recorded with kind "resume" (_specs/usage-caps.md).
  */
 import { logger, resumeAfterConfirmation } from "@neo/core";
-import { agentEffort, streamAgentRun } from "@/lib/server/agent-run";
+import { agentEffort, routeForResume, streamAgentRun } from "@/lib/server/agent-run";
 import { CONVERSATION_ID_RE, getConversationStore, toPendingConfirmation } from "@/lib/server/conversation-store";
 import { jsonError, readJsonObject } from "@/lib/server/http";
 import { capExceededResponse, checkCaps, noteCapHit } from "@/lib/server/usage";
@@ -72,6 +72,8 @@ export async function POST(req: Request): Promise<Response> {
     signal: req.signal,
     // Same effort as the turn being resumed (high while a playbook is running).
     effort: agentEffort({ history: conv.messages }),
+    // Same route as the turn being resumed; rules-routed when the stored turn predates routing.
+    route: conv.lastRoute ?? (await routeForResume(session, conv.messages)),
     run: (common) =>
       resumeAfterConfirmation({
         ...common,

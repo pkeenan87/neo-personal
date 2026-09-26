@@ -58,4 +58,23 @@ describe("NDJSON AgentEvent parser", () => {
     expect(parseEventLine('{"type":"error","message":"x"}')).toEqual({ type: "error", message: "x" });
     expect(parseEventLine("{")).toBeNull();
   });
+
+  it("accepts the Phase 2 route event and usage.model", () => {
+    const route = {
+      type: "route",
+      model: "anthropic/claude-haiku-4.5",
+      displayName: "Haiku 4.5",
+      tier: "small",
+      effort: "low",
+      family: "anthropic",
+      preference: "cost",
+      router: "rule",
+    };
+    expect(isAgentEvent(route)).toBe(true);
+    expect(isAgentEvent({ ...route, reason: "Fallback rule" })).toBe(true);
+    expect(isAgentEvent({ ...route, tier: "huge" })).toBe(false);
+    expect(isAgentEvent({ ...route, reason: 1 })).toBe(false);
+    expect(isAgentEvent({ type: "usage", input_tokens: 1, output_tokens: 2, model: "neo-mock-model" })).toBe(true);
+    expect(isAgentEvent({ type: "usage", input_tokens: 1, output_tokens: 2, model: 3 })).toBe(false);
+  });
 });

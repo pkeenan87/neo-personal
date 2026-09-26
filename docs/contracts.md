@@ -321,3 +321,99 @@ Wire types: `apps/web/lib/dashboard-types.ts`. All routes: Node runtime, `force-
 - `POST /api/agent` body also takes `playbook?: PlaybookId` (400 when unknown) and `verdictId?: string` (400 malformed, 404 when not visible to the caller). `playbook` runs the turn with `effort: "high"`; effort also stays `high` for the turn after an assistant turn whose text starts with `<!-- playbook:<id> -->` (the UI hides the marker). `verdictId` makes the server load the stored verdict (tenant + role scoped) and append it to the user message as a second text block, prefixed `[neo:context]` and wrapped with `wrapToolResult("stored_verdict", …)`; the chat UI hides that block on reload.
 - `PlaybookId` = `clicked_link | entered_password | sent_gift_cards | shared_code | paid_scammer | device_compromised` (`apps/web/lib/playbooks.ts`). Playbook text: `apps/web/lib/server/playbooks/*.md`, bundled into `generated.ts` (`pnpm --filter @neo/web playbooks:generate`; a test fails when stale) and included in the system prompt under `## Incident playbooks`.
 - Pages: `/dashboard`, `/verdicts/[id]`; `/` redirects signed-in users to `/dashboard`. Chat entry points: `/chat?playbook=<id>` (auto-sends "I think I …. Help me." with `playbook`), `/chat?verdict=<id>` (auto-sends "Tell me more about this check: …" with `verdictId`), `/chat?check=<url>` (pre-fills the composer only). Evidence links: `GET /api/artifacts/<id>?inline=1` for image display, plain `GET /api/artifacts/<id>` to download.
+
+# Package contracts (Phase 2)
+
+Plan `_plans/phase-2-model-routing.md`, spec `_specs/model-routing.md`. Everything below is additive to Phases 0 and 1. Model ids: with the gateway on, ids are gateway slugs (`anthropic/claude-haiku-4.5`, `anthropic/claude-sonnet-5`, `anthropic/claude-opus-5`, `openai/gpt-6-luna`, `openai/gpt-6-sol`, `openai/gpt-6-astra`, `moonshotai/kimi-k3`, `spacexai/grok-4.1-fast-reasoning`, `spacexai/grok-4.7`, `spacexai/grok-4.6`); with the gateway off, the Phase 0 direct ids apply and only the Anthropic family is available.
+
+## @neo/core (spec `_specs/model-routing.md`)
+
+```ts
+// Gateway client and request policy
+export function gatewayEnabled(source?: EnvSource): boolean;                 // NEO_MODEL_GATEWAY=true && AI_GATEWAY_API_KEY
+export function gatewayRegion(source?: EnvSource): "us" | "global";           // NEO_GATEWAY_REGION, default "us"
+export function createModelClient(source?: EnvSource): Anthropic;            // baseURL https://ai-gateway.vercel.sh + AI_GATEWAY_API_KEY when enabled; else new Anthropic()
+export function modelIdFor(model: CatalogModel, source?: EnvSource): string; // gateway id, or directId when the gateway is off
+export function withGatewayOptions<T extends object>(params: T, model: CatalogModel, source?: EnvSource): T;  // adds providerOptions.gateway { zeroDataRetention: true, inferenceRegion, order }; no-op when off
+
+// Catalog and routing tables (pure, no I/O)
+export type Tier = "small" | "medium" | "large";
+export type RoutingPreference = "cost" | "balanced" | "intelligence";
+export type ModelFamily = "anthropic" | "openai" | "kimi" | "grok";
+export type RouterKind = "jev" | "rule" | "pinned";
+export interface CatalogModel { id: string; directId?: string; displayName: string; family: ModelFamily; tier: Tier; efforts: readonly Effort[]; order: readonly string[]; regionOverrides?: Record<string, null>; pricing: { input: number; output: number } }
+export interface RouteSignals { complexity?: number; stakes?: number; needsTools?: boolean; confidence?: number; reason?: string }
+export interface Route { tier: Tier; family: ModelFamily; model: string; displayName: string; effort: Effort; preference: RoutingPreference; router: RouterKind; signals?: RouteSignals }
+export const MODEL_CATALOG: Record<ModelFamily, Record<Tier, CatalogModel>>;
+export const PREFERENCE_TABLE: Record<RoutingPreference, Record<Tier, { rung: Tier; effort: Effort }>>;
+export const ROUTING_PREFERENCES: readonly RoutingPreference[]; export const MODEL_FAMILIES: readonly ModelFamily[]; export const TIERS: readonly Tier[];
+export function resolveRoute(input: { tier: Tier; preference: RoutingPreference; family: ModelFamily; router: RouterKind; signals?: RouteSignals; source?: EnvSource }): Route;  // falls back to "anthropic" when the family is not enabled or the gateway is off
+export function pinnedRoute(kind: "compression" | "triage" | "playbook", source?: EnvSource): Route;  // Haiku 4.5 low / Sonnet 5 low / Opus 5 high
+export function clampEffort(model: CatalogModel, effort: Effort): Effort;    // nearest listed level, higher on ties
+export function displayNameFor(modelId: string): string;                    // catalog display name, else the id
+export function enabledFamilies(source?: EnvSource): ModelFamily[];         // NEO_MODEL_FAMILIES (comma list), default ["anthropic"]; "anthropic" is always included
+
+// Agent loop additions
+export type AgentEvent = /* Phase 0 events */
+  | { type: "route"; model: string; displayName: string; tier: Tier; effort: Effort; family: ModelFamily; preference: RoutingPreference; router: RouterKind; reason?: string }
+  | { type: "usage"; input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number; model?: string };
+export interface RunAgentOptions { /* Phase 0 */ route?: Route }             // sets model + effort; emitted first as the `route` event
+export interface AgentResult { /* Phase 0 */ servedModel?: string }          // `message.model` of the last response
+```
+- Env: `NEO_MODEL_GATEWAY`, `AI_GATEWAY_API_KEY`, `NEO_GATEWAY_REGION`, `NEO_MODEL_FAMILIES`, `NEO_MODEL_SMALL`, `NEO_MODEL_MEDIUM`, `NEO_MODEL_LARGE` (override the Anthropic ladder; direct or gateway form). `NEO_AGENT_MODEL`, `NEO_TRIAGE_MODEL`, `NEO_COMPRESSION_MODEL`, `NEO_ENABLE_FALLBACKS` keep their Phase 0 meaning; on the gateway the refusal-fallback beta is sent only when `NEO_ENABLE_FALLBACKS=true` is explicit.
+- `agent.ts`, `context-manager.ts` and `triage.ts` obtain their default client from `createModelClient()`; an injected `client` still wins. Compression and triage build their requests from `pinnedRoute(...)`, `modelIdFor` and `withGatewayOptions`.
+
+## @neo/db (spec `_specs/model-routing.md`)
+
+```ts
+// migration 0004_model_routing
+memberships.routing_preference text not null default 'balanced'  check in ('cost','balanced','intelligence')
+memberships.model_family       text not null default 'anthropic' check in ('anthropic','openai','kimi','grok')
+turns.route                    jsonb            // Route
+usage_events.tier              text             // 'small' | 'medium' | 'large' | null
+
+export interface MemberPreferences { routingPreference: RoutingPreference; modelFamily: ModelFamily }
+tenantScoped(db, tenantId).memberships.getPreferences(userId): Promise<MemberPreferences>;             // defaults when the row has none
+tenantScoped(db, tenantId).memberships.setPreferences(userId, patch: Partial<MemberPreferences>): Promise<MemberPreferences>;
+ConversationStore.appendTurn(id, tenantId, { messages; usage?; pendingConfirmation?; route?: Route }): Promise<void>;
+ConversationStore.get(id, tenantId): Promise<{ id; messages; pendingConfirmation?; lastRoute?: Route } | undefined>;
+usage.recordCheck(db, { /* Phase 0 + 1 */ tier?: Tier });
+```
+
+## apps/web (spec `_specs/model-routing.md`)
+
+```ts
+// lib/server/router.ts
+export interface RouteTurnInput { text: string; hasAttachment: boolean; attachmentKind: "email" | "image" | "text" | null; priorTurns: number; previousVerdict: VerdictLabel | null; playbook: PlaybookId | null; preference: RoutingPreference; family: ModelFamily; signal?: AbortSignal }
+export function routeTurn(input: RouteTurnInput, deps?: { evaluate?: EvaluateFn; now?: () => number }): Promise<Route>;
+export function redactForRouting(text: string): string;
+export function rulesTier(input: RouteTurnInput): Tier;
+export function decideTier(answers: JevAnswers, confidence: Record<string, number> | undefined, needsToolsFloor: boolean): { tier: Tier; signals: RouteSignals };
+```
+- Jev: model `typesafe-ai/jev` through AI SDK 7 `experimental_evaluate`; questions `complexity` (score, 3 levels), `stakes` (score, 3 levels), `needs_tools` (boolean); `providerOptions.gateway.zeroDataRetention` = `NEO_ROUTER_ZDR !== "false"`; 1.5 s timeout; any failure → `rulesTier` with `router: "rule"`. `NEO_ROUTER=jev|rules|off` (default `jev` when the gateway is on, `rules` otherwise and in `MOCK_MODE`).
+- `streamAgentRun` reads the member's preferences, calls `routeTurn`, passes `route`, persists it on the turn, records `usage_events.model` from `servedModel` (fallback the route's model) and `tier`. `/api/agent/confirm` reuses `lastRoute` (rules-routed when absent).
+- `env.HAS_MODEL_CREDENTIALS` = Anthropic credentials, or `NEO_MODEL_GATEWAY=true` + `AI_GATEWAY_API_KEY`. `/api/agent` 503 `agent_unavailable` when false and not `MOCK_MODE`.
+
+### HTTP contract: routing settings
+
+- `GET /api/settings/routing` → 200 `{ preference, family, families: [{ id, label, enabled, caveat?, ladder: [{ tier, model, displayName, pricing: { input, output } }] }] }`. 401 `unauthenticated`.
+- `POST /api/settings/routing` `{ preference?, family? }` → 200 same shape. 400 `bad_request` (unknown value, or a family not in `enabledFamilies()`), 401. Any member sets their own row.
+- Page `/settings/routing` renders `RoutingSettings`; `AppShell` links it next to Forwarding.
+
+### Chat events and UI
+
+- `route` is the first event of a turn; `usage.model` carries the served model. `chat-state.ts` stores both on the assistant message (`ChatMessage.route`, `ChatMessage.servedModel`); `messagesFromStored` reads `turns.route`.
+- `MessageActions` shows a chip `<displayName> · <tier> · <preference>` with a tooltip explaining the route (Jev signals, "Playbook", or "Fallback rule"). `MOCK_MODE` shows `neo-mock-model`.
+- Gateway 402 `quota_for_entity_exceeded` → the existing user-safe error path with "Neo's monthly AI budget is used up. Please try again after it resets." and one `usage.budget_exhausted` audit event per tenant per day.
+
+### Shipped additions and differences (Phase 2, as built)
+
+- `@neo/core` also exports `createModelClient()`, `resetModelClientForTests()`, `gatewayProviderOptions(model, source)`, `withGatewayOptions(params, model, source)`, `requestShape(model, effort, { summarizedThinking? })` (the `thinking` / `output_config` fragments: Haiku 4.5 gets neither; no `budget_tokens` ever), `modelEntryFor(modelId)` (catalog entry, or a stand-in for unknown ids that keeps adaptive thinking and every effort level), `refusalFallbacksEnabled(source)` (direct mode: Phase 0 rule; gateway: only when `NEO_ENABLE_FALLBACKS` is explicitly truthy), `catalogModel`, `anthropicModelFor`, `catalogEntryFor`, `gatewayModelId`, `directModelId`, `BUDGET_EXHAUSTED_MESSAGE`, `isBudgetExhaustedError(err)` and `AI_GATEWAY_BASE_URL`. `AgentResult.errorCode?: "budget_exhausted"` is set when the gateway answered 402 / `quota_for_entity_exceeded`; the `error` event then carries `BUDGET_EXHAUSTED_MESSAGE`.
+- With the gateway on and no `route`, `opts.model` / `NEO_AGENT_MODEL`, the triage `input.model` / `NEO_TRIAGE_MODEL` and the `compressionModel` option are converted to gateway slugs with `gatewayModelId`. `NEO_TRIAGE_MODEL` wins over `NEO_MODEL_MEDIUM` for triage; compression checks `NEO_MODEL_SMALL` before `NEO_COMPRESSION_MODEL`.
+- `NEO_AGENT_EFFORT` no longer affects routed chat turns: the effort comes from the preference table (`RunAgentOptions.route`). It remains the fallback for a run without a route.
+- `SAFE_METADATA_FIELDS` gained `tier`, `router`, `family`, `preference`, `gateway`.
+- Router: `routeTurn(input, deps?: { evaluate?, now?, env? })` also takes `env` (read at call time; tests pass `NEO_ROUTER`, `NEO_MODEL_GATEWAY`, `AI_GATEWAY_API_KEY`). Extra exports: `JEV_MODEL`, `JEV_QUESTIONS`, `JEV_TIMEOUT_MS`, `EvaluateFn`, `JevAnswers`, `JevScoreAnswer`, `JevBooleanAnswer`. `NEO_ROUTER=off` routes with `signals.reason = "Router off"`; the Jev call uses `maxRetries: 0`; a malformed Jev answer falls back to rules. Redaction handles `http(s)://` and `www.` URLs (bare domains stay), keeps IPv4 hosts, masks phone numbers of 7+ digits, and uses a small hardcoded two-part public-suffix list.
+- Web wiring (`lib/server/agent-run.ts`): `routeForTurn({ session, text, attachments, history, playbook?, signal? })` loads the member's preferences (`lib/server/routing-settings.ts`, in-memory without `DATABASE_URL`), derives `attachmentKind` from the first attachment (`eml` / `inbound_eml` → `email`), `priorTurns` from user messages that are not tool-result carriers, and `previousVerdict` with `extractVerdict(history)`. `routeForResume(session, history)` routes a resume whose stored turn has no route, rules only. `AgentRunInput.route?` overrides `effort`, is persisted on the turn and recorded with `usage_events.tier`; `usage_events.model` is the served model (`AgentResult.servedModel`, `neo-mock-model` in `MOCK_MODE`), falling back to the route's model. One `usage.budget_exhausted` audit event per tenant per UTC day, deduplicated per instance.
+- Settings API errors follow the forwarding route: `{ error: <message>, code: "bad_request" | "unauthenticated" | "storage_unavailable" }`; a POST with neither field is a 400; a store failure is 503 `storage_unavailable`. `lib/routing-types.ts` holds the wire types; the page computes the preference → model list on the server (`preferenceModels()`) so `@neo/core`'s catalog stays out of the client bundle except `displayNameFor`. `AppShell` shows a Forwarding | Routing sub-navigation on settings pages.
+- Chat state: `ChatEvent = AgentEvent`; `messagesFromStored` accepts `StoredMessage | StoredTurn` (`{ messages, route? }`) entries. `ConversationStore.get` returns only `lastRoute`, so after a reload only the most recent assistant message shows a chip (`lib/server/chat-data.ts`). `lib/ndjson.ts` validates the `route` event and `usage.model`. `MessageActions` exports `modelChip()`; the chip is `<span data-testid="model-chip">`.
+- `.env.example` no longer sets `NEO_ENABLE_FALLBACKS=true` (unset means: on in direct mode, off on the gateway).

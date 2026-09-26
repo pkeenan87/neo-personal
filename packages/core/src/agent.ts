@@ -17,8 +17,11 @@ import {
   DEFAULT_MAX_TOKENS,
   SERVER_SIDE_FALLBACK_BETA,
   agentModel,
-  fallbacksEnabled,
+  gatewayEnabled,
+  refusalFallbacksEnabled,
 } from "./config.js";
+import { createModelClient, modelEntryFor, requestShape, withGatewayOptions } from "./client.js";
+import { gatewayModelId } from "./routing.js";
 import { mergeConsecutiveUserMessages, prepareMessages } from "./context-manager.js";
 import { wrapToolResult } from "./injection-guard.js";
 import { hashPii, logger } from "./logger.js";
@@ -26,6 +29,7 @@ import type {
   AgentEvent,
   AgentResult,
   AgentUsage,
+  Effort,
   PendingConfirmation,
   RegisteredTool,
   RunAgentOptions,
@@ -38,7 +42,11 @@ import type {
  *  - streams every call with `messages.stream()` (or `beta.messages.stream()`
  *    when server-side refusal fallbacks are on) and forwards text / thinking
  *    deltas as AgentEvents; `finalMessage()` yields the complete Message,
- *  - adaptive thinking with summarised display, depth via `output_config.effort`,
+ *  - adaptive thinking with summarised display, depth via `output_config.effort`
+ *    (both only where the model supports them, see `requestShape`),
+ *  - Phase 2: an optional `route` picks model and effort and is announced as
+ *    the first event; through AI Gateway every request carries the ZDR / US
+ *    region policy (`withGatewayOptions`),
  *  - prompt caching: breakpoints on the last tool, the system prompt, and the
  *    last message block; nothing volatile precedes them,
  *  - parallel tool calls: every tool_use in one assistant message runs, and
@@ -73,11 +81,15 @@ const CONTEXT_EXCEEDED_MESSAGE =
 const STALE_CONFIRMATION_MESSAGE =
   "This confirmation is no longer valid for this conversation. Please ask again.";
 
-let defaultClient: Anthropic | undefined;
 function getClient(opts: RunAgentOptions): Anthropic {
-  if (opts.client) return opts.client;
-  defaultClient ??= new Anthropic();
-  return defaultClient;
+  return opts.client ?? createModelClient();
+}
+
+/** Model id and effort for a run: the route wins; otherwise options / env, as a gateway slug when the gateway is on. */
+function modelAndEffort(opts: RunAgentOptions): { model: string; effort: Effort } {
+  if (opts.route) return { model: opts.route.model, effort: opts.route.effort };
+  const raw = opts.model ?? agentModel();
+  return { model: gatewayEnabled() ? gatewayModelId(raw) : raw, effort: opts.effort ?? DEFAULT_EFFORT };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -179,7 +191,20 @@ function isRetryable(err: unknown): boolean {
   return false;
 }
 
+/** Shown when AI Gateway rejects the request because the configured budget is exhausted (HTTP 402). */
+export const BUDGET_EXHAUSTED_MESSAGE = "Neo's monthly AI budget is used up. Please try again after it resets.";
+
+/** AI Gateway budget rejection: HTTP 402 with `type: "quota_for_entity_exceeded"`. */
+export function isBudgetExhaustedError(err: unknown): boolean {
+  if (!(err instanceof Anthropic.APIError)) return false;
+  if (err.status === 402) return true;
+  const body = err.error as { type?: unknown; error?: { type?: unknown } } | undefined;
+  const kind: unknown = err.type;
+  return kind === "quota_for_entity_exceeded" || body?.type === "quota_for_entity_exceeded" || body?.error?.type === "quota_for_entity_exceeded";
+}
+
 function userSafeError(err: unknown): string {
+  if (isBudgetExhaustedError(err)) return BUDGET_EXHAUSTED_MESSAGE;
   if (err instanceof Anthropic.RateLimitError) {
     return "Neo is handling too many requests right now. Please wait a moment and try again.";
   }
@@ -232,6 +257,10 @@ interface RunState {
   opts: RunAgentOptions;
   client: Anthropic;
   model: string;
+  effort: Effort;
+  /** `message.model` of the last response. */
+  servedModel?: string;
+  routeEmitted: boolean;
   history: MessageParam[];
   initialLength: number;
   usage: AgentUsage;
@@ -243,6 +272,7 @@ class LoopExit {
     readonly stopReason: string,
     readonly error?: string,
     readonly pending?: PendingConfirmation,
+    readonly errorCode?: AgentResult["errorCode"],
   ) {}
 }
 
@@ -261,10 +291,13 @@ function makeEmitter(opts: RunAgentOptions): (e: AgentEvent) => Promise<void> {
 }
 
 function newState(opts: RunAgentOptions): RunState {
+  const { model, effort } = modelAndEffort(opts);
   return {
     opts,
     client: getClient(opts),
-    model: opts.model ?? agentModel(),
+    model,
+    effort,
+    routeEmitted: false,
     history: [...opts.messages],
     initialLength: opts.messages.length,
     usage: { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 },
@@ -278,9 +311,30 @@ function result(state: RunState, exit: LoopExit): AgentResult {
     newMessages: state.history.slice(state.initialLength),
     usage: state.usage,
     stopReason: exit.stopReason,
+    ...(state.servedModel ? { servedModel: state.servedModel } : {}),
     ...(exit.pending ? { pendingConfirmation: exit.pending } : {}),
     ...(exit.error ? { error: exit.error } : {}),
+    ...(exit.errorCode ? { errorCode: exit.errorCode } : {}),
   };
+}
+
+/** Announce the route once per run, before the first model call. */
+async function emitRoute(state: RunState): Promise<void> {
+  const route = state.opts.route;
+  if (!route || state.routeEmitted) return;
+  state.routeEmitted = true;
+  const reason = route.signals?.reason;
+  await state.emit({
+    type: "route",
+    model: route.model,
+    displayName: route.displayName,
+    tier: route.tier,
+    effort: route.effort,
+    family: route.family,
+    preference: route.preference,
+    router: route.router,
+    ...(reason ? { reason } : {}),
+  });
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -309,17 +363,20 @@ async function callModel(state: RunState, iteration: number): Promise<ModelTurn>
   const messages = stampCacheBreakpoint(mergeConsecutiveUserMessages(prepared));
 
   const system: TextBlockParam[] = [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }];
-  const base: MessageCreateParamsBase = {
-    model: state.model,
-    max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
-    system,
-    messages,
-    thinking: { type: "adaptive", display: "summarized" },
-    output_config: { effort: opts.effort ?? DEFAULT_EFFORT },
-    metadata: { user_id: hashPii(opts.ctx.userId) },
-    ...(tools.length > 0 ? { tools } : {}),
-  };
-  const useFallbacks = opts.enableFallbacks ?? fallbacksEnabled();
+  const entry = modelEntryFor(state.model);
+  const base: MessageCreateParamsBase = withGatewayOptions(
+    {
+      model: state.model,
+      max_tokens: opts.maxTokens ?? DEFAULT_MAX_TOKENS,
+      system,
+      messages,
+      ...requestShape(entry, state.effort, { summarizedThinking: true }),
+      metadata: { user_id: hashPii(opts.ctx.userId) },
+      ...(tools.length > 0 ? { tools } : {}),
+    },
+    entry,
+  );
+  const useFallbacks = opts.enableFallbacks ?? refusalFallbacksEnabled();
   const maxRetries = opts.retry?.maxRetries ?? DEFAULT_MAX_RETRIES;
   const baseDelay = opts.retry?.baseDelayMs ?? DEFAULT_RETRY_BASE_DELAY_MS;
 
@@ -392,6 +449,7 @@ function recordUsage(state: RunState, message: Message): AgentEvent {
   state.usage.output_tokens += u.output_tokens;
   state.usage.cache_read_input_tokens = (state.usage.cache_read_input_tokens ?? 0) + cacheRead;
   state.usage.cache_creation_input_tokens = (state.usage.cache_creation_input_tokens ?? 0) + cacheCreation;
+  if (message.model) state.servedModel = message.model;
   const totalIn = u.input_tokens + cacheRead + cacheCreation;
   logger.info("API usage", COMPONENT, {
     conversationId: state.opts.ctx.conversationId,
@@ -410,6 +468,7 @@ function recordUsage(state: RunState, message: Message): AgentEvent {
     output_tokens: u.output_tokens,
     cache_read_input_tokens: cacheRead,
     cache_creation_input_tokens: cacheCreation,
+    ...(message.model ? { model: message.model } : {}),
   };
 }
 
@@ -562,6 +621,7 @@ async function loop(state: RunState): Promise<LoopExit> {
   const { opts } = state;
   const maxIterations = opts.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
+  await emitRoute(state);
   for (let iteration = 0; iteration < maxIterations; iteration++) {
     if (opts.ctx.signal?.aborted) throw new Anthropic.APIUserAbortError();
 
@@ -670,7 +730,7 @@ async function runWithState(state: RunState): Promise<AgentResult> {
       // Never leave an assistant tool_use without its results.
       if (lastIsUnpairedToolUse(state)) state.history.pop();
       await state.emit({ type: "error", message });
-      exit = new LoopExit("error", message);
+      exit = new LoopExit("error", message, undefined, isBudgetExhaustedError(err) ? "budget_exhausted" : undefined);
     }
   }
   await state.emit({ type: "done", stop_reason: exit.stopReason });
@@ -691,7 +751,8 @@ export async function runAgentLoop(opts: RunAgentOptions): Promise<AgentResult> 
     tenantId: opts.ctx.tenantId,
     userIdHash: hashPii(opts.ctx.userId),
     model: state.model,
-    effort: opts.effort ?? DEFAULT_EFFORT,
+    effort: state.effort,
+    ...(opts.route ? { tier: opts.route.tier, router: opts.route.router } : {}),
     toolCount: opts.tools.list().length,
   });
   return runWithState(state);
@@ -755,6 +816,7 @@ export async function resumeAfterConfirmation(
     approved,
   });
 
+  await emitRoute(state);
   let toolResult: ToolResultBlockParam;
   if (approved) {
     await state.emit({ type: "tool_start", id: block.id, name: block.name, input: block.input });

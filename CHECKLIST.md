@@ -10,7 +10,7 @@ Status as of 2026-09-25: Phase 0 is complete and verified in production at https
 - [x] Get a free **Google Safe Browsing** API key (Google Cloud Console, enable "Safe Browsing API", create an API key). Set `GOOGLE_SAFE_BROWSING_API_KEY`. Note: the v4 Lookup API is for non-commercial use; switch to Web Risk before charging money.
 - [x] Get a free **VirusTotal** API key (virustotal.com, sign up, API key in profile). Set `VIRUSTOTAL_API_KEY`. Free tier is 4 requests/minute, 500/day.
 - [x] Decide `VIRUSTOTAL_SUBMIT` (production: false). Default `true` submits unknown URLs to VirusTotal, where other VT users can see them (password-reset links included). Recommended: set `VIRUSTOTAL_SUBMIT=false` until there is a per-tenant opt-in.
-- [ ] Set a spend limit on the Anthropic key in the Console (Settings, Limits) so a bug cannot burn the $20 balance.
+- [ ] Create the AI Gateway API key with a monthly budget (replaces the Anthropic console spend limit; the key budget is the enforceable cap): `vercel ai-gateway api-keys create --name neo-prod --limit 25 --refresh-period monthly --alert-thresholds 75,100`. See section 10.
 - [x] Optional: a free **urlscan.io** key (key set; still disabled in production) for screenshots. Set `URLSCAN_API_KEY` and `URLSCAN_ENABLED=true`. Adds up to 25 seconds per URL check.
 
 ## 2. Database (unblocks real sign-in, persistence, usage caps)
@@ -93,3 +93,16 @@ Everything in Phase 1 runs locally and in CI with `MOCK_MODE=true`. Turning it o
 - [ ] Check `GET /api/health`: `artifacts: "ok"`, `inbound: "ok"`.
 - [ ] Forward one email from your Gmail to your household address (shown on `/settings/forwarding`) and confirm the verdict email arrives and shows on `/dashboard`. To set up a Gmail auto-forward, Gmail first sends a confirmation email to the address: its code appears on `/settings/forwarding` (owner only).
 - [ ] Decide `NEO_ARTIFACT_RETENTION_DAYS` (default 30) and whether inbound triage should stay on Sonnet 5.
+
+
+## 10. Phase 2 go-live (AI Gateway and model routing)
+
+Everything in Phase 2 runs locally and in CI with `MOCK_MODE=true`. Details in `docs/deployment.md` ("AI Gateway"). In order:
+
+- [x] Run the spike (2026-09-26, all checks pass; results in the spec) with a gateway key in `apps/web/.env.local` (`cd apps/web && node --env-file=.env.local scripts/gateway-spike.ts`) and paste the results table into `_specs/model-routing.md`. It answers the open questions (fallback beta, structured outputs, cache hits, other families, Jev with and without ZDR).
+- [ ] Create the gateway API key with a budget (section 1).
+- [ ] Run migration `0004_model_routing` as the owner (`MIGRATION_DATABASE_URL=... pnpm db:migrate`) **before** deploying the Phase 2 code (it is additive).
+- [ ] Set `AI_GATEWAY_API_KEY` (Sensitive) and `NEO_MODEL_GATEWAY=true` in Production and Preview. Keep `ANTHROPIC_API_KEY` set for one release as the rollback path (unset `NEO_MODEL_GATEWAY` and redeploy to go back to direct Anthropic).
+- [ ] On a preview deployment, send one chat check and confirm in Vercel → AI Gateway → Logs: `finalProvider` from the family's order, `inferenceEndpoint.geoRegion: us`, "ZDR requested" in `planningReasoning`, and the model matches the chip in the chat. Then promote.
+- [ ] Enable additional families (`NEO_MODEL_FAMILIES`, e.g. `anthropic,openai`) only for families the spike and the tool-loop and prompt-injection tests passed.
+- [ ] Remove `ANTHROPIC_API_KEY` from Vercel after one release on the gateway without a rollback.

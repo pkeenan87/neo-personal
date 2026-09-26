@@ -17,6 +17,13 @@ describe("privacy policy page", () => {
     expect(PRIVACY_POLICY_UPDATED).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 
+  it("lists the model routing processors", () => {
+    render(<PrivacyPage />);
+    for (const name of ["Vercel AI Gateway", "TypeSafe AI", "OpenAI", "Moonshot AI", "xAI"]) {
+      expect(screen.getByText(name)).toBeInTheDocument();
+    }
+  });
+
   it("falls back to the default contact address", () => {
     vi.stubEnv("NEO_CONTACT_EMAIL", "");
     render(<PrivacyPage />);

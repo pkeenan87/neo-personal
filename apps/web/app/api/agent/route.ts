@@ -22,7 +22,7 @@ import { hashPii, logger, runAgentLoop, scanUserInput, shouldBlock, wrapToolResu
 import { CONVERSATION_ID_HEADER, MAX_MESSAGE_CHARS } from "@/lib/api-types";
 import { ATTACHMENT_LIMITS, parseAttachmentNote } from "@/lib/attachments";
 import { env } from "@/lib/env";
-import { agentEffort, streamAgentRun } from "@/lib/server/agent-run";
+import { agentEffort, routeForTurn, streamAgentRun } from "@/lib/server/agent-run";
 // --- dashboard + incident playbooks ---
 import { HIDDEN_CONTEXT_PREFIX } from "@/lib/hidden-context";
 import { isPlaybookId } from "@/lib/playbooks";
@@ -83,8 +83,12 @@ export async function POST(req: Request): Promise<Response> {
   // --- end dashboard + incident playbooks ---
 
   const e = env();
-  if (!e.MOCK_MODE && !e.HAS_ANTHROPIC_CREDENTIALS) {
-    return jsonError(503, "Neo's AI model isn't configured on this server. Set ANTHROPIC_API_KEY, or MOCK_MODE=true for the demo.", "agent_unavailable");
+  if (!e.MOCK_MODE && !e.HAS_MODEL_CREDENTIALS) {
+    return jsonError(
+      503,
+      "Neo's AI model isn't configured on this server. Set ANTHROPIC_API_KEY (or NEO_MODEL_GATEWAY=true with AI_GATEWAY_API_KEY), or MOCK_MODE=true for the demo.",
+      "agent_unavailable",
+    );
   }
 
   // Usage caps: fail closed if the usage store is unavailable.
@@ -115,12 +119,14 @@ export async function POST(req: Request): Promise<Response> {
 
   // ── Phase 1: intake attachments (tenant-scoped; 404 for missing, expired or foreign ids) ──
   let userContent: MessageParam["content"] = message;
+  let attachmentMetas: ArtifactMeta[] = [];
   if (attachmentIds.length > 0) {
     const artifacts = getArtifactStore();
     if (!artifacts) return jsonError(503, "File uploads aren't configured on this server.", "storage_unavailable");
     try {
       const metas = await Promise.all(attachmentIds.map((a) => artifacts.get(a, session.tenantId)));
       const found = metas.filter((m): m is ArtifactMeta => m !== undefined);
+      attachmentMetas = found;
       const blocks =
         found.length === metas.length
           ? await buildUserContent(message.trim() ? message : defaultAttachmentPrompt(found), found, artifacts, session.tenantId)
@@ -173,6 +179,15 @@ export async function POST(req: Request): Promise<Response> {
         ],
       }
     : { role: "user", content: userContent };
+  // ── Phase 2: model routing (Jev or rules; playbooks are pinned) ──
+  const route = await routeForTurn({
+    session,
+    text: message,
+    attachments: attachmentMetas,
+    history,
+    ...(playbook ? { playbook } : {}),
+    signal: req.signal,
+  });
   return streamAgentRun({
     session,
     conversationId: id,
@@ -181,6 +196,7 @@ export async function POST(req: Request): Promise<Response> {
     signal: req.signal,
     headers: { [CONVERSATION_ID_HEADER]: id },
     effort: agentEffort({ ...(playbook ? { playbook } : {}), history }),
+    route,
     run: (common) => runAgentLoop({ ...common, messages: [...history, userMessage] }),
   });
 }

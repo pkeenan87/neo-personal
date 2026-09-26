@@ -12,7 +12,7 @@ What a Phase 1 instance does: chat checks of links, pasted emails and text messa
 |---|---|---|
 | [Vercel](https://vercel.com) | Hosting the Next.js app, Cron | Hobby (functions up to 300s) |
 | [Neon](https://neon.tech) | Postgres (install from the Vercel Marketplace to get `DATABASE_URL` wired automatically) | Free plan |
-| [Anthropic](https://console.anthropic.com) | Claude API | Pay as you go (this is the one real cost) |
+| [Anthropic](https://console.anthropic.com) or [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) | Model calls (see [Model access](#model-access)) | Pay as you go (this is the one real cost) |
 | [Google Cloud](https://console.cloud.google.com) | Google sign-in, Safe Browsing API key | Free |
 | [Resend](https://resend.com) | Magic-link sign-in email, inbound email (forwarding address), result emails | Free plan, needs a verified domain |
 | [Inngest](https://www.inngest.com) | Background jobs: forwarded-email analysis, artifact expiry | Free plan |
@@ -48,15 +48,74 @@ Hobby plans on Vercel are for non-commercial use. A private household instance f
 14. **Try forwarding**: open Settings → Forwarding, copy your household's address, and forward a test email to it. The verdict appears on the dashboard and is emailed back to the forwarder.
 15. **Set usage caps** to match your budget (`USAGE_CAP_MONTHLY_CHECKS`, `USAGE_CAP_DAILY_TOKENS`). They apply per household.
 
+## Model access
+
+Neo talks to models through the Anthropic SDK in one of two modes. Pick one per environment.
+
+**Direct Anthropic** (default). Set `ANTHROPIC_API_KEY` and leave `NEO_MODEL_GATEWAY` unset. Only the Anthropic family is available, with the direct model ids (`claude-haiku-4-5`, `claude-sonnet-5`, `claude-opus-5`). This is how Phase 1 instances ran and nothing about it changes.
+
+**Vercel AI Gateway**. Set `NEO_MODEL_GATEWAY=true` and `AI_GATEWAY_API_KEY` (create the key with a budget; see [deployment.md](deployment.md#ai-gateway)). The same SDK is pointed at `https://ai-gateway.vercel.sh` and model ids gain a creator prefix (`anthropic/claude-sonnet-5`). Every request carries a provider policy that the gateway enforces or refuses:
+
+- **Zero data retention.** `zeroDataRetention: true` on every call. If no ZDR provider can serve the model, the request fails instead of falling back to one that retains data.
+- **US inference.** `inferenceRegion: { scope: "zone", geoRegion: "us" }` on every call, again failing closed. The gateway charges a regional rate: Claude costs **+10%** over the global price. Set `NEO_GATEWAY_REGION=global` to drop the pin and the surcharge (ZDR stays on).
+- **Provider order** per family (below). There is no `only` list, so the gateway can move to the next ZDR, US provider in the order if one is down.
+
+With the gateway on, household members can choose a **model family** in Settings → Routing. `NEO_MODEL_FAMILIES` (comma list, default `anthropic`) is the allowlist; Anthropic is always included. `NEO_MODEL_SMALL`, `NEO_MODEL_MEDIUM` and `NEO_MODEL_LARGE` replace the Anthropic ladder models and accept either id form (`claude-opus-5-5` or `anthropic/claude-opus-5.5`). With the gateway off, a stored non-Anthropic choice silently uses the Anthropic ladder.
+
+### Models
+
+Prices are USD per million input / output tokens at the global rate.
+
+| Family | small | medium | large | Provider order | US pin |
+|---|---|---|---|---|---|
+| **Anthropic** (default) | `anthropic/claude-haiku-4.5` $1 / $5 | `anthropic/claude-sonnet-5` $2 / $10 | `anthropic/claude-opus-5` $5 / $25 (`claude-opus-5.5` $4 / $20 via `NEO_MODEL_LARGE`) | `anthropic`, `bedrock`, `vertexAnthropic`, `claudeaws` | Yes |
+| **OpenAI** | `openai/gpt-6-luna` $0.10 / $0.50 | `openai/gpt-6-sol` $2 / $10 | `openai/gpt-6-astra` $10 / $50 | `openai` | Yes |
+| **Kimi** | Haiku 4.5 (Anthropic) | `moonshotai/kimi-k3` $3 / $15 | `moonshotai/kimi-k3` $3 / $15, effort high | `baseten`, `fireworks`, `bedrock` | Yes |
+| **Grok** (experimental) | `spacexai/grok-4.1-fast-reasoning` $0.20 / $0.50 | `spacexai/grok-4.7` $1.20 / $3.60 | `spacexai/grok-4.6` $2 / $6, effort xhigh | `xai`, `vertex` | **No**: the gateway reports no region for Grok, so the pin is relaxed for `xai` and `vertex` |
+
+Enable a non-Anthropic family only after the gateway spike (`apps/web/scripts/gateway-spike.ts`) and the tool-loop and prompt-injection tests pass for it.
+
+### What is routed and what is pinned
+
+A **chat turn** is classified into a tier (small, medium, large). The member's preference then picks the rung and effort on their family's ladder:
+
+| Tier | cost | balanced (default) | intelligence |
+|---|---|---|---|
+| small | small, low | small, low | medium, low |
+| medium | medium, low | medium, medium | large, medium |
+| large | medium, medium | large, medium | large, high |
+
+Effort is clamped to the levels a model accepts. Everything else is pinned to Anthropic models in every family and preference:
+
+| Function | Model |
+|---|---|
+| Chat turn | Routed: small / medium / large |
+| Incident playbook turn | Large (Opus 5), effort high; the router is skipped |
+| Resume after a confirmation | The turn's original route |
+| Context compression and anchor summaries | Haiku 4.5 |
+| Forwarded-email and SMS triage | Sonnet 5 (low, retried at medium) |
+
+The router is chosen with `NEO_ROUTER`:
+
+- `jev` (default with the gateway): TypeSafe AI's Jev evaluation model scores a redacted excerpt of the message for complexity, stakes and whether it needs a tool. The call requests ZDR (`NEO_ROUTER_ZDR=false` opts out). Jev has no ZDR endpoint on the gateway today, so with the default settings it fails closed and Neo uses the rules below until that changes. Any error or a 1.5 s timeout also falls back to rules.
+- `rules` (default without the gateway and in `MOCK_MODE`): deterministic rules on length, links, contact details, incident keywords and attachments.
+- `off`: every chat turn is medium.
+
+The chat shows which model answered each turn.
+
 ## Environment variables
 
 `.env.example` is the complete, commented list. For a production instance:
 
 | Variable | Required | Notes |
 |---|---|---|
-| `ANTHROPIC_API_KEY` | Yes | Set a spend limit in the Anthropic console too. |
-| `NEO_AGENT_MODEL`, `NEO_COMPRESSION_MODEL`, `NEO_TRIAGE_MODEL` | No | Defaults: `claude-opus-5`, `claude-haiku-4-5`, `claude-sonnet-5`. |
-| `NEO_AGENT_EFFORT`, `NEO_ENABLE_FALLBACKS` | No | Defaults `medium`, `true`. |
+| `ANTHROPIC_API_KEY` | Yes, unless the gateway is on | Direct Anthropic mode. Set a spend limit in the Anthropic console too. |
+| `NEO_MODEL_GATEWAY`, `AI_GATEWAY_API_KEY` | No | Both set: every model call goes through Vercel AI Gateway. See [Model access](#model-access). |
+| `NEO_GATEWAY_REGION`, `NEO_MODEL_FAMILIES` | No | Gateway only. Defaults `us`, `anthropic`. |
+| `NEO_MODEL_SMALL`, `NEO_MODEL_MEDIUM`, `NEO_MODEL_LARGE` | No | Override the Anthropic ladder. Defaults: Haiku 4.5, Sonnet 5, Opus 5. |
+| `NEO_ROUTER`, `NEO_ROUTER_ZDR` | No | Chat routing: `jev`, `rules` or `off`. Default `jev` with the gateway, `rules` without. |
+| `NEO_AGENT_MODEL`, `NEO_COMPRESSION_MODEL`, `NEO_TRIAGE_MODEL` | No | Legacy overrides of the large rung, compression and triage. Defaults: `claude-opus-5`, `claude-haiku-4-5`, `claude-sonnet-5`. |
+| `NEO_AGENT_EFFORT`, `NEO_ENABLE_FALLBACKS` | No | Defaults `medium`, `true` (on the gateway the refusal-fallback beta is sent only when `NEO_ENABLE_FALLBACKS=true` is set explicitly). |
 | `DATABASE_URL` | Yes | The **`app_user`** role, not the owner. `?sslmode=require` on Neon. |
 | `MIGRATION_DATABASE_URL` | For migrations | The owner role; used only by `pnpm db:migrate`. Never give it to the app. |
 | `NEO_DB_DRIVER` | No | `neon` on Vercel + Neon (auto-detected). |

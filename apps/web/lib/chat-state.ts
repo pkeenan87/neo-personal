@@ -9,14 +9,33 @@
  *   tool_start            → push a running ToolTrace part                  [tool_call]
  *   tool_result           → complete the matching ToolTrace by id          [tool_result]
  *   confirmation_required → push a pending ConfirmationPrompt part         [confirmation_required]
- *   usage                 → recorded on the message (not rendered)
+ *   route                 → stored on the message (`route`), shown as a model chip
+ *   usage                 → recorded on the message; `usage.model` → `servedModel`
  *   done                  → mark the message complete                     [—]
  *   error                 → mark the message errored with the text         [error]
  */
-import type { AgentEvent } from "@neo/core";
+import type { AgentEvent, Route } from "@neo/core";
 import { parseAttachmentNote, type AttachmentRef } from "./attachments";
 import { isHiddenContextText } from "./hidden-context";
 import { stripPlaybookMarker } from "./playbooks";
+
+// Chat events are the core AgentEvent union (docs/contracts.md, Phase 2 adds `route` and `usage.model`).
+export type ChatEvent = AgentEvent;
+export type RouteEvent = Extract<AgentEvent, { type: "route" }>;
+export type UsageEvent = Extract<AgentEvent, { type: "usage" }>;
+
+export function routeFromEvent(e: RouteEvent): Route {
+  return {
+    tier: e.tier,
+    family: e.family,
+    model: e.model,
+    displayName: e.displayName,
+    effort: e.effort,
+    preference: e.preference,
+    router: e.router,
+    ...(e.reason ? { signals: { reason: e.reason } } : {}),
+  };
+}
 
 export type ToolStatus = "running" | "done" | "error";
 
@@ -58,6 +77,10 @@ export interface ChatMessage {
   error?: string;
   stopReason?: string;
   usage?: { input_tokens: number; output_tokens: number };
+  /** How this turn was routed (the `route` event, or `turns.route` on reload). */
+  route?: Route;
+  /** Model id that actually served the response (`usage.model`), when reported. */
+  servedModel?: string;
 }
 
 export interface ChatState {
@@ -68,7 +91,7 @@ export interface ChatState {
 export type ChatAction =
   | { type: "send"; userId: string; assistantId: string; text: string; attachments?: AttachmentRef[] }
   | { type: "resume"; assistantId: string }
-  | { type: "event"; event: AgentEvent; now?: number }
+  | { type: "event"; event: ChatEvent; now?: number }
   | { type: "finish" }
   | { type: "interrupt" }
   | { type: "fail"; message: string }
@@ -99,8 +122,10 @@ function appendText(parts: MessagePart[], kind: "text" | "thinking", text: strin
   return [...parts, { kind, text }];
 }
 
-function applyEvent(m: ChatMessage, e: AgentEvent, now: number): ChatMessage {
+function applyEvent(m: ChatMessage, e: ChatEvent, now: number): ChatMessage {
   switch (e.type) {
+    case "route":
+      return { ...m, route: routeFromEvent(e) };
     case "text_delta":
       return { ...m, parts: appendText(m.parts, "text", e.text) };
     case "thinking":
@@ -153,6 +178,7 @@ function applyEvent(m: ChatMessage, e: AgentEvent, now: number): ChatMessage {
           input_tokens: (m.usage?.input_tokens ?? 0) + e.input_tokens,
           output_tokens: (m.usage?.output_tokens ?? 0) + e.output_tokens,
         },
+        ...(typeof e.model === "string" && e.model ? { servedModel: e.model } : {}),
       };
     case "done":
       return { ...m, status: m.status === "streaming" ? "complete" : m.status, stopReason: e.stop_reason };
@@ -274,6 +300,19 @@ export type StoredBlock =
   | { type: "tool_result"; tool_use_id: string; content?: unknown; is_error?: boolean }
   | { type: string; [k: string]: unknown };
 
+/**
+ * One persisted turn with its route (`turns.route`). `messagesFromStored` accepts these
+ * alongside bare messages; the route is attached to the assistant message of the turn.
+ */
+export interface StoredTurn {
+  messages: ReadonlyArray<StoredMessage>;
+  route?: Route | null;
+}
+
+function isStoredTurn(v: StoredMessage | StoredTurn): v is StoredTurn {
+  return "messages" in v && Array.isArray(v.messages);
+}
+
 export interface StoredPendingConfirmation {
   id: string;
   name: string;
@@ -296,7 +335,7 @@ function isToolResultOnly(msg: StoredMessage): boolean {
  * tool traces, then the final answer.
  */
 export function messagesFromStored(
-  stored: ReadonlyArray<StoredMessage>,
+  stored: ReadonlyArray<StoredMessage | StoredTurn>,
   opts: { pending?: StoredPendingConfirmation | null; idPrefix?: string } = {},
 ): ChatMessage[] {
   const out: ChatMessage[] = [];
@@ -310,9 +349,12 @@ export function messagesFromStored(
     current = null;
   };
 
-  for (const msg of stored) {
+  // Read through a function: `current` is reassigned inside closures, which TS narrowing can't see.
+  const openMessage = (): ChatMessage | null => current;
+
+  const addMessage = (msg: StoredMessage): void => {
     if (msg.role === "user" && isToolResultOnly(msg)) {
-      if (!current) continue;
+      if (!current) return;
       const cur: ChatMessage = current;
       for (const b of blocks(msg.content)) {
         if (b.type !== "tool_result" || typeof b.tool_use_id !== "string") continue;
@@ -323,7 +365,7 @@ export function messagesFromStored(
             : p,
         );
       }
-      continue;
+      return;
     }
 
     if (msg.role === "user") {
@@ -340,7 +382,7 @@ export function messagesFromStored(
       const text = texts.join("\n");
       const parts: MessagePart[] = [...(text.trim() ? [{ kind: "text" as const, text }] : []), ...attachments];
       if (parts.length) out.push({ id: nextId(), role: "user", parts, status: "complete" });
-      continue;
+      return;
     }
 
     // assistant
@@ -354,6 +396,17 @@ export function messagesFromStored(
       }
       // thinking / redacted_thinking / other blocks are not shown on reload.
     }
+  };
+
+  for (const entry of stored) {
+    if (!isStoredTurn(entry)) {
+      addMessage(entry);
+      continue;
+    }
+    for (const msg of entry.messages) addMessage(msg);
+    // The turn's route belongs to the assistant message it produced (or continued).
+    const open = openMessage();
+    if (entry.route && open) open.route = entry.route;
   }
 
   const pending = opts.pending;

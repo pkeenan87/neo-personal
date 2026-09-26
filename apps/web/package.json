@@ -21,6 +21,7 @@
     "@neo/db": "workspace:*",
     "@neo/tools": "workspace:*",
     "@neo/verdict": "workspace:*",
+    "ai": "7.0.116",
     "drizzle-orm": "^0.45.3",
     "inngest": "4.21.0",
     "lucide-react": "1.47.0",

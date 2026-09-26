@@ -1,15 +1,17 @@
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { ContentBlockParam, MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import {
   CHARS_PER_TOKEN,
   COMPRESSION_INPUT_MAX_TOKENS,
   PRESERVED_RECENT_MESSAGES,
-  compressionModel,
+  gatewayEnabled,
   maxInputTokens,
   toolResultMaxTokens,
 } from "./config.js";
+import { createModelClient, modelEntryFor, withGatewayOptions } from "./client.js";
 import { parseEnvelope } from "./injection-guard.js";
 import { hashPii, logger } from "./logger.js";
+import { gatewayModelId, pinnedRoute } from "./routing.js";
 import { truncateToolResult } from "./truncate.js";
 
 /**
@@ -515,9 +517,12 @@ export interface PrepareMessagesOptions {
   /** Hard ceiling on estimated input tokens. Default env `NEO_CONTEXT_MAX_INPUT_TOKENS` or 180000. */
   maxInputTokens?: number;
   // ── Additive options (not in docs/contracts.md) ──
-  /** Client for the compression call. Default `new Anthropic()`. */
+  /** Client for the compression call. Default `createModelClient()`. */
   client?: Anthropic;
-  /** Default env `NEO_COMPRESSION_MODEL` or `claude-haiku-4-5`. */
+  /**
+   * Default `pinnedRoute("compression")`: Haiku 4.5 (env `NEO_MODEL_SMALL` /
+   * `NEO_COMPRESSION_MODEL` override it), as a gateway slug when the gateway is on.
+   */
   compressionModel?: string;
   /** Estimated tokens of system prompt + tool schemas, counted against the ceiling. */
   systemTokens?: number;
@@ -543,21 +548,29 @@ function budgetFor(opts: PrepareMessagesOptions): Budget {
   };
 }
 
-let defaultClient: Anthropic | undefined;
 function clientFor(opts: PrepareMessagesOptions): Anthropic {
-  if (opts.client) return opts.client;
-  defaultClient ??= new Anthropic();
-  return defaultClient;
+  return opts.client ?? createModelClient();
 }
 
 async function callCompressionModel(opts: PrepareMessagesOptions, system: string, userText: string): Promise<string> {
-  const response = await clientFor(opts).messages.create({
-    model: opts.compressionModel ?? compressionModel(),
-    max_tokens: 4096,
-    system,
-    messages: [{ role: "user", content: userText }],
-    ...(opts.userId ? { metadata: { user_id: hashPii(opts.userId) } } : {}),
-  });
+  const model = opts.compressionModel
+    ? gatewayEnabled()
+      ? gatewayModelId(opts.compressionModel)
+      : opts.compressionModel
+    : pinnedRoute("compression").model;
+  // No thinking / effort: Haiku 4.5 supports neither, and summarisation needs neither.
+  const response = await clientFor(opts).messages.create(
+    withGatewayOptions(
+      {
+        model,
+        max_tokens: 4096,
+        system,
+        messages: [{ role: "user", content: userText }],
+        ...(opts.userId ? { metadata: { user_id: hashPii(opts.userId) } } : {}),
+      },
+      modelEntryFor(model),
+    ),
+  );
   if (response.stop_reason === "refusal") {
     throw new Error("compression model declined the request");
   }

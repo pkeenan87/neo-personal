@@ -93,7 +93,9 @@ export function ChatMessageView({ message, onDecide, live = false }: ChatMessage
           </div>
         )}
 
-        {!streaming && text && <MessageActions content={text} />}
+        {!streaming && text && (
+          <MessageActions content={text} route={message.route} servedModel={message.servedModel} />
+        )}
       </div>
     </div>
   );

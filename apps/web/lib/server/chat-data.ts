@@ -23,10 +23,13 @@ export async function loadConversation(session: NeoSession, id: string): Promise
   if (!CONVERSATION_ID_RE.test(id)) return null;
   const conv = await getConversationStore().get(id, session.tenantId);
   if (!conv) return null;
-  return {
-    id: conv.id,
-    messages: messagesFromStored(conv.messages.filter(isChatRole), { pending: toPendingConfirmation(conv.pendingConfirmation) }),
-  };
+  const messages = messagesFromStored(conv.messages.filter(isChatRole), { pending: toPendingConfirmation(conv.pendingConfirmation) });
+  // The store returns the most recent turn's route; earlier turns keep no chip after a reload.
+  if (conv.lastRoute) {
+    const last = messages.findLast((m) => m.role === "assistant");
+    if (last) last.route = conv.lastRoute;
+  }
+  return { id: conv.id, messages };
 }
 
 /** Persisted history only ever holds user/assistant turns; narrow for the UI. */

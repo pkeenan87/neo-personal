@@ -68,7 +68,9 @@ describe("with a database", () => {
     expect(turnRows).toHaveLength(1);
     expect(turnRows[0]!.messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
     const usageRows = await t.select(usageEvents, eq(usageEvents.conversationId, id));
-    expect(usageRows).toEqual([expect.objectContaining({ kind: "check", model: "mock" })]);
+    // The served model (the scripted mock reports "neo-mock-model") and the routed tier are recorded.
+    expect(usageRows).toEqual([expect.objectContaining({ kind: "check", model: "neo-mock-model", tier: "medium" })]);
+    expect(turnRows[0]!.route).toMatchObject({ tier: "medium", router: "rule" });
     expect(usageRows[0]!.inputTokens).toBeGreaterThan(0);
     const verdictRows = await t.select(verdicts, eq(verdicts.conversationId, id));
     expect(verdictRows).toEqual([expect.objectContaining({ verdict: "malicious", subjectType: "url", userId: session.userId })]);

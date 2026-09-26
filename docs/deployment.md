@@ -75,6 +75,31 @@ Deploy order for Phase 1 (details and commands in `CHECKLIST.md` §9 and [self-h
 
 `GET /api/health` shows `artifacts: "ok"` and `inbound: "ok"` once all of this is in place.
 
+## AI Gateway
+
+From Phase 2 every model call can go through [Vercel AI Gateway](https://vercel.com/docs/ai-gateway) with zero data retention and US inference enforced per request. Background and model tables: [self-hosting.md](self-hosting.md#model-access). Deploy order:
+
+1. **Migration first.** Run `0004_model_routing` as the owner role before deploying the Phase 2 code: `MIGRATION_DATABASE_URL=<owner url> pnpm db:migrate`. It is additive (two `memberships` columns with defaults, `turns.route`, `usage_events.tier`), so the previous deployment keeps working against it and a rollback is safe. No new grants or policies.
+2. **Gateway API key with a budget.** The key's budget is the enforceable spend cap (API-key spend does not count toward a project budget, so the cap goes on the key). It replaces the Anthropic console spend limit.
+   ```bash
+   vercel ai-gateway api-keys create --name neo-prod --limit 25 --refresh-period monthly --alert-thresholds 75,100
+   ```
+   Use a separate, smaller key for Preview if previews run with `MOCK_MODE=false`.
+3. **Environment variables** in Production and Preview: `AI_GATEWAY_API_KEY` (Sensitive) and `NEO_MODEL_GATEWAY=true`. Leave `NEO_MODEL_FAMILIES` unset (Anthropic only) until the spike passes another family. Keep `ANTHROPIC_API_KEY` set for one release: unsetting `NEO_MODEL_GATEWAY` (and redeploying) falls back to direct Anthropic.
+4. **Verify on a preview** before promoting. Send one chat check, then open the Vercel dashboard → AI Gateway → Logs and look at the request:
+   - `finalProvider` is one from the family's order (`anthropic`, `bedrock`, `vertexAnthropic` or `claudeaws` for Claude);
+   - `inferenceEndpoint.geoRegion` is `us`;
+   - `planningReasoning` contains "ZDR requested";
+   - the model matches the chip under the answer in the chat.
+   A forwarded email should show one Sonnet 5 request, and a long conversation Haiku 4.5 compression requests.
+
+What users see when the budget runs out: the gateway answers HTTP 402 `quota_for_entity_exceeded`, and the chat shows "Neo's monthly AI budget is used up. Please try again after it resets." An audit event `usage.budget_exhausted` is written once per household per day. The budget refreshes monthly; raise it with `vercel ai-gateway api-keys` or in the dashboard.
+
+Known gaps:
+
+- **Jev has no ZDR endpoint** on the gateway today (its only provider reports no ZDR). The router asks for ZDR and fails closed, so production routes chat turns with the deterministic rules until Vercel adds a ZDR endpoint; then Jev switches on without a deploy. `NEO_ROUTER_ZDR=false` would send the redacted excerpt to Jev without ZDR; leave it unset.
+- **Grok has no region data.** No Grok endpoint reports an inference region, so a US pin would fail every Grok call. The Grok family relaxes the pin for `xai` and `vertex` (ZDR stays on). Its hosting is in the US but the gateway cannot verify it, which is why Grok is marked experimental.
+
 ## Vercel Cron (placeholder)
 
 Phase 1 needs no Vercel Cron: scheduled work runs as Inngest cron functions. If Vercel Cron routes arrive later (weekly digest, breach re-checks) they will be:

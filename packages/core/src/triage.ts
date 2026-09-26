@@ -11,17 +11,23 @@
  *     output_config: { effort: "low", format: { type: "json_schema", schema: verdictJsonSchema } },
  *   })
  *
+ * `thinking` / `effort` follow the model's catalog entry (`requestShape`); through AI
+ * Gateway the body also carries `providerOptions.gateway` (`withGatewayOptions`).
+ *
  * The response's text block is the JSON document. It is still validated with
  * `VerdictSchema` (the JSON schema sent to the API omits numeric/length bounds). Invalid
  * output (refusal, truncation, schema drift) is retried once at `effort: "medium"`; after
  * that an `insufficient_evidence` verdict with indicator category `triage_failed` is
  * returned. API errors (after the SDK's own retries) are thrown so a job runner can retry.
  */
-import Anthropic from "@anthropic-ai/sdk";
+import type Anthropic from "@anthropic-ai/sdk";
 import type { Message, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 import { VerdictSchema, verdictJsonSchema, type Verdict } from "@neo/verdict";
+import { createModelClient, modelEntryFor, requestShape, withGatewayOptions } from "./client.js";
+import { gatewayEnabled } from "./config.js";
 import { wrapToolResult } from "./injection-guard.js";
 import { logger } from "./logger.js";
+import { gatewayModelId, pinnedRoute } from "./routing.js";
 import type { AgentUsage } from "./types.js";
 
 export const DEFAULT_TRIAGE_MODEL = "claude-sonnet-5";
@@ -39,9 +45,9 @@ export interface RunTriageInput {
   evidenceKind: TriageEvidenceKind;
   /** Analyzer guidance for weighing the evidence (e.g. `EMAIL_ANALYSIS_GUIDANCE`). Trusted. */
   guidance: string;
-  /** Inject a client (tests, MOCK_MODE). Default: `new Anthropic()` from env, or the mock client when `MOCK_MODE=true`. */
+  /** Inject a client (tests, MOCK_MODE). Default: `createModelClient()`, or the mock client when `MOCK_MODE=true`. */
   client?: Anthropic;
-  /** Default: `triageModel()`. */
+  /** Default: `triageModel()`. Direct ids are converted to gateway slugs when the gateway is on. */
   model?: string;
   signal?: AbortSignal;
   /** Default 4096. */
@@ -75,21 +81,27 @@ Return only the verdict object, matching the provided JSON schema:
 - iocs: URLs, domains, IPs, hashes and phone numbers seen in the evidence; empty arrays when none.
 Do not invent evidence that is not in the analysis.`;
 
-/** `NEO_TRIAGE_MODEL`, default `claude-sonnet-5`. Read at call time. */
+/**
+ * `NEO_TRIAGE_MODEL`, else `pinnedRoute("triage")` (Sonnet 5: `claude-sonnet-5`
+ * direct, `anthropic/claude-sonnet-5` through the gateway). Read at call time.
+ */
 export function triageModel(): string {
   const v = process.env.NEO_TRIAGE_MODEL?.trim();
-  return v ? v : DEFAULT_TRIAGE_MODEL;
+  if (v) return inModeForm(v);
+  return pinnedRoute("triage").model;
+}
+
+function inModeForm(model: string): string {
+  return gatewayEnabled() ? gatewayModelId(model) : model;
 }
 
 const TOOL_NAME: Record<TriageEvidenceKind, string> = { email: "analyze_email", sms: "analyze_sms" };
 const COMPONENT = "triage";
 
-let defaultClient: Anthropic | undefined;
 function resolveClient(input: RunTriageInput): Anthropic {
   if (input.client) return input.client;
   if (process.env.MOCK_MODE === "true") return createMockTriageClient();
-  defaultClient ??= new Anthropic();
-  return defaultClient;
+  return createModelClient();
 }
 
 /** Build the request for one attempt (exported for tests and inspection). */
@@ -100,7 +112,9 @@ export function buildTriageRequest(
 ): MessageCreateParamsNonStreaming {
   const wrapped = wrapToolResult(TOOL_NAME[input.evidenceKind], input.evidence, {});
   const guidance = input.guidance.trim();
-  return {
+  const entry = modelEntryFor(model);
+  const shape = requestShape(entry, effort);
+  const params: MessageCreateParamsNonStreaming = {
     model,
     max_tokens: input.maxTokens ?? DEFAULT_TRIAGE_MAX_TOKENS,
     system: [
@@ -117,9 +131,10 @@ export function buildTriageRequest(
         ],
       },
     ],
-    thinking: { type: "adaptive" },
-    output_config: { effort, format: { type: "json_schema", schema: verdictJsonSchema } },
+    ...(shape.thinking ? { thinking: shape.thinking } : {}),
+    output_config: { ...shape.output_config, format: { type: "json_schema", schema: verdictJsonSchema } },
   };
+  return withGatewayOptions(params, entry);
 }
 
 type ParseOutcome = { ok: true; verdict: Verdict } | { ok: false; reason: string };
@@ -182,7 +197,7 @@ function addUsage(total: AgentUsage, u: Message["usage"] | undefined): void {
 /** One structured-output triage call (plus at most one retry). See the module comment. */
 export async function runTriage(input: RunTriageInput): Promise<TriageResult> {
   const client = resolveClient(input);
-  const model = input.model ?? triageModel();
+  const model = input.model ? inModeForm(input.model) : triageModel();
   const usage: AgentUsage = { input_tokens: 0, output_tokens: 0, cache_read_input_tokens: 0, cache_creation_input_tokens: 0 };
   const efforts = ["low", "medium"] as const;
 

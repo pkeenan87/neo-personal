@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import type { ModelFamily, RoutingPreference } from "@neo/core";
 import { users } from "./auth.js";
 
 export const TENANT_KINDS = ["household"] as const;
@@ -26,11 +27,17 @@ export const memberships = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: text("role").$type<MembershipRole>().notNull(),
+    /** Chat routing bias (Phase 2): shifts the routed tier along the family ladder. */
+    routingPreference: text("routing_preference").$type<RoutingPreference>().notNull().default("balanced"),
+    /** Model family the member prefers; falls back to Anthropic when not enabled. */
+    modelFamily: text("model_family").$type<ModelFamily>().notNull().default("anthropic"),
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     primaryKey({ name: "memberships_tenant_user_pk", columns: [t.tenantId, t.userId] }),
     index("memberships_user_idx").on(t.userId),
     check("memberships_role_check", sql`${t.role} in ('owner', 'member')`),
+    check("memberships_routing_preference_check", sql`${t.routingPreference} in ('cost', 'balanced', 'intelligence')`),
+    check("memberships_model_family_check", sql`${t.modelFamily} in ('anthropic', 'openai', 'kimi', 'grok')`),
   ],
 );
