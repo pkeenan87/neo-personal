@@ -1,9 +1,10 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { Message } from "@anthropic-ai/sdk/resources/messages";
 import { verdictJsonSchema, type Verdict } from "@neo/verdict";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_TRIAGE_MODEL,
+  buildTriageRequest,
   createMockTriageClient,
   runTriage,
   triageFailedVerdict,
@@ -107,6 +108,41 @@ describe("runTriage", () => {
     expect(r.verdict.subject_type).toBe("sms");
     expect(r.model).toBe("claude-opus-5");
     expect(JSON.stringify(calls[0]!.params.messages)).toContain("analyze_sms");
+  });
+
+  it("through the gateway: pinned Sonnet slug, gateway options, structured output kept, retry at medium", async () => {
+    vi.stubEnv("NEO_MODEL_GATEWAY", "true");
+    vi.stubEnv("AI_GATEWAY_API_KEY", "test-gateway-key");
+    try {
+      expect(triageModel()).toBe("anthropic/claude-sonnet-5");
+      const { client, calls } = scripted([{ text: "not json" }, { text: JSON.stringify(VALID) }]);
+      const r = await runTriage({ evidence: EVIDENCE, evidenceKind: "email", guidance: "", client });
+      expect(r.model).toBe("anthropic/claude-sonnet-5");
+      expect(calls).toHaveLength(2);
+      const [first, second] = calls.map((c) => c.params);
+      expect(first!.model).toBe("anthropic/claude-sonnet-5");
+      expect(first!.thinking).toEqual({ type: "adaptive" });
+      expect(first!.output_config).toEqual({ effort: "low", format: { type: "json_schema", schema: verdictJsonSchema } });
+      expect(second!.output_config).toMatchObject({ effort: "medium" });
+      expect(first!.providerOptions).toEqual({
+        gateway: {
+          zeroDataRetention: true,
+          inferenceRegion: { scope: "zone", geoRegion: "us" },
+          order: ["anthropic", "bedrock", "vertexAnthropic", "claudeaws"],
+        },
+      });
+      // A direct-form override is converted to the gateway slug.
+      process.env.NEO_TRIAGE_MODEL = "claude-opus-5";
+      expect(triageModel()).toBe("anthropic/claude-opus-5");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("gateway off: no providerOptions on the request", () => {
+    const p = buildTriageRequest({ evidence: {}, evidenceKind: "email", guidance: "" }, "claude-sonnet-5", "low");
+    expect(p).not.toHaveProperty("providerOptions");
+    expect(p.model).toBe("claude-sonnet-5");
   });
 
   it("passes the abort signal to the SDK", async () => {

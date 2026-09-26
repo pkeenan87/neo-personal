@@ -70,6 +70,18 @@ export function gatewayRegion(source: EnvSource = process.env): "us" | "global" 
   return nonEmpty(source.NEO_GATEWAY_REGION)?.toLowerCase() === "global" ? "global" : "us";
 }
 
+/**
+ * Whether the server-side refusal-fallback beta is sent. Direct: on unless
+ * `NEO_ENABLE_FALLBACKS` is falsy (Phase 0 rule). Gateway: off unless
+ * `NEO_ENABLE_FALLBACKS` is explicitly truthy (pass-through is unverified).
+ */
+export function refusalFallbacksEnabled(source: EnvSource = process.env): boolean {
+  const raw = nonEmpty(source.NEO_ENABLE_FALLBACKS)?.toLowerCase();
+  if (gatewayEnabled(source)) return raw !== undefined && TRUTHY.has(raw);
+  if (raw === undefined) return true;
+  return !["false", "0", "off", "no"].includes(raw);
+}
+
 const FAMILY_VALUES = ["anthropic", "openai", "kimi", "grok"] as const;
 
 /**
