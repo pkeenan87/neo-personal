@@ -95,3 +95,13 @@ Phase 1 needs no Vercel Cron: scheduled work runs as Inngest cron functions. If 
 
 - Production deploys on merge to `main` after **All checks passed** is green.
 - Roll back with Vercel **Instant Rollback** to the previous production deployment. Database migrations must be backward compatible for one release so a rollback does not break the schema.
+
+### Inngest sync after deploys
+
+Inngest only runs functions of an app it has synced. The Vercel integration is supposed to sync on every deploy; if the Inngest dashboard (Apps) shows no functions or a stale "Last synced at", trigger a sync by hand. The serve route registers itself with Inngest Cloud on a `PUT`:
+
+```
+curl -X PUT https://www.neoshield.dev/api/inngest
+```
+
+It answers `{"message":"Successfully registered"}`. Do this after any deploy that adds or changes a function. Events sent while no function was registered do not run retroactively; replay them from Inngest → Events → the event → "Replay event".
