@@ -58,6 +58,7 @@ export {
   modelEntryFor,
   requestShape,
   resetModelClientForTests,
+  servedModelOf,
   withGatewayOptions,
 } from "./client.js";
 export type { GatewayInferenceRegion, GatewayProviderOptions, RequestShape } from "./client.js";

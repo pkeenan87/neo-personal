@@ -6,6 +6,7 @@ import {
   modelEntryFor,
   requestShape,
   resetModelClientForTests,
+  servedModelOf,
   withGatewayOptions,
 } from "../src/client.js";
 import { refusalFallbacksEnabled } from "../src/config.js";
@@ -69,9 +70,30 @@ describe("withGatewayOptions", () => {
     });
   });
 
+  it("adds the large rung's model fallbacks as gateway `models`", () => {
+    expect(gatewayProviderOptions(MODEL_CATALOG.anthropic.large, GATEWAY).gateway.models).toEqual(["anthropic/claude-sonnet-5"]);
+    expect(gatewayProviderOptions(MODEL_CATALOG.openai.large, GATEWAY).gateway.models).toEqual(["openai/gpt-6-sol"]);
+    expect(gatewayProviderOptions(MODEL_CATALOG.anthropic.medium, GATEWAY).gateway).not.toHaveProperty("models");
+  });
+
   it("omits the region pin with NEO_GATEWAY_REGION=global but keeps ZDR", () => {
     const out = withGatewayOptions(params, MODEL_CATALOG.openai.large, { ...GATEWAY, NEO_GATEWAY_REGION: "global" }) as Record<string, unknown>;
-    expect(out.providerOptions).toEqual({ gateway: { zeroDataRetention: true, order: ["openai"] } });
+    expect(out.providerOptions).toEqual({ gateway: { zeroDataRetention: true, order: ["openai"], models: ["openai/gpt-6-sol"] } });
+  });
+});
+
+describe("servedModelOf", () => {
+  it("prefers the gateway's canonical slug after a model fallback", () => {
+    const message = {
+      model: "anthropic/claude-opus-5",
+      provider_metadata: { gateway: { routing: { canonicalSlug: "anthropic/claude-sonnet-5", finalProvider: "anthropic" } } },
+    };
+    expect(servedModelOf(message)).toBe("anthropic/claude-sonnet-5");
+  });
+
+  it("falls back to message.model without metadata (direct mode)", () => {
+    expect(servedModelOf({ model: "claude-sonnet-5" })).toBe("claude-sonnet-5");
+    expect(servedModelOf({ model: "claude-sonnet-5", provider_metadata: { gateway: { routing: {} } } })).toBe("claude-sonnet-5");
   });
 });
 

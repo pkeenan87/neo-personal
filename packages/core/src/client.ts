@@ -75,10 +75,15 @@ export interface GatewayProviderOptions {
     zeroDataRetention: true;
     inferenceRegion?: GatewayInferenceRegion;
     order?: readonly string[];
+    /** Model fallbacks tried after `model` fails on every provider (same policy applies to each). */
+    models?: readonly string[];
   };
 }
 
-/** `providerOptions` for one request: ZDR always, US pin unless `NEO_GATEWAY_REGION=global`, the family's provider order. */
+/**
+ * `providerOptions` for one request: ZDR always, US pin unless `NEO_GATEWAY_REGION=global`,
+ * the family's provider order, and the catalog entry's model fallbacks.
+ */
 export function gatewayProviderOptions(model: CatalogModel, source: EnvSource = process.env): GatewayProviderOptions {
   const inferenceRegion: GatewayInferenceRegion | undefined =
     gatewayRegion(source) === "us"
@@ -89,8 +94,22 @@ export function gatewayProviderOptions(model: CatalogModel, source: EnvSource = 
       zeroDataRetention: true,
       ...(inferenceRegion ? { inferenceRegion } : {}),
       ...(model.order.length > 0 ? { order: model.order } : {}),
+      ...(model.fallbacks && model.fallbacks.length > 0 ? { models: model.fallbacks } : {}),
     },
   };
+}
+
+/**
+ * The model that produced a gateway response. After a model fallback the top-level
+ * `message.model` still names the requested model; the gateway reports the served one in
+ * `provider_metadata.gateway.routing.canonicalSlug`. Direct-mode messages have no metadata.
+ */
+export function servedModelOf(message: { model?: string; provider_metadata?: unknown; providerMetadata?: unknown }): string | undefined {
+  const meta = (message.provider_metadata ?? message.providerMetadata) as
+    | { gateway?: { routing?: { canonicalSlug?: unknown } } }
+    | undefined;
+  const slug = meta?.gateway?.routing?.canonicalSlug;
+  return typeof slug === "string" && slug.length > 0 ? slug : message.model;
 }
 
 /**

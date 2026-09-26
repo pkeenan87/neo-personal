@@ -334,14 +334,16 @@ export function gatewayEnabled(source?: EnvSource): boolean;                 // 
 export function gatewayRegion(source?: EnvSource): "us" | "global";           // NEO_GATEWAY_REGION, default "us"
 export function createModelClient(source?: EnvSource): Anthropic;            // baseURL https://ai-gateway.vercel.sh + AI_GATEWAY_API_KEY when enabled; else new Anthropic()
 export function modelIdFor(model: CatalogModel, source?: EnvSource): string; // gateway id, or directId when the gateway is off
-export function withGatewayOptions<T extends object>(params: T, model: CatalogModel, source?: EnvSource): T;  // adds providerOptions.gateway { zeroDataRetention: true, inferenceRegion, order }; no-op when off
+export function withGatewayOptions<T extends object>(params: T, model: CatalogModel, source?: EnvSource): T;  // adds providerOptions.gateway { zeroDataRetention: true, inferenceRegion, order, models? }; no-op when off
 
 // Catalog and routing tables (pure, no I/O)
 export type Tier = "small" | "medium" | "large";
 export type RoutingPreference = "cost" | "balanced" | "intelligence";
 export type ModelFamily = "anthropic" | "openai" | "kimi" | "grok";
 export type RouterKind = "jev" | "rule" | "pinned";
-export interface CatalogModel { id: string; directId?: string; displayName: string; family: ModelFamily; tier: Tier; efforts: readonly Effort[]; order: readonly string[]; regionOverrides?: Record<string, null>; pricing: { input: number; output: number } }
+export interface CatalogModel { id: string; directId?: string; displayName: string; family: ModelFamily; tier: Tier; efforts: readonly Effort[]; order: readonly string[]; regionOverrides?: Record<string, null>; fallbacks?: readonly string[]; pricing: { input: number; output: number } }
+// fallbacks (added 2026-09-26): gateway model fallbacks sent as providerOptions.gateway.models; the large rungs fall back to the family's medium model
+export function servedModelOf(message: { model?: string } & Record<string, unknown>): string | undefined; // provider_metadata.gateway.routing.canonicalSlug, else message.model
 export interface RouteSignals { complexity?: number; stakes?: number; needsTools?: boolean; confidence?: number; reason?: string }
 export interface Route { tier: Tier; family: ModelFamily; model: string; displayName: string; effort: Effort; preference: RoutingPreference; router: RouterKind; signals?: RouteSignals }
 export const MODEL_CATALOG: Record<ModelFamily, Record<Tier, CatalogModel>>;

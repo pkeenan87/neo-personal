@@ -60,6 +60,8 @@ Neo talks to models through the Anthropic SDK in one of two modes. Pick one per 
 - **US inference.** `inferenceRegion: { scope: "zone", geoRegion: "us" }` on every call, again failing closed. The gateway charges a regional rate: Claude costs **+10%** over the global price. Set `NEO_GATEWAY_REGION=global` to drop the pin and the surcharge (ZDR stays on).
 - **Provider order** per family (below). There is no `only` list, so the gateway can move to the next ZDR, US provider in the order if one is down.
 
+Large-tier models (Opus 5, GPT-6 Astra, Grok 4.6, Kimi K3 at high effort) fall back to the family's medium model when the gateway cannot serve them; a new team's gateway account may rate-limit premium models per model ("No access to this model at this time") until Vercel support raises the limit, and the chip shows the model that actually answered.
+
 With the gateway on, household members can choose a **model family** in Settings → Routing. `NEO_MODEL_FAMILIES` (comma list, default `anthropic`) is the allowlist; Anthropic is always included. `NEO_MODEL_SMALL`, `NEO_MODEL_MEDIUM` and `NEO_MODEL_LARGE` replace the Anthropic ladder models and accept either id form (`claude-opus-5-5` or `anthropic/claude-opus-5.5`). With the gateway off, a stored non-Anthropic choice silently uses the Anthropic ladder.
 
 ### Models
@@ -73,7 +75,7 @@ Prices are USD per million input / output tokens at the global rate.
 | **Kimi** | Haiku 4.5 (Anthropic) | `moonshotai/kimi-k3` $3 / $15 | `moonshotai/kimi-k3` $3 / $15, effort high | `baseten`, `fireworks`, `bedrock` | Yes |
 | **Grok** (experimental) | `spacexai/grok-4.1-fast-reasoning` $0.20 / $0.50 | `spacexai/grok-4.7` $1.20 / $3.60 | `spacexai/grok-4.6` $2 / $6, effort xhigh | `xai`, `vertex` | **No**: the gateway reports no region for Grok, so the pin is relaxed for `xai` and `vertex` |
 
-Enable a non-Anthropic family only after the gateway spike (`apps/web/scripts/gateway-spike.ts`) and the tool-loop and prompt-injection tests pass for it.
+Enable a non-Anthropic family only after the gateway spike (`apps/web/scripts/gateway-spike.ts`) and the prompt-injection eval (`apps/web/scripts/injection-eval.ts`, which runs Neo's real agent loop and tools against the fixtures in `apps/web/test/fixtures/injection/`) pass for it. The results for the curated catalog are in `_specs/model-routing.md`.
 
 ### What is routed and what is pinned
 

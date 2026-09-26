@@ -8,7 +8,13 @@ import type { SmsAnalysis } from "./types.js";
 
 export const MAX_SMS_BODY_CHARS = 4000;
 
-const optional = <T extends z.ZodType>(t: T) => t.nullish().transform((v) => v ?? undefined);
+/** Optional string; blank counts as absent (gateway-translated strict tool calls fill every property with ""). */
+const optional = <T extends z.ZodType<string, string>>(t: T) =>
+  z
+    .string()
+    .nullish()
+    .transform((v) => (v === null || v === undefined || v.trim() === "" ? undefined : v))
+    .pipe(t.optional());
 
 export const AnalyzeSmsInputSchema = z
   .object({

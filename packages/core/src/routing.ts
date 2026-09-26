@@ -41,6 +41,14 @@ export interface CatalogModel {
   order: readonly string[];
   /** Providers exempt from the US region pin (Grok: the gateway reports no regions for them). */
   regionOverrides?: Readonly<Record<string, null>>;
+  /**
+   * Gateway model fallbacks (`providerOptions.gateway.models`): tried in order when every
+   * provider for `id` fails, under the same ZDR / region policy. The large rungs fall back to
+   * the family's medium model because the gateway rate-limits premium models per account
+   * ("No access to this model at this time", 429) before any provider is tried; the response
+   * then names the served model in `provider_metadata.gateway.routing.canonicalSlug`.
+   */
+  fallbacks?: readonly string[];
   /** USD per million tokens at the global rate. */
   pricing: { input: number; output: number };
 }
@@ -105,6 +113,7 @@ const OPUS: CatalogModel = {
   efforts: ALL_EFFORTS,
   thinking: "adaptive",
   order: ANTHROPIC_ORDER,
+  fallbacks: ["anthropic/claude-sonnet-5"],
   pricing: { input: 5, output: 25 },
 };
 
@@ -116,18 +125,18 @@ export const MODEL_CATALOG: Record<ModelFamily, Record<Tier, CatalogModel>> = {
   openai: {
     small: { id: "openai/gpt-6-luna", displayName: "GPT-6 Luna", family: "openai", tier: "small", efforts: ALL_EFFORTS, thinking: "adaptive", order: ["openai"], pricing: { input: 0.1, output: 0.5 } },
     medium: { id: "openai/gpt-6-sol", displayName: "GPT-6 Sol", family: "openai", tier: "medium", efforts: ALL_EFFORTS, thinking: "adaptive", order: ["openai"], pricing: { input: 2, output: 10 } },
-    large: { id: "openai/gpt-6-astra", displayName: "GPT-6 Astra", family: "openai", tier: "large", efforts: ALL_EFFORTS, thinking: "adaptive", order: ["openai"], pricing: { input: 10, output: 50 } },
+    large: { id: "openai/gpt-6-astra", displayName: "GPT-6 Astra", family: "openai", tier: "large", efforts: ALL_EFFORTS, thinking: "adaptive", order: ["openai"], fallbacks: ["openai/gpt-6-sol"], pricing: { input: 10, output: 50 } },
   },
   kimi: {
     small: HAIKU,
     // Kimi K3 lists none/low/high/max: no `medium`.
     medium: { id: "moonshotai/kimi-k3", displayName: "Kimi K3", family: "kimi", tier: "medium", efforts: ["low", "high"], thinking: "adaptive", order: ["baseten", "fireworks", "bedrock"], pricing: { input: 3, output: 15 } },
-    large: { id: "moonshotai/kimi-k3", displayName: "Kimi K3", family: "kimi", tier: "large", efforts: ["low", "high"], thinking: "adaptive", order: ["baseten", "fireworks", "bedrock"], pricing: { input: 3, output: 15 } },
+    large: { id: "moonshotai/kimi-k3", displayName: "Kimi K3", family: "kimi", tier: "large", efforts: ["low", "high"], thinking: "adaptive", order: ["baseten", "fireworks", "bedrock"], fallbacks: ["anthropic/claude-sonnet-5"], pricing: { input: 3, output: 15 } },
   },
   grok: {
     small: { id: "spacexai/grok-4.1-fast-reasoning", displayName: "Grok 4.1 Fast", family: "grok", tier: "small", efforts: ALL_EFFORTS, thinking: "adaptive", order: ["xai", "vertex"], regionOverrides: GROK_REGION_OVERRIDES, pricing: { input: 0.2, output: 0.5 } },
     medium: { id: "spacexai/grok-4.7", displayName: "Grok 4.7", family: "grok", tier: "medium", efforts: ALL_EFFORTS, thinking: "adaptive", order: ["xai", "vertex"], regionOverrides: GROK_REGION_OVERRIDES, pricing: { input: 1.2, output: 3.6 } },
-    large: { id: "spacexai/grok-4.6", displayName: "Grok 4.6", family: "grok", tier: "large", efforts: ALL_EFFORTS, thinking: "adaptive", order: ["xai", "vertex"], regionOverrides: GROK_REGION_OVERRIDES, pricing: { input: 2, output: 6 } },
+    large: { id: "spacexai/grok-4.6", displayName: "Grok 4.6", family: "grok", tier: "large", efforts: ALL_EFFORTS, thinking: "adaptive", order: ["xai", "vertex"], regionOverrides: GROK_REGION_OVERRIDES, fallbacks: ["spacexai/grok-4.7"], pricing: { input: 2, output: 6 } },
   },
 };
 
