@@ -394,8 +394,12 @@ async function callModel(state: RunState, iteration: number): Promise<ModelTurn>
           )
         : client.messages.stream(base, { signal });
 
+      // AI Gateway attaches its routing metadata (served model, provider, cost) to the
+      // `message_delta` event; the SDK's accumulated final message drops unknown fields.
+      let gatewayMetadata: unknown;
       for await (const raw of stream as AsyncIterable<unknown>) {
-        const event = raw as RawMessageStreamEvent;
+        const event = raw as RawMessageStreamEvent & { provider_metadata?: unknown };
+        if (event.type === "message_delta" && event.provider_metadata !== undefined) gatewayMetadata = event.provider_metadata;
         if (event.type !== "content_block_delta") continue;
         if (event.delta.type === "text_delta" && event.delta.text) {
           emitted = true;
@@ -407,7 +411,8 @@ async function callModel(state: RunState, iteration: number): Promise<ModelTurn>
       }
       // The SDK iterator returns silently when aborted; don't mistake that for success.
       if (signal?.aborted) throw new Anthropic.APIUserAbortError();
-      const message = (await stream.finalMessage()) as unknown as Message;
+      const message = (await stream.finalMessage()) as unknown as Message & { provider_metadata?: unknown };
+      if (gatewayMetadata !== undefined) message.provider_metadata = gatewayMetadata;
 
       const iterations = (message.usage as { iterations?: Array<{ type?: string }> | null }).iterations ?? [];
       const servedByFallback = iterations.some((it) => it.type === "fallback_message");

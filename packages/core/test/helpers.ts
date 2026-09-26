@@ -53,11 +53,11 @@ export function makeMessage(turn: ScriptedTurn): Message {
       cache_read_input_tokens: 0,
       ...turn.usage,
     },
-    ...(turn.provider_metadata !== undefined ? { provider_metadata: turn.provider_metadata } : {}),
   } as unknown as Message;
 }
 
-function* eventsFor(message: Message): Generator<Record<string, unknown>> {
+/** SSE events for a message. Like AI Gateway, routing metadata rides on `message_delta` only (never on the final message). */
+function* eventsFor(message: Message, providerMetadata?: unknown): Generator<Record<string, unknown>> {
   yield { type: "message_start", message: { ...message, content: [] } };
   const content = message.content as unknown as Block[];
   for (let i = 0; i < content.length; i++) {
@@ -73,7 +73,12 @@ function* eventsFor(message: Message): Generator<Record<string, unknown>> {
     }
     yield { type: "content_block_stop", index: i };
   }
-  yield { type: "message_delta", delta: { stop_reason: message.stop_reason }, usage: message.usage };
+  yield {
+    type: "message_delta",
+    delta: { stop_reason: message.stop_reason },
+    usage: message.usage,
+    ...(providerMetadata !== undefined ? { provider_metadata: providerMetadata } : {}),
+  };
   yield { type: "message_stop" };
 }
 
@@ -114,7 +119,7 @@ export function fakeClient(turns: TurnScript[]): FakeClient {
           }
           throw turn.error;
         }
-        yield* eventsFor(message!);
+        yield* eventsFor(message!, "content" in turn ? turn.provider_metadata : undefined);
       },
       async finalMessage() {
         if ("error" in turn) throw turn.error;
