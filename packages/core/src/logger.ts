@@ -50,6 +50,12 @@ export const SAFE_METADATA_FIELDS: ReadonlySet<string> = new Set([
   "delayMs",
   "iteration",
   "fallbacksEnabled",
+  // Phase 2 model routing (enum values only)
+  "tier",
+  "router",
+  "family",
+  "preference",
+  "gateway",
   // usage
   "inputTokens",
   "outputTokens",

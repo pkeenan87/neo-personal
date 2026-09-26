@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
+import type { ModelFamily, Route, RouterKind, RoutingPreference, Tier } from "./routing.js";
 
 // ─────────────────────────────────────────────────────────────
 //  Tool registry
@@ -52,11 +53,25 @@ export type AgentEvent =
   | { type: "tool_result"; id: string; name: string; result: unknown; is_error?: boolean }
   | { type: "confirmation_required"; id: string; name: string; input: unknown; description: string }
   | {
+      /** First event of a routed run (`RunAgentOptions.route`): which model answers and why. */
+      type: "route";
+      model: string;
+      displayName: string;
+      tier: Tier;
+      effort: Effort;
+      family: ModelFamily;
+      preference: RoutingPreference;
+      router: RouterKind;
+      reason?: string;
+    }
+  | {
       type: "usage";
       input_tokens: number;
       output_tokens: number;
       cache_read_input_tokens?: number;
       cache_creation_input_tokens?: number;
+      /** Served model (`message.model` of the response). */
+      model?: string;
     }
   | { type: "done"; stop_reason: string }
   | { type: "error"; message: string };
@@ -75,6 +90,11 @@ export interface RunAgentOptions {
   /** Default: 16000. Caps thinking + visible output per API call. */
   maxTokens?: number;
   onEvent: (e: AgentEvent) => void | Promise<void>;
+  /**
+   * Routed model for this run (Phase 2). Overrides `model` and `effort` and is
+   * emitted as the first event (`type: "route"`).
+   */
+  route?: Route;
 
   // ── Additive options (not in docs/contracts.md; all optional) ──
   /** Inject an Anthropic client (tests, custom base URL). Default: `new Anthropic()` from env. */
@@ -117,6 +137,8 @@ export interface AgentResult {
   stopReason: string;
   /** User-safe error message when `stopReason` is `error` / `refusal`. */
   error?: string;
+  /** `message.model` of the last response (the gateway slug when routed through AI Gateway). */
+  servedModel?: string;
 }
 
 // ─────────────────────────────────────────────────────────────

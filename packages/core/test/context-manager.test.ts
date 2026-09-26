@@ -351,6 +351,38 @@ describe("prepareMessages", () => {
     expect(fake.createCalls[0]!.model).toBe("claude-haiku-test");
   });
 
+  it("uses the pinned Haiku route with no thinking / effort, and gateway options when the gateway is on", async () => {
+    const direct = fakeClient([]);
+    direct.createResponses.push(summary());
+    await prepareMessages(longConversation(8, 2000), { client: direct.client, maxInputTokens: 4000 });
+    const d = direct.createCalls[0]!;
+    expect(d.model).toBe("claude-haiku-4-5");
+    expect(d).not.toHaveProperty("thinking");
+    expect(d).not.toHaveProperty("output_config");
+    expect(d).not.toHaveProperty("providerOptions");
+
+    vi.stubEnv("NEO_MODEL_GATEWAY", "true");
+    vi.stubEnv("AI_GATEWAY_API_KEY", "test-gateway-key");
+    try {
+      const gw = fakeClient([]);
+      gw.createResponses.push(summary());
+      await prepareMessages(longConversation(8, 2000), { client: gw.client, maxInputTokens: 4000 });
+      const g = gw.createCalls[0]!;
+      expect(g.model).toBe("anthropic/claude-haiku-4.5");
+      expect(g).not.toHaveProperty("thinking");
+      expect(g).not.toHaveProperty("output_config");
+      expect(g.providerOptions).toEqual({
+        gateway: {
+          zeroDataRetention: true,
+          inferenceRegion: { scope: "zone", geoRegion: "us" },
+          order: ["anthropic", "bedrock", "vertexAnthropic", "claudeaws"],
+        },
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("falls back to a compression-failed notice when Haiku errors", async () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     const fake = fakeClient([]);

@@ -47,8 +47,20 @@ export {
   fallbacksEnabled,
   gatewayEnabled,
   gatewayRegion,
+  refusalFallbacksEnabled,
 } from "./config.js";
 export type { EnvSource } from "./config.js";
+
+// Model client and gateway request policy (Phase 2)
+export {
+  createModelClient,
+  gatewayProviderOptions,
+  modelEntryFor,
+  requestShape,
+  resetModelClientForTests,
+  withGatewayOptions,
+} from "./client.js";
+export type { GatewayInferenceRegion, GatewayProviderOptions, RequestShape } from "./client.js";
 
 // Model catalog and routing (Phase 2)
 export {
