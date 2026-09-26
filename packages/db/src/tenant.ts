@@ -1,5 +1,6 @@
 import { and, count, eq, sql, type SQL } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
+import { MODEL_FAMILIES, ROUTING_PREFERENCES, type ModelFamily, type RoutingPreference } from "@neo/core";
 import type { Db, Tx } from "./client.js";
 import {
   artifacts,
@@ -58,9 +59,32 @@ export interface TenantTx extends TenantQueries {
   readonly tx: Tx;
 }
 
+/** A member's model routing settings (Phase 2). Stored on their `memberships` row. */
+export interface MemberPreferences {
+  routingPreference: RoutingPreference;
+  modelFamily: ModelFamily;
+}
+
+export const DEFAULT_MEMBER_PREFERENCES: Readonly<MemberPreferences> = Object.freeze({
+  routingPreference: "balanced",
+  modelFamily: "anthropic",
+});
+
+/** Membership helpers bound to one tenant. */
+export interface TenantMemberships {
+  /** The member's routing preferences; defaults when the user has no membership row in this tenant. */
+  getPreferences(userId: string): Promise<MemberPreferences>;
+  /**
+   * Update the member's own row in this tenant (only the fields in `patch`) and return the
+   * stored result. Throws on an unknown value or when the user is not a member of the tenant.
+   */
+  setPreferences(userId: string, patch: Partial<MemberPreferences>): Promise<MemberPreferences>;
+}
+
 export interface TenantDb extends TenantQueries {
   /** Run several statements in one transaction with app.tenant_id set once. */
   transaction<R>(fn: (t: TenantTx) => Promise<R>): Promise<R>;
+  readonly memberships: TenantMemberships;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -122,6 +146,18 @@ function bindQueries(tx: Tx, tenantId: string): TenantQueries {
   return q as unknown as TenantQueries;
 }
 
+/** Stored values are constrained by check constraints; anything unexpected reads as the default. */
+function preferencesOf(row: { routingPreference: string; modelFamily: string }): MemberPreferences {
+  return {
+    routingPreference: (ROUTING_PREFERENCES as readonly string[]).includes(row.routingPreference)
+      ? (row.routingPreference as RoutingPreference)
+      : DEFAULT_MEMBER_PREFERENCES.routingPreference,
+    modelFamily: (MODEL_FAMILIES as readonly string[]).includes(row.modelFamily)
+      ? (row.modelFamily as ModelFamily)
+      : DEFAULT_MEMBER_PREFERENCES.modelFamily,
+  };
+}
+
 /**
  * Tenant-scoped access. Every method runs in its own transaction that first executes
  * `SELECT set_config('app.tenant_id', $1, true)` (so RLS policies apply), and every query
@@ -141,9 +177,36 @@ export function tenantScoped(db: Db, tenantId: string): TenantDb {
     (...args: unknown[]) =>
       transaction((t) => (t[key] as (...a: unknown[]) => Promise<unknown>)(...args));
 
+  const memberQueries: TenantMemberships = {
+    async getPreferences(userId) {
+      const row = await transaction((t) => t.first(memberships, eq(memberships.userId, userId)));
+      return row ? preferencesOf(row) : { ...DEFAULT_MEMBER_PREFERENCES };
+    },
+    async setPreferences(userId, patch) {
+      const set: { routingPreference?: RoutingPreference; modelFamily?: ModelFamily } = {};
+      if (patch.routingPreference !== undefined) {
+        if (!ROUTING_PREFERENCES.includes(patch.routingPreference)) throw new Error("@neo/db: unknown routing preference");
+        set.routingPreference = patch.routingPreference;
+      }
+      if (patch.modelFamily !== undefined) {
+        if (!MODEL_FAMILIES.includes(patch.modelFamily)) throw new Error("@neo/db: unknown model family");
+        set.modelFamily = patch.modelFamily;
+      }
+      const row = await transaction(async (t) => {
+        const where = eq(memberships.userId, userId);
+        if (Object.keys(set).length === 0) return t.first(memberships, where);
+        const [updated] = await t.update(memberships, set, where);
+        return updated;
+      });
+      if (!row) throw new Error("@neo/db: membership not found");
+      return preferencesOf(row);
+    },
+  };
+
   return {
     tenantId,
     transaction,
+    memberships: memberQueries,
     select: once("select"),
     first: once("first"),
     insert: once("insert"),
