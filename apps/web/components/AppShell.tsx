@@ -19,6 +19,7 @@ export const NAV_ITEMS: { key: NavKey; href: string; label: string; icon: typeof
 export const SETTINGS_LINKS: { href: string; label: string }[] = [
   { href: "/settings/forwarding", label: "Forwarding" },
   { href: "/settings/routing", label: "Routing" },
+  { href: "/settings/desktop", label: "Desktop" },
 ];
 
 function SettingsNav() {

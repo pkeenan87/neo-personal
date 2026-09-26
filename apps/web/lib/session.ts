@@ -3,19 +3,22 @@
  * takes `tenantId` from here and never from the request (_specs/tenant-auth.md).
  *
  *  - Normal path: Auth.js `auth()` (database session) → `{ userId, tenantId, role }`.
+ *  - Desktop tokens: `Authorization: Bearer neo_dt_…` → same shape (Omarchy plugin).
  *  - DEV_AUTH_BYPASS (only when not production/preview, see lib/env.ts): a fixed
  *    dev identity. With a database, the dev user and its household are created
  *    on first use; without one, a fixed in-memory dev tenant is used so
  *    MOCK_MODE runs with zero infrastructure.
  */
 import { hashPii, logger } from "@neo/core";
-import { createTenantForUser, users, type Db } from "@neo/db";
+import { createTenantForUser, isDesktopTokenFormat, users, type Db } from "@neo/db";
 import { eq } from "drizzle-orm";
 import type { Session } from "next-auth";
+import { headers } from "next/headers";
 import { redirect, unstable_rethrow } from "next/navigation";
-import { devAuthBypassRefused, env } from "./env";
-import { jsonError } from "./server/http";
+import { resolveBearerDesktopToken } from "./server/desktop-tokens";
 import { getDb } from "./server/db";
+import { jsonError } from "./server/http";
+import { devAuthBypassRefused, env } from "./env";
 
 export type MembershipRole = "owner" | "member";
 
@@ -25,6 +28,8 @@ export interface NeoSession {
   role: MembershipRole;
   email: string;
   name: string;
+  /** Present when the session came from a desktop personal access token. */
+  desktopTokenId?: string;
 }
 
 /** Identity used by DEV_AUTH_BYPASS when there is no database. */
@@ -61,6 +66,35 @@ async function devSession(): Promise<NeoSession> {
   return { ...(await g.__neoDevIdentity.ids), ...base };
 }
 
+async function sessionFromDesktopBearer(): Promise<NeoSession | null> {
+  let authz: string | null = null;
+  try {
+    authz = (await headers()).get("authorization");
+  } catch {
+    return null;
+  }
+  if (!authz?.toLowerCase().startsWith("bearer ")) return null;
+  const token = authz.slice(7).trim();
+  if (!isDesktopTokenFormat(token)) return null;
+  try {
+    const resolved = await resolveBearerDesktopToken(token);
+    if (!resolved) return null;
+    return {
+      userId: resolved.userId,
+      tenantId: resolved.tenantId,
+      role: resolved.role,
+      email: "",
+      name: "desktop",
+      desktopTokenId: resolved.id,
+    };
+  } catch (err) {
+    logger.error("Desktop token lookup failed", "auth", {
+      errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+    });
+    return null;
+  }
+}
+
 export async function getSession(): Promise<NeoSession | null> {
   const e = env();
   if (e.DEV_AUTH_BYPASS) return devSession();
@@ -68,6 +102,9 @@ export async function getSession(): Promise<NeoSession | null> {
     g.__neoBypassRefusedLogged = true;
     logger.error("DEV_AUTH_BYPASS is set on a production/preview deployment and is ignored", "auth");
   }
+
+  const fromToken = await sessionFromDesktopBearer();
+  if (fromToken) return fromToken;
 
   let s: Session | null;
   try {

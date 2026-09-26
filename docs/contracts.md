@@ -139,6 +139,7 @@ Every API route runs on the Node runtime; `/api/agent` and `/api/agent/confirm` 
 - 429 body: `{ error: "usage_cap_exceeded", reason: "monthly_checks" | "daily_tokens", limit, resetAt, message }` with `Retry-After` seconds. At most one `usage.cap_hit` audit event per tenant, reason and period.
 - `GET /api/conversations` → `{ conversations: [{ id, title, updatedAt }] }` for the session user in the session tenant; `DELETE /api/conversations?id=` → 204, 404 for unknown or foreign ids.
 - `GET /api/usage` → `{ monthlyChecks: { used, limit, resetAt }, dailyTokens: { used, limit, resetAt } }`.
+- Desktop tokens (shell / native clients): `GET|POST|DELETE /api/settings/desktop-tokens` (session cookie). Issued tokens authenticate any API via `Authorization: Bearer neo_dt_…` and resolve to the same `{ userId, tenantId, role }` as a browser session. Token plaintext is shown once; only the SHA-256 hash is stored (`desktop_tokens`, migration `0005`).
 
 ### Verdicts in chat
 
