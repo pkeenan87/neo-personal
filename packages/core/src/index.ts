@@ -40,10 +40,35 @@ export {
   DEFAULT_COMPRESSION_MODEL,
   DEFAULT_EFFORT,
   DEFAULT_MAX_TOKENS,
+  AI_GATEWAY_BASE_URL,
   agentModel,
   compressionModel,
+  enabledFamilies,
   fallbacksEnabled,
+  gatewayEnabled,
+  gatewayRegion,
 } from "./config.js";
+export type { EnvSource } from "./config.js";
+
+// Model catalog and routing (Phase 2)
+export {
+  MODEL_CATALOG,
+  MODEL_FAMILIES,
+  PREFERENCE_TABLE,
+  ROUTING_PREFERENCES,
+  TIERS,
+  anthropicModelFor,
+  catalogEntryFor,
+  catalogModel,
+  clampEffort,
+  directModelId,
+  displayNameFor,
+  gatewayModelId,
+  modelIdFor,
+  pinnedRoute,
+  resolveRoute,
+} from "./routing.js";
+export type { CatalogModel, ModelFamily, ResolveRouteInput, Route, RouteSignals, RouterKind, RoutingPreference, Tier } from "./routing.js";
 
 // Artifact crypto (envelope encryption at rest)
 export {
