@@ -36,8 +36,8 @@ Status as of 2026-09-25: Phase 0 is complete and verified in production at https
   openssl rand -hex 32
   ```
 - [x] **Google OAuth** (done 2026-09-25 in project `neo-personal-509701`: consent screen in Testing, web client with production and localhost redirect URIs, you as test user). Original notes: Authorized redirect URI for local dev: `http://localhost:3000/api/auth/callback/google`. Add the production and preview URLs later. Set `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`. Configure the OAuth consent screen (app name Neo, your support email, privacy policy URL once the site exists). Publishing status can stay "Testing" with your own account as a test user until launch.
-- [ ] **Resend** account for magic links. Add and verify a sending domain (needs the domain from section 5, or use Resend's test domain for local only). Set `AUTH_RESEND_KEY` and `EMAIL_FROM` (for example `Neo <sign-in@yourdomain>`).
-- [ ] Sign in locally with a magic link once Resend is configured (Google sign-in verified in production). Confirm a household tenant is created on first sign-in.
+- [x] **Resend** account for magic links: installed via the Vercel Marketplace 2026-09-26, sending verified on `neoshield.dev`. The integration's `MESSAGING_RESEND_API_KEY` / `MESSAGING_RESEND_EMAIL_DOMAIN` are picked up automatically; `EMAIL_FROM` defaults to `Neo <neo@neoshield.dev>` (set it explicitly to change the mailbox name).
+- [ ] Sign in with a magic link on https://www.neoshield.dev (provider is registered as of 2026-09-26). Confirm the email arrives and lands in the same household as your Google sign-in (same address → same user).
 
 ## 4. Vercel deployment
 
@@ -53,8 +53,8 @@ Status as of 2026-09-25: Phase 0 is complete and verified in production at https
 - [ ] Publish the Google consent screen (Audience page) once a privacy policy URL exists; until then only test users can sign in.
 - [ ] Small follow-up: map Google's `email_verified` claim into the Auth.js user record (currently left empty by the default profile mapper).
 
-- [ ] Register the domain for Neo (blocks the forward-to-address in Phase 1, Resend sending domain, OAuth consent screen, store listings).
-- [ ] Point it at Vercel and set `AUTH_URL` to it.
+- [x] Register the domain for Neo: `neoshield.dev`, bought through Vercel 2026-09-26, Vercel DNS. Canonical host is `https://www.neoshield.dev` (apex redirects).
+- [x] Point it at Vercel and set `AUTH_URL` to it (`https://www.neoshield.dev`, 2026-09-26). Google OAuth client has the `www` origin and callback.
 - [ ] Write a privacy policy page (required by Google OAuth verification, Chrome Web Store, and the app stores later).
 - [ ] Update `SECURITY.md` and `CODE_OF_CONDUCT.md` with a real contact email, or a role address on the new domain.
 
@@ -81,10 +81,10 @@ Status as of 2026-09-25: Phase 0 is complete and verified in production at https
 Everything in Phase 1 runs locally and in CI with `MOCK_MODE=true`. Turning it on in production needs, in order:
 
 - [ ] Register the domain (section 5). Pick the inbound subdomain, for example `inbound.<domain>`.
-- [ ] Install **Resend** from the Vercel Marketplace (`vercel integration add resend/resend-email`, you accept the terms) and verify the sending domain **and** the inbound subdomain (MX records Resend gives you). Set `NEO_INBOUND_DOMAIN`. Create a webhook for `email.received` pointing at `https://<domain>/api/inbound/resend` and set its signing secret (`whsec_…`) as `RESEND_WEBHOOK_SECRET`. The webhook payload carries metadata only: the job fetches the message with `GET /emails/receiving/{id}` and downloads the raw MIME from the signed download URL in that response, so the API key (`RESEND_API_KEY`, or `AUTH_RESEND_KEY`, which doubles as the sending key) must be allowed to read received mail.
+- [x] Install **Resend** from the Vercel Marketplace (done 2026-09-26). `NEO_INBOUND_DOMAIN=inbound.neoshield.dev` is set. [ ] Enable receiving: in Resend, add `inbound.neoshield.dev` as a domain (or enable the receiving toggle) and add the MX record it shows to Vercel DNS (`vercel dns add neoshield.dev inbound MX <value> <priority>`). Create a webhook for `email.received` pointing at `https://<domain>/api/inbound/resend` and set its signing secret (`whsec_…`) as `RESEND_WEBHOOK_SECRET`. The webhook payload carries metadata only: the job fetches the message with `GET /emails/receiving/{id}` and downloads the raw MIME from the signed download URL in that response, so the API key (`RESEND_API_KEY`, or `AUTH_RESEND_KEY`, which doubles as the sending key) must be allowed to read received mail.
 - [ ] Install **Inngest** from the Vercel Marketplace (`vercel integration add inngest/account`). It sets `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`. In the Inngest dashboard, sync the app at `https://<domain>/api/inngest` and check that both functions (`email-received`, `artifacts-expire`) are listed.
-- [ ] Create a **Vercel Blob** store (private) for the project: `vercel blob store add neo-artifacts`. It sets `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` for an OIDC store (both work).
-- [ ] Generate the artifact master key and add it as a sensitive Vercel env var:
+- [x] Create a **Vercel Blob** store (done 2026-09-26, OIDC store; `/api/health` reports `artifacts: ok`).
+- [x] Generate the artifact master key (set 2026-09-26) and add it as a sensitive Vercel env var:
   ```
   vercel env add NEO_MASTER_KEY production --sensitive   # value: openssl rand -base64 32
   ```
