@@ -19,32 +19,36 @@ const ITEM =
 /**
  * The six incident playbook entry points. With `onPick` they are buttons
  * (chat empty state sends directly); without, links to `/chat?playbook=<id>`.
+ * Two columns only when the containing element is wide enough (container
+ * query), so the dashboard sidebar gets a single-column list.
  */
 export function PlaybookButtons({ onPick, className }: { onPick?: (id: PlaybookId) => void; className?: string }) {
   return (
-    <ul className={`grid w-full gap-2 sm:grid-cols-2 ${className ?? ""}`} aria-label="Get help with something that already happened">
-      {PLAYBOOK_ENTRIES.map((p) => {
-        const Icon = ICONS[p.id];
-        const content = (
-          <>
-            <Icon className="size-4 shrink-0 text-accent" aria-hidden="true" />
-            <span>{p.title}</span>
-          </>
-        );
-        return (
-          <li key={p.id}>
-            {onPick ? (
-              <button type="button" onClick={() => onPick(p.id)} className={ITEM} data-playbook={p.id}>
-                {content}
-              </button>
-            ) : (
-              <Link href={`/chat?playbook=${p.id}`} className={ITEM} data-playbook={p.id}>
-                {content}
-              </Link>
-            )}
-          </li>
-        );
-      })}
-    </ul>
+    <div className="@container">
+      <ul className={`grid w-full gap-2 @md:grid-cols-2 ${className ?? ""}`} aria-label="Get help with something that already happened">
+        {PLAYBOOK_ENTRIES.map((p) => {
+          const Icon = ICONS[p.id];
+          const content = (
+            <>
+              <Icon className="size-4 shrink-0 text-accent" aria-hidden="true" />
+              <span>{p.title}</span>
+            </>
+          );
+          return (
+            <li key={p.id}>
+              {onPick ? (
+                <button type="button" onClick={() => onPick(p.id)} className={ITEM} data-playbook={p.id}>
+                  {content}
+                </button>
+              ) : (
+                <Link href={`/chat?playbook=${p.id}`} className={ITEM} data-playbook={p.id}>
+                  {content}
+                </Link>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

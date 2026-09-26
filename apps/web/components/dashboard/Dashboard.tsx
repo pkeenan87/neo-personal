@@ -205,8 +205,8 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
               <StatTile label={VERDICT_LABELS.likely_safe} value={current.summary.byLabel.likely_safe} dot="likely_safe" />
             </section>
 
-            <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
-              <div className="space-y-6">
+            <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,20rem)]">
+              <div className="min-w-0 space-y-6">
                 <Card title="Needs attention">
                   {current.attention.length === 0 ? (
                     <p className="flex items-center gap-2 text-sm text-muted">
@@ -221,6 +221,25 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
                 <Card title={`Checks per day (last ${range} days)`}>
                   <PerDayChart perDay={current.summary.perDay} sinceDays={range} />
                 </Card>
+
+                <div className="grid gap-6 sm:grid-cols-2">
+                  <Card title="Top warning signs">
+                    <BarList
+                      label="Top warning signs"
+                      empty="No warning signs in this period."
+                      items={current.summary.topIndicators.map((i) => ({ key: i.category, count: i.count }))}
+                      format={humanize}
+                    />
+                  </Card>
+
+                  <Card title="Most targeted brands and domains">
+                    <BarList
+                      label="Most targeted domains"
+                      empty="No risky domains in this period."
+                      items={current.summary.topDomains.map((d) => ({ key: d.domain, count: d.count }))}
+                    />
+                  </Card>
+                </div>
 
                 <Card title="Recent activity">
                   {current.recent.items.length === 0 ? (
@@ -244,7 +263,7 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
                 </Card>
               </div>
 
-              <div className="space-y-6">
+              <div className="min-w-0 space-y-6">
                 <Card title="Quick actions">
                   <div className="space-y-2">
                     <Link
@@ -261,23 +280,6 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
                 </Card>
 
                 <UsageTile usage={usage} />
-
-                <Card title="Top warning signs">
-                  <BarList
-                    label="Top warning signs"
-                    empty="No warning signs in this period."
-                    items={current.summary.topIndicators.map((i) => ({ key: i.category, count: i.count }))}
-                    format={humanize}
-                  />
-                </Card>
-
-                <Card title="Most targeted brands and domains">
-                  <BarList
-                    label="Most targeted domains"
-                    empty="No risky domains in this period."
-                    items={current.summary.topDomains.map((d) => ({ key: d.domain, count: d.count }))}
-                  />
-                </Card>
               </div>
             </div>
           </>
