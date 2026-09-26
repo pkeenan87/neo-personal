@@ -50,7 +50,7 @@ Status as of 2026-09-25: Phase 0 is complete and verified in production at https
 
 ## 5. Domain and public identity
 
-- [ ] Publish the Google consent screen (Audience page) once a privacy policy URL exists; until then only test users can sign in.
+- [x] Google consent screen published 2026-09-26 (Branding: home page and privacy policy set; Audience: In production). Any Google account can sign in now; the scopes are non-sensitive so no verification is needed and no "unverified app" warning shows. Test users are no longer required.
 - [ ] Small follow-up: map Google's `email_verified` claim into the Auth.js user record (currently left empty by the default profile mapper).
 
 - [x] Register the domain for Neo: `neoshield.dev`, bought through Vercel 2026-09-26, Vercel DNS. Canonical host is `https://www.neoshield.dev` (apex redirects).
