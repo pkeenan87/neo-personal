@@ -82,7 +82,7 @@ Everything in Phase 1 runs locally and in CI with `MOCK_MODE=true`. Turning it o
 
 - [ ] Register the domain (section 5). Pick the inbound subdomain, for example `inbound.<domain>`.
 - [x] Install **Resend** from the Vercel Marketplace (done 2026-09-26). `NEO_INBOUND_DOMAIN=inbound.neoshield.dev` is set. [ ] Enable receiving: in Resend, add `inbound.neoshield.dev` as a domain (or enable the receiving toggle) and add the MX record it shows to Vercel DNS (`vercel dns add neoshield.dev inbound MX <value> <priority>`). Create a webhook for `email.received` pointing at `https://<domain>/api/inbound/resend` and set its signing secret (`whsec_…`) as `RESEND_WEBHOOK_SECRET`. The webhook payload carries metadata only: the job fetches the message with `GET /emails/receiving/{id}` and downloads the raw MIME from the signed download URL in that response, so the API key (`RESEND_API_KEY`, or `AUTH_RESEND_KEY`, which doubles as the sending key) must be allowed to read received mail.
-- [ ] Install **Inngest** from the Vercel Marketplace (`vercel integration add inngest/account`). It sets `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`. In the Inngest dashboard, sync the app at `https://<domain>/api/inngest` and check that both functions (`email-received`, `artifacts-expire`) are listed.
+- [x] Install **Inngest** from the Vercel Marketplace (done 2026-09-26; keys set). Then confirm the app synced in the Inngest dashboard (`https://www.neoshield.dev/api/inngest`, functions `email-received` and `artifacts-expire`).
 - [x] Create a **Vercel Blob** store (done 2026-09-26, OIDC store; `/api/health` reports `artifacts: ok`).
 - [x] Generate the artifact master key (set 2026-09-26) and add it as a sensitive Vercel env var:
   ```
