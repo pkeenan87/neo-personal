@@ -98,6 +98,54 @@ function bodyOf(call: unknown[]): Record<string, unknown> {
 }
 
 describe("ChatInterface", () => {
+  it("keeps the mobile conversation drawer accessible and returns focus to its trigger", async () => {
+    const user = userEvent.setup();
+    renderChat({
+      initialConversations: [{ id: CONV_ID, title: "A recent check", updatedAt: new Date().toISOString() }],
+    });
+
+    const trigger = screen.getByRole("button", { name: "Open conversations" });
+    await user.click(trigger);
+    const drawer = screen.getByRole("dialog", { name: "Conversations" });
+    expect(drawer).toHaveAttribute("aria-modal", "true");
+    expect(screen.getByRole("heading", { name: "What can I check for you?", level: 2 })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Chat" })).toHaveAttribute("aria-current", "page");
+
+    const close = screen.getByRole("button", { name: "Close conversations" });
+    expect(close).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Sign out" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "Conversations" })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it("dismisses the mobile drawer at the desktop breakpoint and restores focus to chat", async () => {
+    const user = userEvent.setup();
+    const mediaQuery = Object.assign(new EventTarget(), {
+      matches: false,
+      media: "(min-width: 768px)",
+      onchange: null,
+    }) as MediaQueryList;
+    vi.spyOn(window, "matchMedia").mockReturnValue(mediaQuery);
+    renderChat();
+
+    await user.click(screen.getByRole("button", { name: "Open conversations" }));
+    expect(screen.getByRole("main")).toHaveAttribute("inert");
+    expect(screen.getByRole("dialog", { name: "Conversations" })).toBeInTheDocument();
+
+    Object.assign(mediaQuery, { matches: true });
+    mediaQuery.dispatchEvent(new Event("change"));
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Conversations" })).not.toBeInTheDocument();
+      expect(screen.getByRole("main")).not.toHaveAttribute("inert");
+      expect(screen.getByRole("heading", { name: "New check", level: 1 })).toHaveFocus();
+    });
+    expect(screen.getByRole("button", { name: "Open conversations" })).toHaveAttribute("aria-expanded", "false");
+    vi.restoreAllMocks();
+  });
+
   it("shows empty-state suggestions that fill the composer", async () => {
     const user = userEvent.setup();
     renderChat();

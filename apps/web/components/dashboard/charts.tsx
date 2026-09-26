@@ -96,6 +96,7 @@ export function PerDayChart({ perDay, sinceDays }: { perDay: readonly Day[]; sin
           </tr>
         </thead>
         <tbody>
+          {/* Only days with activity, so screen readers aren't read up to 90 rows of zeros. */}
           {days
             .filter((d) => STACK.some((k) => d[k]))
             .map((d) => (

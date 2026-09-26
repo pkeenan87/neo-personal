@@ -221,7 +221,7 @@ export function Composer({
                   onClick={() => removeAttachment(a.localId)}
                   disabled={uploading}
                   aria-label={`Remove ${sanitizeFilename(a.file.name)}`}
-                  className="absolute -top-1.5 -right-1.5 flex size-5 items-center justify-center rounded-full bg-fg text-bg shadow hover:opacity-90 disabled:opacity-40"
+                  className="absolute -top-2 -right-2 flex size-7 items-center justify-center rounded-full bg-fg text-bg shadow hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
                 >
                   <X className="size-3" aria-hidden="true" />
                 </button>
@@ -259,7 +259,7 @@ export function Composer({
                 disabled={uploading || attachments.length >= ATTACHMENT_LIMITS.filesPerUpload}
                 aria-label="Attach an email file or screenshot"
                 title="Attach an .eml file or screenshot"
-                className="flex size-10 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-fg disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex size-11 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Paperclip className="size-5" aria-hidden="true" />
               </button>
@@ -281,7 +281,7 @@ export function Composer({
             enterKeyHint="send"
             autoComplete="off"
             spellCheck
-            className="max-h-60 min-h-10 flex-1 resize-none bg-transparent px-2 py-2 text-base leading-6 placeholder:text-muted focus:outline-none sm:text-[15px]"
+            className="max-h-60 min-h-11 flex-1 resize-none bg-transparent px-2 py-2 text-base leading-6 placeholder:text-muted focus:outline-none sm:text-[15px]"
           />
           {streaming ? (
             <button
@@ -289,7 +289,7 @@ export function Composer({
               type="button"
               onClick={onStop}
               aria-label="Stop response"
-              className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-fg text-bg hover:opacity-90"
+              className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-fg text-bg hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               <Square className="size-4" fill="currentColor" aria-hidden="true" />
             </button>
@@ -298,7 +298,7 @@ export function Composer({
               type="submit"
               disabled={!canSend}
               aria-label={uploading ? "Uploading attachments" : "Send message"}
-              className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-fg transition-opacity hover:bg-accent-hover disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-accent text-accent-fg transition-opacity hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40"
             >
               {uploading ? <Loader2 className="size-5 animate-spin" aria-hidden="true" /> : <ArrowUp className="size-5" aria-hidden="true" />}
             </button>

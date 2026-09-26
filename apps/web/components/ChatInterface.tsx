@@ -22,10 +22,12 @@ import { ChatMessageView } from "./ChatMessageView";
 import { Composer, INTAKE_HINTS } from "./Composer";
 import { ConversationSidebar } from "./ConversationSidebar";
 import { EmptyState, type Suggestion } from "./EmptyState";
+import { DESKTOP_MEDIA_QUERY, useMediaQuery } from "@/lib/media-query";
 import { playbookPrompt, type PlaybookId } from "@/lib/playbooks";
 import { NeoMark } from "./NeoMark";
 import { useToast } from "./toast-context";
 import { UsageIndicator } from "./UsageIndicator";
+import { ThemeToggle } from "./ThemeToggle";
 
 export interface ChatInterfaceProps {
   user: { name: string; email: string };
@@ -85,10 +87,36 @@ export function ChatInterface({
   const activeIdRef = useRef<string | null>(conversationId);
   const abortRef = useRef<AbortController | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const sidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const chatHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const wasSidebarOpen = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
 
   const pending = pendingConfirmation(state);
+  const desktopViewport = useMediaQuery(DESKTOP_MEDIA_QUERY);
+  const mobileDrawerOpen = sidebarOpen && !desktopViewport;
+
+  // Put keyboard focus inside the mobile drawer and return it to its trigger
+  // after the drawer closes.
+  useEffect(() => {
+    if (wasSidebarOpen.current && !mobileDrawerOpen) {
+      if (desktopViewport) chatHeadingRef.current?.focus();
+      else sidebarTriggerRef.current?.focus();
+    }
+    wasSidebarOpen.current = mobileDrawerOpen;
+  }, [mobileDrawerOpen, desktopViewport]);
+
+  // A mobile drawer can be left open when the viewport crosses into the
+  // desktop layout. Dismiss it so it doesn't reappear on the way back down.
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    const dismissOnDesktop = () => {
+      if (mediaQuery.matches) setSidebarOpen(false);
+    };
+    mediaQuery.addEventListener("change", dismissOnDesktop);
+    return () => mediaQuery.removeEventListener("change", dismissOnDesktop);
+  }, []);
 
   // Abort any in-flight stream when leaving the page.
   useEffect(() => () => abortRef.current?.abort(), []);
@@ -312,33 +340,35 @@ export function ChatInterface({
         conversations={conversations}
         activeId={activeId}
         user={user}
-        open={sidebarOpen}
+        open={mobileDrawerOpen}
         onClose={() => setSidebarOpen(false)}
         onNew={startNew}
         onDelete={(id) => void remove(id)}
         onSignOut={() => void signOut()}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-2 border-b border-border bg-bg/90 px-3 pt-[env(safe-area-inset-top)] backdrop-blur md:px-4">
+      <main inert={mobileDrawerOpen} className="flex min-w-0 flex-1 flex-col">
+        <header className="flex min-h-16 items-center gap-2 border-b border-border bg-bg/90 px-3 pt-[env(safe-area-inset-top)] backdrop-blur md:px-4">
           <button
+            ref={sidebarTriggerRef}
             type="button"
             onClick={() => setSidebarOpen(true)}
             aria-label="Open conversations"
             aria-controls="conversation-sidebar"
-            aria-expanded={sidebarOpen}
-            className="-ml-1 rounded-lg p-2 text-muted hover:bg-surface-2 md:hidden"
+            aria-expanded={mobileDrawerOpen}
+            className="-ml-1 flex size-11 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent md:hidden"
           >
             <Menu className="size-5" aria-hidden="true" />
           </button>
           <NeoMark className="size-5 text-accent md:hidden" />
-          <h1 className="min-w-0 flex-1 truncate py-3 text-sm font-medium">{title}</h1>
+          <h1 ref={chatHeadingRef} tabIndex={-1} className="min-w-0 flex-1 truncate py-3 text-sm font-medium">{title}</h1>
           <UsageIndicator refreshKey={usageTick} />
+          <ThemeToggle />
         </header>
 
         <div
           ref={scrollRef}
-          className="min-h-0 flex-1 overflow-y-auto"
+          className="min-h-0 flex-1 overflow-y-auto bg-[radial-gradient(ellipse_at_50%_0%,color-mix(in_oklab,var(--accent-soft)_24%,transparent),transparent_72%)]"
           onScroll={(e) => {
             const el = e.currentTarget;
             stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX;

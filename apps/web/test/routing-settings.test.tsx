@@ -62,7 +62,7 @@ describe("RoutingSettingsView", () => {
     renderView();
     await userEvent.click(screen.getByRole("radio", { name: /Intelligence/ }));
     await userEvent.click(screen.getByRole("button", { name: "Save" }));
-    await vi.waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(/Could not save/));
+    await vi.waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent(/Could not save/));
   });
 
   it("lists the selected family's models when another family is enabled", async () => {

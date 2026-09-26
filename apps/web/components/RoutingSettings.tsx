@@ -70,13 +70,13 @@ export function RoutingSettingsView({ initial, models }: { initial: RoutingSetti
 
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <h1 className="text-2xl font-semibold">Model routing</h1>
-      <p className="mt-1 text-sm text-muted">
+      <h1 className="text-3xl font-semibold tracking-tight">Model routing</h1>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
         Neo picks a model for each message based on how hard it looks. Choose which family of models to use and whether to
         lean toward lower cost or more capability. This setting is yours; other household members choose their own.
       </p>
 
-      <section aria-labelledby="family-heading" className="mt-5 rounded-xl border border-border bg-surface p-4">
+      <section aria-labelledby="family-heading" className="mt-6 rounded-2xl border border-border bg-surface p-5 shadow-sm sm:p-6">
         <h2 id="family-heading" className="text-sm font-semibold">
           Model family
         </h2>
@@ -95,10 +95,10 @@ export function RoutingSettingsView({ initial, models }: { initial: RoutingSetti
                   className="sr-only"
                 />
                 <span className="flex items-center justify-between gap-2">
-                  <span className="font-medium">{f.label}</span>
+                  <span className="min-w-0 break-words font-medium">{f.label}</span>
                   {!f.enabled ? <span className="text-xs text-muted">Coming soon</span> : null}
                 </span>
-                <span className="mt-1 block text-xs text-muted">{f.ladder.map((r) => r.displayName).join(" · ")}</span>
+                <span className="mt-1 block break-words text-xs text-muted">{f.ladder.map((r) => r.displayName).join(" · ")}</span>
                 {f.caveat ? (
                   <span className="mt-2 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-300">
                     <TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
@@ -111,7 +111,7 @@ export function RoutingSettingsView({ initial, models }: { initial: RoutingSetti
         </div>
       </section>
 
-      <section aria-labelledby="preference-heading" className="mt-5 rounded-xl border border-border bg-surface p-4">
+      <section aria-labelledby="preference-heading" className="mt-6 rounded-2xl border border-border bg-surface p-5 shadow-sm sm:p-6">
         <h2 id="preference-heading" className="text-sm font-semibold">
           Preference
         </h2>
@@ -133,9 +133,9 @@ export function RoutingSettingsView({ initial, models }: { initial: RoutingSetti
                 <span className="mt-0.5 block text-muted">{p.description}</span>
                 <ul className="mt-2 space-y-0.5 text-xs">
                   {models[family][p.id].map((m) => (
-                    <li key={m.tier} className="flex gap-2">
+                    <li key={m.tier} className="flex min-w-0 gap-2">
                       <span className="w-16 shrink-0 text-muted">{TIER_LABELS[m.tier]}</span>
-                      <span>
+                      <span className="min-w-0 break-words">
                         {m.displayName} <span className="text-muted">· {m.effort} effort</span>
                       </span>
                     </li>
@@ -152,11 +152,12 @@ export function RoutingSettingsView({ initial, models }: { initial: RoutingSetti
           type="button"
           onClick={save}
           disabled={busy || !dirty}
-          className="min-h-9 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-fg hover:opacity-90 disabled:opacity-50"
+          aria-busy={busy}
+          className="min-h-11 rounded-lg bg-accent px-4 text-sm font-semibold text-accent-fg hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50"
         >
           {busy ? "Saving…" : "Save"}
         </button>
-        <p role="status" className={`text-sm ${status.kind === "error" ? "text-red-600 dark:text-red-400" : "text-muted"}`}>
+        <p role={status.kind === "error" ? "alert" : "status"} aria-atomic="true" className={`text-sm ${status.kind === "error" ? "text-red-600 dark:text-red-400" : "text-muted"}`}>
           {status.kind === "saved" ? "Saved." : status.kind === "error" ? status.message : ""}
         </p>
       </div>
