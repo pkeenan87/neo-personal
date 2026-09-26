@@ -83,8 +83,12 @@ export async function POST(req: Request): Promise<Response> {
   // --- end dashboard + incident playbooks ---
 
   const e = env();
-  if (!e.MOCK_MODE && !e.HAS_ANTHROPIC_CREDENTIALS) {
-    return jsonError(503, "Neo's AI model isn't configured on this server. Set ANTHROPIC_API_KEY, or MOCK_MODE=true for the demo.", "agent_unavailable");
+  if (!e.MOCK_MODE && !e.HAS_MODEL_CREDENTIALS) {
+    return jsonError(
+      503,
+      "Neo's AI model isn't configured on this server. Set ANTHROPIC_API_KEY (or NEO_MODEL_GATEWAY=true with AI_GATEWAY_API_KEY), or MOCK_MODE=true for the demo.",
+      "agent_unavailable",
+    );
   }
 
   // Usage caps: fail closed if the usage store is unavailable.
