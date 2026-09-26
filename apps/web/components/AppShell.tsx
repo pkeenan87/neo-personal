@@ -2,6 +2,7 @@
 
 import { LayoutDashboard, LogOut, MessageSquare, Settings } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { signOut } from "@/lib/auth-client";
 import { NeoMark } from "./NeoMark";
 
@@ -12,6 +13,35 @@ export const NAV_ITEMS: { key: NavKey; href: string; label: string; icon: typeof
   { key: "chat", href: "/chat", label: "Chat", icon: MessageSquare },
   { key: "settings", href: "/settings/forwarding", label: "Settings", icon: Settings },
 ];
+
+/** Settings pages, shown as a sub-navigation on every settings page. */
+export const SETTINGS_LINKS: { href: string; label: string }[] = [
+  { href: "/settings/forwarding", label: "Forwarding" },
+  { href: "/settings/routing", label: "Routing" },
+];
+
+function SettingsNav() {
+  const pathname = usePathname();
+  return (
+    <nav aria-label="Settings" className="mx-auto mb-5 flex w-full max-w-2xl gap-1">
+      {SETTINGS_LINKS.map((l) => {
+        const current = pathname === l.href;
+        return (
+          <Link
+            key={l.href}
+            href={l.href}
+            aria-current={current ? "page" : undefined}
+            className={`flex min-h-9 items-center rounded-lg px-3 text-sm ${
+              current ? "bg-accent-soft font-medium text-accent" : "text-muted hover:bg-surface-2 hover:text-fg"
+            }`}
+          >
+            {l.label}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
 
 /** Top navigation for signed-in pages outside the chat (dashboard, verdict detail). */
 export function AppShell({ active, children }: { active?: NavKey; children: React.ReactNode }) {
@@ -48,7 +78,10 @@ export function AppShell({ active, children }: { active?: NavKey; children: Reac
           </button>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">{children}</main>
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        {active === "settings" ? <SettingsNav /> : null}
+        {children}
+      </main>
     </div>
   );
 }
