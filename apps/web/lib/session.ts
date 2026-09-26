@@ -131,11 +131,19 @@ export async function getSession(): Promise<NeoSession | null> {
   };
 }
 
-/** For server components/pages: returns the session or redirects to the landing page. */
-export async function requireSession(): Promise<NeoSession> {
+/**
+ * For server components/pages: returns the session or redirects to the landing
+ * page. `returnTo` (a same-origin path) brings the user back after sign-in.
+ */
+export async function requireSession(returnTo?: string): Promise<NeoSession> {
   const session = await getSession();
-  if (!session) redirect("/?signin=required");
+  if (!session) redirect(returnTo ? `/?signin=required&next=${encodeURIComponent(returnTo)}` : "/?signin=required");
   return session;
+}
+
+/** True for a cookie (Auth.js or dev-bypass) session, false for a desktop token. */
+export function isBrowserSession(session: NeoSession): boolean {
+  return !session.desktopTokenId;
 }
 
 /** For API routes: the session, or a 401 JSON response to return as is. */
@@ -143,4 +151,17 @@ export async function requireApiSession(): Promise<{ session: NeoSession; respon
   const session = await getSession();
   if (!session) return { response: jsonError(401, "Sign in to continue.", "unauthenticated") };
   return { session };
+}
+
+/**
+ * For API routes that manage credentials: a browser session only. A desktop
+ * token must never mint or approve other tokens (403 `browser_session_required`).
+ */
+export async function requireBrowserApiSession(): Promise<{ session: NeoSession; response?: undefined } | { session?: undefined; response: Response }> {
+  const r = await requireApiSession();
+  if (!r.session) return r;
+  if (!isBrowserSession(r.session)) {
+    return { response: jsonError(403, "Sign in from a browser to do this.", "browser_session_required") };
+  }
+  return r;
 }

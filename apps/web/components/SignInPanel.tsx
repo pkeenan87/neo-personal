@@ -23,10 +23,13 @@ export interface SignInProviders {
 export function SignInPanel({
   notice,
   providers = { google: true, resend: true },
+  callbackUrl,
 }: {
   notice?: string;
   /** Only registered providers are shown (see authProviders in lib/env.ts). */
   providers?: SignInProviders;
+  /** Same-origin path to land on after sign-in (default /chat). */
+  callbackUrl?: string;
 }) {
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState<"google" | "resend" | null>(null);
@@ -36,7 +39,7 @@ export function SignInPanel({
   const google = async () => {
     setBusy("google");
     setError(null);
-    const r = await signIn("google");
+    const r = await signIn("google", { callbackUrl });
     if (!r.ok) {
       setError(r.error ?? "Sign-in failed.");
       setBusy(null);
@@ -47,7 +50,7 @@ export function SignInPanel({
     e.preventDefault();
     setBusy("resend");
     setError(null);
-    const r = await signIn("resend", { email });
+    const r = await signIn("resend", { email, callbackUrl });
     setBusy(null);
     if (!r.ok) setError(r.error ?? "Couldn't send the link.");
     else if (r.emailSent) setSent(true);

@@ -27,7 +27,7 @@ Hobby plans on Vercel are for non-commercial use. A private household instance f
 2. **Create a Vercel project** from the fork. Set **Root Directory** to `apps/web` (dashboard setting) and leave build settings to `vercel.json`. See [deployment.md](deployment.md) for detail.
 3. **Add Neon** from Vercel's Marketplace (Storage tab) and link it to the project. This sets `DATABASE_URL` for each environment. Enable preview branching if you want per-PR databases.
 4. **Create the application role** (see [Database roles and RLS](#database-roles-and-rls) below) and add `NEO_DATABASE_URL` in Vercel with the `app_user` connection string (pooled host). The integration keeps managing `DATABASE_URL` with the owner role; the app prefers `NEO_DATABASE_URL`, and migrations use the owner string.
-5. **Run migrations** from your machine with the owner connection string:
+5. **Run migrations** from your machine with the owner connection string (this includes `0005_desktop_tokens` and `0006_desktop_auth`, which the desktop sign-in for the Omarchy plugin needs):
    ```bash
    pnpm install
    DATABASE_URL='<owner connection string>' pnpm db:migrate

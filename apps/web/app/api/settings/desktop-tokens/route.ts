@@ -3,8 +3,10 @@
  * POST   /api/settings/desktop-tokens { name } → { token, record }  (token shown once)
  * DELETE /api/settings/desktop-tokens?id= → { ok: true }
  *
- * Session-cookie auth only for management. Issued tokens authenticate API calls
- * via `Authorization: Bearer neo_dt_…` (see lib/session.ts).
+ * Browser session for listing and creating (a desktop token cannot mint tokens:
+ * 403 `browser_session_required`). DELETE also accepts a desktop token, but
+ * only for its own id (`omarchy-neo logout`). Issued tokens authenticate API
+ * calls via `Authorization: Bearer neo_dt_…` (see lib/session.ts).
  */
 import { logger } from "@neo/core";
 import { MAX_DESKTOP_TOKEN_NAME } from "@neo/db";
@@ -16,7 +18,7 @@ import type {
 } from "@/lib/desktop-token-types";
 import { createTokenForSession, listTokensForSession, revokeTokenForSession } from "@/lib/server/desktop-tokens";
 import { jsonError, readJsonObject } from "@/lib/server/http";
-import { requireApiSession } from "@/lib/session";
+import { isBrowserSession, requireApiSession, requireBrowserApiSession } from "@/lib/session";
 import type { DesktopTokenPublic } from "@neo/db";
 
 export const runtime = "nodejs";
@@ -41,7 +43,7 @@ function fail(tenantId: string, err: unknown): Response {
 }
 
 export async function GET(): Promise<Response> {
-  const { session, response } = await requireApiSession();
+  const { session, response } = await requireBrowserApiSession();
   if (!session) return response;
   try {
     const tokens = await listTokensForSession(session);
@@ -53,7 +55,7 @@ export async function GET(): Promise<Response> {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const { session, response } = await requireApiSession();
+  const { session, response } = await requireBrowserApiSession();
   if (!session) return response;
   const body = await readJsonObject(req);
   const name = typeof body?.name === "string" ? body.name : "";
@@ -81,6 +83,9 @@ export async function DELETE(req: Request): Promise<Response> {
   const id = new URL(req.url).searchParams.get("id")?.trim() ?? "";
   if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
     return jsonError(400, "Expected ?id=<token uuid>.", "bad_request");
+  }
+  if (!isBrowserSession(session) && session.desktopTokenId !== id) {
+    return jsonError(403, "A desktop token can only revoke itself.", "browser_session_required");
   }
   try {
     const ok = await revokeTokenForSession(session, id);

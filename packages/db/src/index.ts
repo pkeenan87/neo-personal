@@ -83,5 +83,25 @@ export {
   type DesktopTokenRow,
   type ResolvedDesktopToken,
 } from "./desktop-tokens.js";
+export {
+  DESKTOP_AUTH_POLL_INTERVAL_S,
+  DESKTOP_AUTH_TTL_MS,
+  DEVICE_CODE_PREFIX,
+  MAX_DESKTOP_CLIENT_NAME,
+  createDesktopAuthRequest,
+  decideDesktopAuthRequest,
+  generateUserCode,
+  getDesktopAuthRequest,
+  hashDeviceCode,
+  isDeviceCodeFormat,
+  mintDeviceCode,
+  normalizeClientName,
+  normalizeUserCode,
+  redeemDesktopAuthRequest,
+  type DesktopAuthApprover,
+  type DesktopAuthDecision,
+  type DesktopAuthRedemption,
+  type DesktopAuthRequestPublic,
+} from "./desktop-auth.js";
 // runMigrations lives in the "@neo/db/migrate" subpath so app bundles never see the migrations folder.
 export type { ConversationStore, MessageParam } from "@neo/core";

@@ -74,10 +74,10 @@ export function DesktopTokensSettingsView({ initial }: { initial: DesktopTokenLi
       <header className="space-y-2">
         <h1 className="text-2xl font-semibold tracking-tight">Desktop tokens</h1>
         <p className="text-sm text-muted">
-          Personal access tokens let the Omarchy NeoShield bar (and other desktop clients) talk to Neo without a browser
-          session. Each token is shown once when you create it — store it in{" "}
-          <code className="rounded bg-surface-2 px-1 py-0.5 text-xs">~/.config/omarchy-neo/config.json</code> via{" "}
-          <code className="rounded bg-surface-2 px-1 py-0.5 text-xs">omarchy-neo setup</code>.
+          Desktop clients such as the Omarchy NeoShield bar use a personal access token instead of a browser session.
+          The usual way to get one is <code className="rounded bg-surface-2 px-1 py-0.5 text-xs">omarchy-neo login</code>, which
+          opens Neo in your browser and asks you to approve the device; the token below then appears in this list. You can
+          also create one by hand here — it is shown once.
         </p>
       </header>
 

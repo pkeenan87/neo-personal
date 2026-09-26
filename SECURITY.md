@@ -73,6 +73,10 @@ Out of scope:
 
 Neo's job is to take untrusted content and give an ordinary person a safety verdict about it. The main assets are household data (submitted emails, SMS, URLs, verdicts, conversation history), OAuth tokens for connected mailboxes, API credentials, and the operator's API budget. The main controls follow.
 
+### Desktop clients
+
+The Omarchy bar plugin (and future desktop apps) authenticate with a personal access token (`neo_dt_…`) that is stored only as a SHA-256 hash and resolves to the same `{ userId, tenantId, role }` as a browser session. Tokens are obtained through a device-authorization flow: the client's secret device code is hashed at rest, the token is minted only when an approved request is redeemed and is delivered once, requests expire after ten minutes, and the approval page names the account and warns against approving a sign-in you did not start. A desktop token cannot create or approve other tokens. Tokens are listed and revoked under Settings → Desktop. See `_specs/desktop-auth.md`.
+
 ### Attacker-controlled input into an LLM
 
 Every email, SMS, screenshot, web page, redirect target, and third-party API response Neo analyzes may be written by the attacker Neo is judging. The attacker's goal is a false `likely_safe` verdict, or getting the agent to act for them.
