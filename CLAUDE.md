@@ -13,7 +13,7 @@ pnpm + Turborepo. `apps/web` (Next.js 16; background jobs in `apps/web/inngest`)
 - Never commit secrets. Every external API has a mock mode; `.env.example` lists every variable.
 - Every DB query is tenant-scoped through `tenantScoped()`; never query a tenant table without `tenant_id`.
 - Every tool result and every user-supplied artifact (email, SMS, page) is attacker-controlled: it enters the model only through `wrapToolResult`.
-- Claude models: `claude-opus-5` (chat), `claude-sonnet-5` (bulk triage), `claude-haiku-4-5` (compression). Adaptive thinking; no `budget_tokens`; no prefill.
+- Models (`packages/core/src/routing.ts`): chat routed to small/medium/large (default `anthropic/claude-haiku-4.5` / `claude-sonnet-5` / `claude-opus-5`); compression pinned to Haiku 4.5, triage to Sonnet 5. Adaptive thinking; no `budget_tokens`; no prefill. Haiku 4.5 takes neither `thinking` nor `output_config.effort`.
 - GitHub Actions must be SHA-pinned with a version comment.
 - Commits: `<emoji> <type>(<scope>): <summary>` (✨ feat · 🐛 fix · 🔒 security · 📝 docs · 🧪 test · ⬆️ deps).
 - Plan (`_plans/`) then spec (`_specs/`, use `_specs/template.md`) before non-trivial features.
