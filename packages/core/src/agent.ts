@@ -191,7 +191,20 @@ function isRetryable(err: unknown): boolean {
   return false;
 }
 
+/** Shown when AI Gateway rejects the request because the configured budget is exhausted (HTTP 402). */
+export const BUDGET_EXHAUSTED_MESSAGE = "Neo's monthly AI budget is used up. Please try again after it resets.";
+
+/** AI Gateway budget rejection: HTTP 402 with `type: "quota_for_entity_exceeded"`. */
+export function isBudgetExhaustedError(err: unknown): boolean {
+  if (!(err instanceof Anthropic.APIError)) return false;
+  if (err.status === 402) return true;
+  const body = err.error as { type?: unknown; error?: { type?: unknown } } | undefined;
+  const kind: unknown = err.type;
+  return kind === "quota_for_entity_exceeded" || body?.type === "quota_for_entity_exceeded" || body?.error?.type === "quota_for_entity_exceeded";
+}
+
 function userSafeError(err: unknown): string {
+  if (isBudgetExhaustedError(err)) return BUDGET_EXHAUSTED_MESSAGE;
   if (err instanceof Anthropic.RateLimitError) {
     return "Neo is handling too many requests right now. Please wait a moment and try again.";
   }
@@ -259,6 +272,7 @@ class LoopExit {
     readonly stopReason: string,
     readonly error?: string,
     readonly pending?: PendingConfirmation,
+    readonly errorCode?: AgentResult["errorCode"],
   ) {}
 }
 
@@ -300,6 +314,7 @@ function result(state: RunState, exit: LoopExit): AgentResult {
     ...(state.servedModel ? { servedModel: state.servedModel } : {}),
     ...(exit.pending ? { pendingConfirmation: exit.pending } : {}),
     ...(exit.error ? { error: exit.error } : {}),
+    ...(exit.errorCode ? { errorCode: exit.errorCode } : {}),
   };
 }
 
@@ -715,7 +730,7 @@ async function runWithState(state: RunState): Promise<AgentResult> {
       // Never leave an assistant tool_use without its results.
       if (lastIsUnpairedToolUse(state)) state.history.pop();
       await state.emit({ type: "error", message });
-      exit = new LoopExit("error", message);
+      exit = new LoopExit("error", message, undefined, isBudgetExhaustedError(err) ? "budget_exhausted" : undefined);
     }
   }
   await state.emit({ type: "done", stop_reason: exit.stopReason });

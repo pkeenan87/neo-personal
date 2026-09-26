@@ -123,6 +123,10 @@ export function decideTier(answers: JevAnswers, confidence: Record<string, numbe
 - Compression and triage requests always use Haiku 4.5 and Sonnet 5 regardless of preference and family.
 - `pnpm turbo run typecheck lint test build` passes with `MOCK_MODE=true` and no network.
 
+## Shipped notes (2026-09-26)
+
+See "Shipped additions and differences (Phase 2, as built)" in `docs/contracts.md`. Two behaviour changes worth knowing: `NEO_AGENT_EFFORT` no longer applies to routed chat turns (effort comes from the preference table), and `usage_events.model` now records the served model reported by the API rather than the configured one.
+
 ## Open Questions
 
 - Does the refusal-fallback beta pass through the gateway? (Spike; default off on the gateway until known.)

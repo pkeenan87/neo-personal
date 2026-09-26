@@ -92,7 +92,9 @@ describe("POST /api/agent (real agent loop, scripted MOCK_MODE model)", () => {
 
     const evs = await events(res);
     const types = evs.map((e) => e.type);
-    expect(types[0]).toBe("thinking");
+    expect(types[0]).toBe("route"); // Phase 2: the route is always the first event
+    expect(evs[0]).toMatchObject({ type: "route", tier: "medium", router: "rule", model: "claude-sonnet-5" });
+    expect(types[1]).toBe("thinking");
     expect(types.at(-1)).toBe("done");
     expect(evs.at(-1)).toEqual({ type: "done", stop_reason: "end_turn" });
     expect(types.filter((t) => t === "usage")).toHaveLength(2); // one per model call

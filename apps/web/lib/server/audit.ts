@@ -13,6 +13,7 @@ export type AuditEventType =
   | "auth.sign_in"
   | "auth.sign_out"
   | "usage.cap_hit"
+  | "usage.budget_exhausted"
   | "verdict.created"
   | "verdict.deleted"
   | "inbound.rejected_unknown_sender"

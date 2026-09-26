@@ -139,6 +139,8 @@ export interface AgentResult {
   error?: string;
   /** `message.model` of the last response (the gateway slug when routed through AI Gateway). */
   servedModel?: string;
+  /** Machine-readable cause when `stopReason` is `error`; today only the gateway budget. */
+  errorCode?: "budget_exhausted";
 }
 
 // ─────────────────────────────────────────────────────────────

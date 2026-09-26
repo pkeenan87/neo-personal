@@ -23,7 +23,7 @@ export type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 export { createToolRegistry } from "./tool-registry.js";
 
 // Agent loop
-export { REFUSAL_MESSAGE, resumeAfterConfirmation, runAgentLoop } from "./agent.js";
+export { BUDGET_EXHAUSTED_MESSAGE, REFUSAL_MESSAGE, isBudgetExhaustedError, resumeAfterConfirmation, runAgentLoop } from "./agent.js";
 
 // Safeguards
 export { guardMode, scanUserInput, shouldBlock, wrapToolResult } from "./injection-guard.js";

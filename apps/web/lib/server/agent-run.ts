@@ -16,19 +16,24 @@ import {
   type Effort,
   type MessageParam,
   type RegisteredTool,
+  type Route,
   type RunAgentOptions,
   type ToolContext,
   type ToolRegistry,
 } from "@neo/core";
+import type { ArtifactMeta } from "@neo/db";
 import { createAnalyzeEmailTool, createAnalyzeSmsTool, createCheckUrlTool, createInMemoryCache } from "@neo/tools";
 import { parseAttachmentNote } from "@/lib/attachments";
 import { env } from "@/lib/env";
 import { playbookMarker, type PlaybookId } from "@/lib/playbooks";
 import type { NeoSession } from "@/lib/session";
 import { getArtifactStore } from "./artifacts";
+import { recordAudit } from "./audit";
 import { getConversationStore } from "./conversation-store";
 import { NDJSON_HEADERS } from "./http";
 import { createMockAnthropicClient, mockReportPhishTool } from "./mock-model";
+import { routeTurn } from "./router";
+import { getMemberPreferences } from "./routing-settings";
 import { NEO_SYSTEM_PROMPT } from "./system-prompt";
 import { recordUsage } from "./usage";
 import { extractVerdict, saveChatVerdict } from "./verdicts";
@@ -129,10 +134,87 @@ export function previousTurnPlaybook(history: readonly MessageParam[]): Playbook
 }
 // --- end incident playbooks ---
 
-/** Model name recorded in usage_events. */
+/** Model name recorded in usage_events when the run reported none. */
 export function usageModel(): string {
   return env().MOCK_MODE ? "mock" : agentModel();
 }
+
+// ── Phase 2: model routing ──
+export interface RouteForTurnInput {
+  session: NeoSession;
+  /** What the user typed this turn ("" for attachment-only turns). */
+  text: string;
+  attachments?: readonly ArtifactMeta[];
+  history: readonly MessageParam[];
+  playbook?: PlaybookId;
+  signal?: AbortSignal;
+}
+
+function attachmentKind(metas: readonly ArtifactMeta[] | undefined): "email" | "image" | "text" | null {
+  const first = metas?.[0];
+  if (!first) return null;
+  if (first.kind === "image") return "image";
+  if (first.kind === "text") return "text";
+  return "email";
+}
+
+/** Number of user turns already in the conversation (tool-result carriers excluded). */
+export function countPriorTurns(history: readonly MessageParam[]): number {
+  return history.filter((m) => m.role === "user" && !isToolResultCarrier(m)).length;
+}
+
+/**
+ * Route a new chat turn: the member's preference and family, the playbook (this
+ * turn's or the one the previous reply declared), the attachment kind, the
+ * conversation depth and the last verdict feed the router (`lib/server/router.ts`).
+ */
+export async function routeForTurn(input: RouteForTurnInput): Promise<Route> {
+  const prefs = await getMemberPreferences(input.session.tenantId, input.session.userId);
+  const playbook = input.playbook ?? previousTurnPlaybook(input.history);
+  return routeTurn({
+    text: input.text,
+    hasAttachment: (input.attachments?.length ?? 0) > 0,
+    attachmentKind: attachmentKind(input.attachments),
+    priorTurns: countPriorTurns(input.history),
+    previousVerdict: extractVerdict(input.history)?.verdict ?? null,
+    playbook,
+    preference: prefs.routingPreference,
+    family: prefs.modelFamily,
+    ...(input.signal ? { signal: input.signal } : {}),
+  });
+}
+
+/** Route for a resumed turn whose stored route is missing: rules only, never a Jev call. */
+export async function routeForResume(session: NeoSession, history: readonly MessageParam[]): Promise<Route> {
+  const prefs = await getMemberPreferences(session.tenantId, session.userId);
+  return routeTurn(
+    {
+      text: "",
+      hasAttachment: false,
+      attachmentKind: null,
+      priorTurns: countPriorTurns(history),
+      previousVerdict: null,
+      playbook: previousTurnPlaybook(history),
+      preference: prefs.routingPreference,
+      family: prefs.modelFamily,
+    },
+    { env: { ...process.env, NEO_ROUTER: "rules" } },
+  );
+}
+
+const budgetAuditDays = new Map<string, string>();
+
+/** One `usage.budget_exhausted` audit event per tenant per UTC day (per instance). */
+async function noteBudgetExhausted(session: NeoSession, conversationId: string, route: Route | undefined): Promise<void> {
+  const day = new Date().toISOString().slice(0, 10);
+  if (budgetAuditDays.get(session.tenantId) === day) return;
+  budgetAuditDays.set(session.tenantId, day);
+  await recordAudit(session.tenantId, session.userId, "usage.budget_exhausted", {
+    conversationId,
+    ...(route ? { model: route.model, tier: route.tier } : {}),
+  });
+}
+// ── end Phase 2: model routing ──
 
 export interface AgentRunInput {
   session: NeoSession;
@@ -144,8 +226,10 @@ export interface AgentRunInput {
   /** Start the loop; receives the options shared by runAgentLoop and resumeAfterConfirmation. */
   run: (common: Omit<RunAgentOptions, "messages">) => Promise<AgentResult>;
   headers?: Record<string, string>;
-  /** Per-turn effort (agentEffort({ playbook, history })); default agentEffort(). */
+  /** Per-turn effort (agentEffort({ playbook, history })); default agentEffort(). Ignored when `route` is set. */
   effort?: Effort;
+  /** Phase 2: the turn's route (model, effort, tier). Persisted on the turn and emitted as the first event. */
+  route?: Route;
 }
 
 /**
@@ -162,9 +246,10 @@ export function streamAgentRun(input: AgentRunInput): Response {
     system: NEO_SYSTEM_PROMPT,
     tools: buildToolRegistry(),
     ctx: { tenantId: session.tenantId, userId: session.userId, conversationId, signal },
-    effort: input.effort ?? agentEffort(),
+    effort: input.route?.effort ?? input.effort ?? agentEffort(),
     onEvent: send,
     ...(client ? { client } : {}),
+    ...(input.route ? { route: input.route } : {}),
   };
 
   void (async () => {
@@ -192,6 +277,7 @@ export function streamAgentRun(input: AgentRunInput): Response {
         messages: [...prefix, ...newMessages],
         usage: { input_tokens: usage.input_tokens, output_tokens: usage.output_tokens },
         pendingConfirmation: result?.pendingConfirmation ?? null,
+        ...(input.route ? { route: input.route } : {}),
       });
     } catch (err) {
       logger.error("Persisting the turn failed", "api.agent", {
@@ -205,13 +291,15 @@ export function streamAgentRun(input: AgentRunInput): Response {
       tenantId: session.tenantId,
       userId: session.userId,
       conversationId,
-      model: usageModel(),
+      model: result?.servedModel ?? input.route?.model ?? usageModel(),
       inputTokens: usage.input_tokens,
       outputTokens: usage.output_tokens,
       cacheReadTokens: usage.cache_read_input_tokens ?? 0,
       cacheCreationTokens: usage.cache_creation_input_tokens ?? 0,
       kind,
+      ...(input.route ? { tier: input.route.tier } : {}),
     });
+    if (result?.errorCode === "budget_exhausted") await noteBudgetExhausted(session, conversationId, input.route);
     const verdict = extractVerdict(newMessages);
     if (verdict) {
       // ── Phase 1: intake — link the verdict to the turn's first attachment ──

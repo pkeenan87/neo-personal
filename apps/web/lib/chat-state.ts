@@ -14,31 +14,16 @@
  *   done                  → mark the message complete                     [—]
  *   error                 → mark the message errored with the text         [error]
  */
-import type { AgentEvent, ModelFamily, Route, RouterKind, RoutingPreference, Tier } from "@neo/core";
+import type { AgentEvent, Route } from "@neo/core";
 import { parseAttachmentNote, type AttachmentRef } from "./attachments";
 import { isHiddenContextText } from "./hidden-context";
 import { stripPlaybookMarker } from "./playbooks";
 
-// TODO(integration): use AgentEvent's route variant from @neo/core (and its `usage.model`)
-// once core ships them, and drop RouteEvent / UsageEvent / ChatEvent below.
-/** The first event of a routed turn (docs/contracts.md, Phase 2 "Chat events and UI"). */
-export type RouteEvent = {
-  type: "route";
-  model: string;
-  displayName: string;
-  tier: Tier;
-  effort: "low" | "medium" | "high";
-  family: ModelFamily;
-  preference: RoutingPreference;
-  router: RouterKind;
-  reason?: string;
-};
-/** `usage` event that may name the model that served the response. */
-export type UsageEvent = Extract<AgentEvent, { type: "usage" }> & { model?: string };
-/** Every event the chat UI understands: AgentEvent widened with the Phase 2 additions. */
-export type ChatEvent = Exclude<AgentEvent, { type: "usage" }> | UsageEvent | RouteEvent;
+// Chat events are the core AgentEvent union (docs/contracts.md, Phase 2 adds `route` and `usage.model`).
+export type ChatEvent = AgentEvent;
+export type RouteEvent = Extract<AgentEvent, { type: "route" }>;
+export type UsageEvent = Extract<AgentEvent, { type: "usage" }>;
 
-/** Rebuild the `Route` a `route` event describes. */
 export function routeFromEvent(e: RouteEvent): Route {
   return {
     tier: e.tier,

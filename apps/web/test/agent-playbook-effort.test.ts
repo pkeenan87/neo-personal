@@ -8,7 +8,7 @@ import { DEV_SESSION_IDS } from "@/lib/session";
 import { events, post, resetMemoryState, stubBaseEnv } from "./helpers/routes";
 
 // Capture the request params the agent loop sends to the (scripted) model client.
-const captured = vi.hoisted(() => ({ params: [] as Array<{ output_config?: { effort?: string } }> }));
+const captured = vi.hoisted(() => ({ params: [] as Array<{ model?: string; output_config?: { effort?: string } }> }));
 vi.mock("@/lib/server/mock-model", async (importOriginal) => {
   const mod = await importOriginal<typeof import("@/lib/server/mock-model")>();
   return {
@@ -19,7 +19,7 @@ vi.mock("@/lib/server/mock-model", async (importOriginal) => {
         beta: { messages: { stream: (p: unknown, o?: unknown) => unknown } };
       };
       const wrap = (fn: (p: unknown, o?: unknown) => unknown) => (p: unknown, o?: unknown) => {
-        captured.params.push(p as { output_config?: { effort?: string } });
+        captured.params.push(p as { model?: string; output_config?: { effort?: string } });
         return fn(p, o);
       };
       client.messages.stream = wrap(client.messages.stream);
@@ -51,12 +51,16 @@ describe("POST /api/agent effort per turn", () => {
     expect(captured.params.every((p) => p.output_config?.effort === "high")).toBe(true);
   });
 
-  it("uses the env default without a playbook", async () => {
+  it("routes an ordinary turn by tier (rules router in MOCK_MODE): small has no effort, medium is balanced", async () => {
+    // "hello" → small → Haiku 4.5, which takes no output_config.effort.
     await events(await agentPOST(post("/api/agent", { message: "hello" })));
-    expect(lastEffort()).toBe("medium");
+    expect(captured.params.at(-1)?.model).toBe("claude-haiku-4-5");
+    expect(lastEffort()).toBeUndefined();
+    // A URL → medium → Sonnet 5 at the balanced table's medium effort; NEO_AGENT_EFFORT no longer applies to routed turns.
     vi.stubEnv("NEO_AGENT_EFFORT", "low");
-    await events(await agentPOST(post("/api/agent", { message: "hello again" })));
-    expect(lastEffort()).toBe("low");
+    await events(await agentPOST(post("/api/agent", { message: "Is https://example.com safe?" })));
+    expect(captured.params.at(-1)?.model).toBe("claude-sonnet-5");
+    expect(lastEffort()).toBe("medium");
   });
 
   it("rejects an unknown playbook id", async () => {
@@ -76,9 +80,10 @@ describe("POST /api/agent effort per turn", () => {
     await events(await agentPOST(post("/api/agent", { message: "Done. What next?", conversationId: id })));
     expect(lastEffort()).toBe("high");
 
-    // The mock model's reply has no marker, so the following turn drops back to the default.
+    // The mock model's reply has no marker, so the following turn is routed again: "Thanks" → small → Haiku, no effort.
     await events(await agentPOST(post("/api/agent", { message: "Thanks", conversationId: id })));
-    expect(lastEffort()).toBe("medium");
+    expect(captured.params.at(-1)?.model).toBe("claude-haiku-4-5");
+    expect(lastEffort()).toBeUndefined();
   });
 });
 

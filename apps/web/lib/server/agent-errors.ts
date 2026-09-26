@@ -5,7 +5,7 @@
  */
 
 /** User-safe text shown when the AI Gateway budget for Neo's key is exhausted. */
-export const BUDGET_EXHAUSTED_MESSAGE = "Neo's monthly AI budget is used up. Please try again after it resets.";
+export { BUDGET_EXHAUSTED_MESSAGE } from "@neo/core";
 
 /** Error type AI Gateway returns with HTTP 402 when a budget is exceeded. */
 export const BUDGET_EXHAUSTED_ERROR_TYPE = "quota_for_entity_exceeded";
