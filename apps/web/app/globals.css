@@ -1,42 +1,60 @@
 @import "tailwindcss";
 
-/*
- * Neo design tokens. Semantic colors are CSS variables that flip with
- * prefers-color-scheme; Tailwind utilities (bg-surface, text-muted, …)
- * are generated from them via @theme inline. Status/severity colors use
- * Tailwind's palette with `dark:` variants (dark = prefers-color-scheme).
- * All fg/bg pairs target WCAG AA (4.5:1) for body text.
- */
+/* Both semantic tokens and Tailwind status colors follow the selected theme.
+ * Before the bootstrap runs (or with JavaScript disabled), use the OS preference. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) { @slot; }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme]), :root:not([data-theme]) *) { @slot; }
+  }
+}
+
 :root {
-  --bg: #f8fafc;
+  --bg: #f6f9f7;
   --surface: #ffffff;
-  --surface-2: #f1f5f9;
-  --border: #e2e8f0;
-  --border-strong: #cbd5e1;
-  --fg: #0f172a;
-  --muted: #475569;
-  --accent: #0f766e;
-  --accent-hover: #115e59;
+  --surface-2: #edf3ef;
+  --border: #dce7df;
+  --border-strong: #b5cbbd;
+  --fg: #142d20;
+  --muted: #53685b;
+  --accent: #167443;
+  --accent-hover: #105b34;
   --accent-fg: #ffffff;
-  --accent-soft: #ccfbf1;
-  --ring: #0f766e;
+  --accent-soft: #e0f4e7;
+  --ring: #167443;
   color-scheme: light;
 }
 
+:root[data-theme="dark"] {
+  --bg: #07110e;
+  --surface: #10221b;
+  --surface-2: #182e25;
+  --border: #294337;
+  --border-strong: #476353;
+  --fg: #f0f5f1;
+  --muted: #b0bfb5;
+  --accent: #74f5a4;
+  --accent-hover: #a0f9bf;
+  --accent-fg: #072413;
+  --accent-soft: #173e29;
+  --ring: #74f5a4;
+  color-scheme: dark;
+}
+
 @media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #0b1120;
-    --surface: #111827;
-    --surface-2: #1e293b;
-    --border: #1f2a3c;
-    --border-strong: #334155;
-    --fg: #e5e7eb;
-    --muted: #9ca3af;
-    --accent: #2dd4bf;
-    --accent-hover: #5eead4;
-    --accent-fg: #042f2e;
-    --accent-soft: #134e4a;
-    --ring: #5eead4;
+  :root:not([data-theme]) {
+    --bg: #07110e;
+    --surface: #10221b;
+    --surface-2: #182e25;
+    --border: #294337;
+    --border-strong: #476353;
+    --fg: #f0f5f1;
+    --muted: #b0bfb5;
+    --accent: #74f5a4;
+    --accent-hover: #a0f9bf;
+    --accent-fg: #072413;
+    --accent-soft: #173e29;
+    --ring: #74f5a4;
     color-scheme: dark;
   }
 }

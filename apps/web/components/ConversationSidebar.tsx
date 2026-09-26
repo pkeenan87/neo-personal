@@ -3,7 +3,7 @@
 // Lifted from the sidebar in Neo ChatInterface.tsx (rename/settings/downloads/role dropped).
 import { LayoutDashboard, LogOut, MessageSquare, MessageSquareDashed, Plus, Settings, Trash2, X } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ConversationSummary } from "@/lib/api-types";
 import { NeoMark } from "./NeoMark";
 
@@ -48,6 +48,48 @@ export function ConversationSidebar({
   onSignOut,
 }: ConversationSidebarProps) {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!open) return;
+    const desktopViewport = window.matchMedia("(min-width: 768px)");
+    if (desktopViewport.matches) return;
+
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (desktopViewport.matches) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '#conversation-sidebar a[href], #conversation-sidebar button:not([disabled]), #conversation-sidebar [tabindex]:not([tabindex="-1"])',
+        ),
+      );
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (!first || !last) return;
+      if (event.shiftKey && (document.activeElement === first || !document.activeElement?.closest("#conversation-sidebar"))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (document.activeElement === last || !document.activeElement?.closest("#conversation-sidebar"))) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [open]);
 
   return (
     <>
@@ -59,19 +101,22 @@ export function ConversationSidebar({
       />
       <aside
         id="conversation-sidebar"
+        role={open ? "dialog" : undefined}
+        aria-modal={open ? true : undefined}
         aria-label="Conversations"
         className={`fixed inset-y-0 left-0 z-40 flex w-72 max-w-[85vw] flex-col border-r border-border bg-surface pt-[env(safe-area-inset-top)] transition-transform md:static md:z-auto md:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full max-md:invisible"}`}
       >
         <div className="flex items-center justify-between px-4 py-3">
-          <div className="flex items-center gap-2 font-semibold">
-            <NeoMark className="size-6 text-accent" />
-            <span>Neo</span>
+          <div className="flex items-center gap-3 font-semibold tracking-tight">
+            <NeoMark className="size-10 text-accent" />
+            <span className="text-xl">Neo</span>
           </div>
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             aria-label="Close conversations"
-            className="rounded-lg p-2 text-muted hover:bg-surface-2 md:hidden"
+            className="flex size-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent md:hidden"
           >
             <X className="size-5" aria-hidden="true" />
           </button>
@@ -79,11 +124,15 @@ export function ConversationSidebar({
 
         {/* app navigation */}
         <nav aria-label="Main" className="mb-2 space-y-0.5 px-2">
-          <Link href="/dashboard" className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm hover:bg-surface-2">
+          <Link href="/dashboard" className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             <LayoutDashboard className="size-4 text-muted" aria-hidden="true" />
             Dashboard
           </Link>
-          <Link href="/settings/forwarding" className="flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm hover:bg-surface-2">
+          <Link href="/chat" aria-current="page" className="flex min-h-11 items-center gap-2 rounded-lg bg-accent-soft px-2 text-sm font-medium text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+            <MessageSquare className="size-4" aria-hidden="true" />
+            Chat
+          </Link>
+          <Link href="/settings/forwarding" className="flex min-h-11 items-center gap-2 rounded-lg px-2 text-sm hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             <Settings className="size-4 text-muted" aria-hidden="true" />
             Settings
           </Link>
@@ -93,7 +142,7 @@ export function ConversationSidebar({
           <button
             type="button"
             onClick={onNew}
-            className="flex min-h-10 w-full items-center gap-2 rounded-xl border border-border-strong px-3 text-sm font-medium hover:bg-surface-2"
+            className="flex min-h-11 w-full items-center gap-2 rounded-xl border border-border-strong px-3 text-sm font-medium hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             <Plus className="size-4" aria-hidden="true" />
             New check
@@ -121,7 +170,7 @@ export function ConversationSidebar({
                         onSelect?.(c.id);
                         onClose();
                       }}
-                      className={`flex min-h-11 items-center gap-2 rounded-lg py-2 pr-10 pl-2 text-sm ${active ? "bg-surface-2 font-medium" : "hover:bg-surface-2"}`}
+                      className={`flex min-h-11 items-center gap-2 rounded-lg py-2 pr-10 pl-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${active ? "bg-surface-2 font-medium" : "hover:bg-surface-2"}`}
                     >
                       <MessageSquare className="size-4 shrink-0 text-muted" aria-hidden="true" />
                       <span className="min-w-0 flex-1">
@@ -141,7 +190,7 @@ export function ConversationSidebar({
                       }}
                       onBlur={() => setConfirmingId((cur) => (cur === c.id ? null : cur))}
                       aria-label={confirming ? `Confirm delete ${c.title || "conversation"}` : `Delete ${c.title || "conversation"}`}
-                      className={`absolute top-1/2 right-1 -translate-y-1/2 rounded-md p-2 text-xs font-semibold focus:opacity-100 ${
+                      className={`absolute top-1/2 right-1 flex min-h-10 min-w-10 -translate-y-1/2 items-center justify-center rounded-md p-2 text-xs font-semibold focus-visible:opacity-100 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-accent ${
                         confirming
                           ? "bg-red-600 text-white opacity-100"
                           : "text-muted opacity-100 hover:bg-surface hover:text-red-600 md:opacity-0 md:group-hover:opacity-100"
@@ -171,7 +220,7 @@ export function ConversationSidebar({
             type="button"
             onClick={onSignOut}
             aria-label="Sign out"
-            className="rounded-lg p-2 text-muted hover:bg-surface-2 hover:text-fg"
+            className="flex size-11 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             <LogOut className="size-4" aria-hidden="true" />
           </button>

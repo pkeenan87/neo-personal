@@ -1,6 +1,6 @@
 "use client";
 
-import { CheckCircle2, ChevronRight, Loader2, Mail, MessageSquarePlus, Upload } from "lucide-react";
+import { CheckCircle2, ChevronRight, Loader2, Mail, MessageSquarePlus, ShieldCheck, Upload } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { VerdictLabel } from "@neo/verdict";
@@ -76,6 +76,7 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
   const [usage, setUsage] = useState<UsageResponse | null>(null);
   const [more, setMore] = useState<{ loading: boolean; error?: string }>({ loading: false });
+  const [retry, setRetry] = useState(0);
 
   const isOwner = household.role === "owner";
   const key = `${range}|${member}`;
@@ -105,7 +106,7 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
         setError({ key, message: err instanceof Error ? err.message : "Couldn't load your dashboard." });
       });
     return () => controller.abort();
-  }, [key, range, userId]);
+  }, [key, range, userId, retry]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -143,8 +144,9 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-sm text-muted">{household.name}</p>
-          <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="mb-2 text-xs font-semibold tracking-widest text-accent uppercase">{household.name}</p>
+          <h1 className="text-3xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="mt-2 text-sm text-muted">Your checks, clear answers, and next steps. All in one place.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {isOwner && (
@@ -153,7 +155,7 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
               <select
                 value={member}
                 onChange={(e) => setMember(e.target.value)}
-                className="min-h-10 rounded-lg border border-border bg-surface px-2 text-sm"
+                className="min-h-11 rounded-lg border border-border bg-surface px-2 text-sm"
                 aria-label="Filter by member"
               >
                 <option value="">Everyone</option>
@@ -172,7 +174,7 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
                 type="button"
                 onClick={() => setRange(d)}
                 aria-pressed={range === d}
-                className={`min-h-9 rounded-md px-3 text-sm ${range === d ? "bg-surface-2 font-semibold" : "text-muted hover:text-fg"}`}
+                className={`min-h-11 rounded-md px-3 text-sm ${range === d ? "bg-accent-soft font-semibold text-accent" : "text-muted hover:text-fg"}`}
               >
                 {d} days
               </button>
@@ -182,9 +184,19 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
       </div>
 
       {error && error.key === key && (
-        <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
-          {error.message}
-        </p>
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
+          <span>{error.message}</span>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              setRetry((value) => value + 1);
+            }}
+            className="min-h-11 rounded-lg border border-current px-3 font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-current"
+          >
+            Try again
+          </button>
+        </div>
       )}
 
       {loading && (
@@ -210,7 +222,7 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
                 <Card title="Needs attention">
                   {current.attention.length === 0 ? (
                     <p className="flex items-center gap-2 text-sm text-muted">
-                      <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
+                      <CheckCircle2 className="size-4 text-accent" aria-hidden="true" />
                       Nothing dangerous or suspicious in the last {range} days.
                     </p>
                   ) : (
@@ -253,11 +265,11 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
                         type="button"
                         onClick={() => void loadMore()}
                         disabled={more.loading}
-                        className="min-h-10 rounded-lg border border-border px-3 text-sm font-medium hover:bg-surface-2 disabled:opacity-60"
+                        className="min-h-11 rounded-lg border border-border px-3 text-sm font-medium hover:bg-surface-2 disabled:opacity-60"
                       >
                         {more.loading ? "Loading…" : "Load more"}
                       </button>
-                      {more.error && <span className="ml-2 text-sm text-red-700 dark:text-red-300">{more.error}</span>}
+                      {more.error && <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{more.error}</p>}
                     </div>
                   )}
                 </Card>
@@ -268,7 +280,7 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
                   <div className="space-y-2">
                     <Link
                       href="/chat"
-                      className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-accent-fg hover:bg-accent-hover"
+                      className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-accent-fg hover:bg-accent-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
                     >
                       <MessageSquarePlus className="size-4" aria-hidden="true" />
                       Check something
@@ -291,8 +303,8 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-2xl border border-border bg-surface p-4 shadow-sm" aria-label={title}>
-      <h2 className="mb-3 text-sm font-semibold">{title}</h2>
+    <section className="min-w-0 rounded-2xl border border-border bg-surface p-5 shadow-sm" aria-label={title}>
+      <h2 className="mb-3 text-sm font-semibold tracking-tight">{title}</h2>
       {children}
     </section>
   );
@@ -300,7 +312,7 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function StatTile({ label, value, dot }: { label: string; value: number; dot?: VerdictLabel }) {
   return (
-    <div className="rounded-2xl border border-border bg-surface p-4 shadow-sm" data-testid="stat-tile">
+    <div className="rounded-2xl border border-border bg-surface p-5 shadow-sm" data-testid="stat-tile">
       <div className="flex items-center gap-1.5 text-sm text-muted">
         {dot && <span className={`inline-block size-2.5 rounded-full ${LABEL_BG[dot]}`} aria-hidden="true" />}
         {label}
@@ -323,7 +335,7 @@ function VerdictList({
     <ul className="-mx-2 divide-y divide-border" aria-label={label}>
       {items.map((v) => (
         <li key={v.id}>
-          <Link href={`/verdicts/${v.id}`} className="flex min-h-12 items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2">
+          <Link href={`/verdicts/${v.id}`} className="flex min-h-12 items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
             <span className={`inline-block size-2.5 shrink-0 rounded-full ${LABEL_BG[v.verdict]}`} aria-hidden="true" />
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">{v.headline}</span>
@@ -345,10 +357,10 @@ function ForwardingAction({ used }: { used: boolean }) {
   return (
     <Link
       href="/settings/forwarding"
-      className="flex min-h-11 items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium hover:bg-surface-2"
+      className="flex min-h-11 items-center gap-2 rounded-xl border border-border px-4 text-sm font-medium hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
     >
       {used ? (
-        <CheckCircle2 className="size-4 text-emerald-600" aria-hidden="true" />
+        <CheckCircle2 className="size-4 text-accent" aria-hidden="true" />
       ) : (
         <Mail className="size-4 text-accent" aria-hidden="true" />
       )}
@@ -397,14 +409,15 @@ function EmptyDashboard({ forwardingUsed }: { forwardingUsed: boolean }) {
   ];
   return (
     <section aria-label="Get started" className="space-y-6">
-      <div className="rounded-2xl border border-border bg-surface p-6 text-center shadow-sm">
-        <h2 className="text-xl font-semibold">Nothing checked yet</h2>
-        <p className="mt-1 text-muted">When your household checks something with Neo, it shows up here.</p>
+      <div className="flex flex-col items-center rounded-2xl border border-border bg-surface p-8 text-center shadow-sm sm:py-10">
+        <div className="mb-4 flex size-14 items-center justify-center rounded-2xl bg-accent-soft text-accent"><ShieldCheck className="size-7" aria-hidden="true" /></div>
+        <h2 className="text-2xl font-semibold tracking-tight">Nothing checked yet</h2>
+        <p className="mt-2 max-w-md text-sm leading-relaxed text-muted">When your household checks something with Neo, it shows up here. Start with a link, a message, or an email.</p>
       </div>
       <ul className="grid gap-3 md:grid-cols-3">
         {cards.map((c) => (
           <li key={c.title}>
-            <Link href={c.href} className="flex h-full flex-col gap-2 rounded-2xl border border-border bg-surface p-4 shadow-sm hover:border-accent">
+            <Link href={c.href} className="flex h-full flex-col gap-2 rounded-2xl border border-border bg-surface p-5 shadow-sm hover:border-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
               <c.icon className="size-5 text-accent" aria-hidden="true" />
               <span className="font-semibold">{c.title}</span>
               <span className="text-sm text-muted">{c.body}</span>

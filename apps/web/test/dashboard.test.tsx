@@ -142,4 +142,31 @@ describe("Dashboard", () => {
     await screen.findByText("Nothing checked yet");
     expect(screen.queryByLabelText("Filter by member")).not.toBeInTheDocument();
   });
+
+  it("offers a retry when dashboard data fails to load", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://localhost");
+        calls.push(url.pathname + url.search);
+        if (url.pathname === "/api/usage") return json(USAGE);
+        return new Response(JSON.stringify({ error: "Dashboard unavailable" }), { status: 503 });
+      }),
+    );
+    render(<Dashboard household={OWNER_HOUSEHOLD} forwardingUsed={false} />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("Dashboard unavailable");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = new URL(String(input), "http://localhost");
+        calls.push(url.pathname + url.search);
+        if (url.pathname === "/api/usage") return json(USAGE);
+        if (url.pathname === "/api/verdicts/summary") return json(summary());
+        return json({ items: [], nextCursor: null });
+      }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Nothing checked yet")).toBeInTheDocument();
+  });
 });

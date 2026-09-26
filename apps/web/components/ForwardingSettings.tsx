@@ -2,7 +2,7 @@
 
 import { TriangleAlert, Inbox, Mail, RefreshCw } from "lucide-react";
 import Link from "next/link";
-import { useId, useState } from "react";
+import { useId, useState, type KeyboardEvent } from "react";
 import type { ForwardingMessage, ForwardingSettings, InboundMessageStatus } from "@/lib/forwarding-types";
 import { CopyButton } from "./CopyButton";
 import { relativeTime } from "./ConversationSidebar";
@@ -115,7 +115,7 @@ function MessageRow({ m }: { m: ForwardingMessage }) {
       <Mail className="size-4 shrink-0 text-muted" aria-hidden="true" />
       <div className="min-w-0 flex-1 text-sm">
         <div className="font-medium">{STATUS_LABELS[m.status]}</div>
-        <div className="text-xs text-muted">
+        <div className="break-words text-xs text-muted">
           <span suppressHydrationWarning>{relativeTime(m.receivedAt)}</span>
           {reason && m.status !== "done" ? <> · {reason}</> : null}
         </div>
@@ -138,6 +138,21 @@ export function ForwardingSettingsView({ initial }: { initial: ForwardingSetting
   const tabsId = useId();
   const address = settings.address ?? `${settings.localPart}@…`;
 
+  function moveTab(event: KeyboardEvent<HTMLButtonElement>, current: ProviderId) {
+    const index = PROVIDERS.findIndex((provider) => provider.id === current);
+    let nextIndex: number | null = null;
+    if (event.key === "ArrowRight") nextIndex = (index + 1) % PROVIDERS.length;
+    if (event.key === "ArrowLeft") nextIndex = (index - 1 + PROVIDERS.length) % PROVIDERS.length;
+    if (event.key === "Home") nextIndex = 0;
+    if (event.key === "End") nextIndex = PROVIDERS.length - 1;
+    if (nextIndex === null) return;
+
+    event.preventDefault();
+    const next = PROVIDERS[nextIndex]!.id;
+    setTab(next);
+    document.getElementById(`${tabsId}-tab-${next}`)?.focus();
+  }
+
   async function rotate() {
     setBusy(true);
     try {
@@ -159,8 +174,8 @@ export function ForwardingSettingsView({ initial }: { initial: ForwardingSetting
 
   return (
     <div className="mx-auto w-full max-w-2xl">
-      <h1 className="text-2xl font-semibold">Forward suspicious email</h1>
-      <p className="mt-1 text-sm text-muted">
+      <h1 className="text-3xl font-semibold tracking-tight">Forward suspicious email</h1>
+      <p className="mt-3 text-sm leading-relaxed text-muted">
         Forward any email you&apos;re unsure about to your household&apos;s Neo address. Neo checks it and emails you the
         result.
       </p>
@@ -183,7 +198,7 @@ export function ForwardingSettingsView({ initial }: { initial: ForwardingSetting
         </section>
       ) : null}
 
-      <section aria-labelledby="address-heading" className="mt-5 rounded-xl border border-border bg-surface p-4">
+      <section aria-labelledby="address-heading" className="mt-6 rounded-2xl border border-border bg-surface p-5 shadow-sm sm:p-6">
         <h2 id="address-heading" className="text-sm font-semibold">
           Your Neo address
         </h2>
@@ -200,26 +215,26 @@ export function ForwardingSettingsView({ initial }: { initial: ForwardingSetting
           {settings.address ? <CopyButton text={settings.address} label="Copy address" /> : null}
         </div>
         {settings.acceptedSenders.length ? (
-          <p className="mt-3 text-xs text-muted">
+          <p className="mt-3 break-words text-xs text-muted">
             Accepted from: {settings.acceptedSenders.join(", ")}. Mail forwarded from any other address is ignored.
           </p>
         ) : null}
         {settings.canRotate ? (
           <div className="mt-3">
             {confirming ? (
-              <div role="alertdialog" aria-labelledby="rotate-title" className="rounded-lg border border-border-strong p-3 text-sm">
+              <div role="group" aria-labelledby="rotate-title" className="rounded-lg border border-border-strong p-3 text-sm">
                 <p id="rotate-title" className="font-medium">
                   Create a new address?
                 </p>
                 <p className="mt-1 text-muted">
                   The current address stops working immediately. You&apos;ll need to update your forwarding rules.
                 </p>
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={rotate}
                     disabled={busy}
-                    className="min-h-9 rounded-lg bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
+                    className="min-h-11 rounded-lg bg-red-600 px-3 text-sm font-medium text-white hover:bg-red-700 disabled:opacity-50"
                   >
                     {busy ? "Rotating…" : "Yes, rotate"}
                   </button>
@@ -227,7 +242,7 @@ export function ForwardingSettingsView({ initial }: { initial: ForwardingSetting
                     type="button"
                     onClick={() => setConfirming(false)}
                     disabled={busy}
-                    className="min-h-9 rounded-lg border border-border-strong px-3 text-sm hover:bg-surface-2"
+                    className="min-h-11 rounded-lg border border-border-strong px-3 text-sm hover:bg-surface-2"
                   >
                     Cancel
                   </button>
@@ -237,7 +252,7 @@ export function ForwardingSettingsView({ initial }: { initial: ForwardingSetting
               <button
                 type="button"
                 onClick={() => setConfirming(true)}
-                className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-border-strong px-3 text-sm hover:bg-surface-2"
+                className="inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-border-strong px-3 text-sm hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
               >
                 <RefreshCw className="size-4" aria-hidden="true" />
                 Rotate address
@@ -247,7 +262,7 @@ export function ForwardingSettingsView({ initial }: { initial: ForwardingSetting
         ) : null}
       </section>
 
-      <section aria-labelledby="guide-heading" className="mt-5 rounded-xl border border-border bg-surface p-4">
+      <section aria-labelledby="guide-heading" className="mt-6 rounded-2xl border border-border bg-surface p-5 shadow-sm sm:p-6">
         <h2 id="guide-heading" className="text-sm font-semibold">
           Set up forwarding
         </h2>
@@ -261,7 +276,9 @@ export function ForwardingSettingsView({ initial }: { initial: ForwardingSetting
               aria-selected={tab === p.id}
               aria-controls={`${tabsId}-panel`}
               onClick={() => setTab(p.id)}
-              className={`min-h-9 shrink-0 rounded-lg px-3 text-sm whitespace-nowrap ${
+              tabIndex={tab === p.id ? 0 : -1}
+              onKeyDown={(event) => moveTab(event, p.id)}
+              className={`min-h-11 shrink-0 rounded-lg px-3 text-sm whitespace-nowrap focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
                 tab === p.id ? "bg-accent-soft font-medium text-accent" : "text-muted hover:bg-surface-2"
               }`}
             >
@@ -279,7 +296,7 @@ export function ForwardingSettingsView({ initial }: { initial: ForwardingSetting
         </div>
       </section>
 
-      <section aria-labelledby="recent-heading" className="mt-5 rounded-xl border border-border bg-surface p-4">
+      <section aria-labelledby="recent-heading" className="mt-6 rounded-2xl border border-border bg-surface p-5 shadow-sm sm:p-6">
         <h2 id="recent-heading" className="text-sm font-semibold">
           Recently forwarded
         </h2>

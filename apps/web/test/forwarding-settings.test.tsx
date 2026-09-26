@@ -39,6 +39,10 @@ describe("ForwardingSettingsView", () => {
     expect(screen.getByText(/isn't on your account/)).toBeInTheDocument();
 
     expect(screen.getByRole("tab", { name: "Gmail" })).toHaveAttribute("aria-selected", "true");
+    screen.getByRole("tab", { name: "Gmail" }).focus();
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: "iCloud" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "iCloud" })).toHaveFocus();
     await userEvent.click(screen.getByRole("tab", { name: "Yahoo" }));
     expect(screen.getByRole("tabpanel")).toHaveTextContent(/paid Yahoo Mail feature/);
     await userEvent.click(screen.getByRole("tab", { name: "One-off check" }));
@@ -57,7 +61,7 @@ describe("ForwardingSettingsView", () => {
     renderView();
     await userEvent.click(screen.getByRole("button", { name: /Rotate address/ }));
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByRole("alertdialog")).toHaveTextContent(/stops working immediately/);
+    expect(screen.getByRole("group", { name: /Create a new address/ })).toHaveTextContent(/stops working immediately/);
     await userEvent.click(screen.getByRole("button", { name: "Yes, rotate" }));
     expect(fetchMock).toHaveBeenCalledWith("/api/settings/forwarding", expect.objectContaining({ method: "POST" }));
     await vi.waitFor(() => expect(screen.getByTestId("inbound-address")).toHaveTextContent(next.address));
