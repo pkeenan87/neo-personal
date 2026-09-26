@@ -5,6 +5,7 @@ import { LayoutDashboard, LogOut, MessageSquare, MessageSquareDashed, Plus, Sett
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { ConversationSummary } from "@/lib/api-types";
+import { DESKTOP_MEDIA_QUERY } from "@/lib/media-query";
 import { NeoMark } from "./NeoMark";
 
 export function relativeTime(iso: string, now: number = Date.now()): string {
@@ -57,7 +58,7 @@ export function ConversationSidebar({
 
   useEffect(() => {
     if (!open) return;
-    const desktopViewport = window.matchMedia("(min-width: 768px)");
+    const desktopViewport = window.matchMedia(DESKTOP_MEDIA_QUERY);
     if (desktopViewport.matches) return;
 
     closeButtonRef.current?.focus();

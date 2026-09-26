@@ -96,14 +96,17 @@ export function PerDayChart({ perDay, sinceDays }: { perDay: readonly Day[]; sin
           </tr>
         </thead>
         <tbody>
-          {days.map((d) => (
-            <tr key={d.day}>
-              <th scope="row">{shortDate(d.day)}</th>
-              {STACK.map((k) => (
-                <td key={k}>{d[k]}</td>
-              ))}
-            </tr>
-          ))}
+          {/* Only days with activity, so screen readers aren't read up to 90 rows of zeros. */}
+          {days
+            .filter((d) => STACK.some((k) => d[k]))
+            .map((d) => (
+              <tr key={d.day}>
+                <th scope="row">{shortDate(d.day)}</th>
+                {STACK.map((k) => (
+                  <td key={k}>{d[k]}</td>
+                ))}
+              </tr>
+            ))}
         </tbody>
       </table>
     </figure>

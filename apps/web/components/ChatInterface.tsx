@@ -22,6 +22,7 @@ import { ChatMessageView } from "./ChatMessageView";
 import { Composer, INTAKE_HINTS } from "./Composer";
 import { ConversationSidebar } from "./ConversationSidebar";
 import { EmptyState, type Suggestion } from "./EmptyState";
+import { DESKTOP_MEDIA_QUERY, useMediaQuery } from "@/lib/media-query";
 import { playbookPrompt, type PlaybookId } from "@/lib/playbooks";
 import { NeoMark } from "./NeoMark";
 import { useToast } from "./toast-context";
@@ -93,23 +94,23 @@ export function ChatInterface({
   const stickToBottom = useRef(true);
 
   const pending = pendingConfirmation(state);
-  const desktopViewport = typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches;
+  const desktopViewport = useMediaQuery(DESKTOP_MEDIA_QUERY);
   const mobileDrawerOpen = sidebarOpen && !desktopViewport;
 
   // Put keyboard focus inside the mobile drawer and return it to its trigger
   // after the drawer closes.
   useEffect(() => {
     if (wasSidebarOpen.current && !mobileDrawerOpen) {
-      if (window.matchMedia("(min-width: 768px)").matches) chatHeadingRef.current?.focus();
+      if (desktopViewport) chatHeadingRef.current?.focus();
       else sidebarTriggerRef.current?.focus();
     }
     wasSidebarOpen.current = mobileDrawerOpen;
-  }, [mobileDrawerOpen]);
+  }, [mobileDrawerOpen, desktopViewport]);
 
   // A mobile drawer can be left open when the viewport crosses into the
-  // desktop layout. Dismiss it so desktop navigation and chat stay usable.
+  // desktop layout. Dismiss it so it doesn't reappear on the way back down.
   useEffect(() => {
-    const mediaQuery = window.matchMedia("(min-width: 768px)");
+    const mediaQuery = window.matchMedia(DESKTOP_MEDIA_QUERY);
     const dismissOnDesktop = () => {
       if (mediaQuery.matches) setSidebarOpen(false);
     };

@@ -12,7 +12,7 @@ export type NavKey = "dashboard" | "chat" | "settings";
 export const NAV_ITEMS: { key: NavKey; href: string; label: string; icon: typeof LayoutDashboard }[] = [
   { key: "dashboard", href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { key: "chat", href: "/chat", label: "Chat", icon: MessageSquare },
-  { key: "settings", href: "/settings", label: "Settings", icon: Settings },
+  { key: "settings", href: "/settings/forwarding", label: "Settings", icon: Settings },
 ];
 
 /** Settings pages, shown as a sub-navigation on every settings page. */
