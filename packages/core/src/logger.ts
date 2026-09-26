@@ -118,6 +118,11 @@ export const SAFE_METADATA_FIELDS: ReadonlySet<string> = new Set([
   "artifactsPurged",
   "artifactErrors",
   "inboundRowsDeleted",
+  // Phase 2: model routing (enum values only; never message text)
+  "tier",
+  "router",
+  "family",
+  "preference",
 ]);
 
 function sanitizeMetadata(meta: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
