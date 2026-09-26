@@ -115,6 +115,11 @@ export function emailFrom(source: EnvSource = process.env): string {
   return domain ? `Neo <neo@${domain}>` : "Neo <neo@example.com>";
 }
 
+/** Contact address shown on the privacy policy (`NEO_CONTACT_EMAIL`). */
+export function contactEmail(source: EnvSource = process.env): string {
+  return nonEmpty(source.NEO_CONTACT_EMAIL) ?? "privacy@neoshield.dev";
+}
+
 export function readEnv(source: EnvSource = process.env): WebEnv {
   const mock = bool(source.MOCK_MODE);
   const database = databaseUrl(source);
