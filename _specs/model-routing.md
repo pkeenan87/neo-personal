@@ -127,11 +127,30 @@ export function decideTier(answers: JevAnswers, confidence: Record<string, numbe
 
 See "Shipped additions and differences (Phase 2, as built)" in `docs/contracts.md`. Two behaviour changes worth knowing: `NEO_AGENT_EFFORT` no longer applies to routed chat turns (effort comes from the preference table), and `usage_events.model` now records the served model reported by the API rather than the configured one.
 
+## Spike results (2026-09-26, `apps/web/scripts/gateway-spike.ts` against the live gateway, paid credits)
+
+| Check | Result |
+|---|---|
+| Sonnet 5: adaptive thinking + `output_config.effort` + ZDR + US pin | ok; `finalProvider: anthropic`, `inferenceEndpoint.geoRegion: us`, planning line "ZDR requested" |
+| Sonnet 5: `output_config.format` structured output | ok, schema-valid JSON |
+| Sonnet 5: `cache_control` on a 10k-token system prompt, two calls | ok; second call read 10,211 cached tokens |
+| Sonnet 5: `metadata.user_id` | ok |
+| Sonnet 5: refusal-fallback beta (`fallbacks: "default"`) | accepted without error (behaviour on a refusal not exercised); default stays off on the gateway |
+| Haiku 4.5 without thinking / effort | ok (served by Bedrock, US) |
+| Haiku 4.5 with `thinking: adaptive` | also accepted through the gateway (translated); the catalog keeps Haiku at `thinking: "none"` for parity with direct mode |
+| `openai/gpt-6-luna`, tools, thinking, effort | well-formed, `finalProvider: openai`, US, ZDR |
+| `moonshotai/kimi-k3`, same | well-formed, `finalProvider: baseten`, US, ZDR |
+| `spacexai/grok-4.7`, same | well-formed, made the tool call, `finalProvider: xai`, ZDR, no region (pin relaxed) |
+| Jev with `zeroDataRetention: true` | **ok**, `finalProvider: typesafe-ai` (the catalog's `zdr: none` is stale); the router runs on Jev in production |
+
+Before paid credits were added, every model call answered 403 "Free tier users do not have access to this model" and ZDR answered 403 "only available for Pro and Enterprise plans. Current plan: hobby" even on a Pro team: the free $5 credit counts as free tier.
+
+Still open: the prompt-injection fixtures have not been run against OpenAI, Kimi or Grok through the gateway; `NEO_MODEL_FAMILIES` stays `anthropic` until that is done.
+
 ## Open Questions
 
-- Does the refusal-fallback beta pass through the gateway? (Spike; default off on the gateway until known.)
-- Do OpenAI, Kimi and Grok honor `output_config.effort` and Anthropic-style structured outputs through the translation layer well enough for the agent loop? (Spike gates `NEO_MODEL_FAMILIES`.)
-- When does Jev get a ZDR endpoint? Until then the router runs on rules in production.
+- The refusal-fallback beta is accepted by the gateway, but whether a refusal is actually served by the fallback model was not exercised.
+- Injection-resistance of the non-Anthropic families in Neo's loop (see above).
 
 ## Testing Guidelines
 
