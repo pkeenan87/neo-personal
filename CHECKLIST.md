@@ -55,8 +55,8 @@ Status as of 2026-09-25: Phase 0 is complete and verified in production at https
 
 - [x] Register the domain for Neo: `neoshield.dev`, bought through Vercel 2026-09-26, Vercel DNS. Canonical host is `https://www.neoshield.dev` (apex redirects).
 - [x] Point it at Vercel and set `AUTH_URL` to it (`https://www.neoshield.dev`, 2026-09-26). Google OAuth client has the `www` origin and callback.
-- [x] Privacy policy page at https://www.neoshield.dev/privacy (2026-09-26). Contact address is `NEO_CONTACT_EMAIL` (default `privacy@neoshield.dev`); [ ] set up a mailbox or forward for it. [ ] Have a lawyer or a careful reader review the text before wide launch.
-- [ ] Update `SECURITY.md` and `CODE_OF_CONDUCT.md` with a real contact email, or a role address on the new domain.
+- [x] Privacy policy page at https://www.neoshield.dev/privacy (2026-09-26). Contact address is `NEO_CONTACT_EMAIL` (default `privacy@neoshield.dev`), delivered to your HEY mailbox as an alias since 2026-09-26. [ ] Have a lawyer or a careful reader review the text before wide launch.
+- [ ] Update `SECURITY.md` and `CODE_OF_CONDUCT.md` with a role address on the domain (for example `security@neoshield.dev` as another HEY alias).
 
 ## 6. GitHub housekeeping
 
