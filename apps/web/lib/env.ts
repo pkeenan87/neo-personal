@@ -4,6 +4,7 @@
  *
  * The root `.env.example` must list every variable read here.
  */
+import { gatewayEnabled } from "@neo/core";
 import pkg from "../package.json";
 
 /** Any env-like map (process.env, or a plain object in tests). */
@@ -66,6 +67,8 @@ export interface WebEnv {
   DATABASE_URL: string | undefined;
   /** Anthropic credentials are present (MOCK_MODE does not need them). */
   HAS_ANTHROPIC_CREDENTIALS: boolean;
+  /** A model is reachable: Anthropic credentials, or AI Gateway (NEO_MODEL_GATEWAY=true + AI_GATEWAY_API_KEY). */
+  HAS_MODEL_CREDENTIALS: boolean;
   /** Registered sign-in providers (a provider is registered only when configured). */
   AUTH_PROVIDERS: { google: boolean; resend: boolean };
   // ── Phase 1: intake artifacts (_specs/intake.md) ──
@@ -94,6 +97,19 @@ export function databaseUrl(source: EnvSource = process.env): string | undefined
  */
 export function hasBlobStore(source: EnvSource = process.env): boolean {
   return Boolean(nonEmpty(source.BLOB_READ_WRITE_TOKEN) ?? nonEmpty(source.BLOB_STORE_ID));
+}
+
+/** `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` is set (direct Anthropic access). */
+export function hasAnthropicCredentials(source: EnvSource = process.env): boolean {
+  return Boolean(nonEmpty(source.ANTHROPIC_API_KEY) ?? nonEmpty(source.ANTHROPIC_AUTH_TOKEN));
+}
+
+/**
+ * Some model is reachable: direct Anthropic credentials, or Vercel AI Gateway
+ * (`NEO_MODEL_GATEWAY=true` + `AI_GATEWAY_API_KEY`, see `gatewayEnabled` in @neo/core).
+ */
+export function hasModelCredentials(source: EnvSource = process.env): boolean {
+  return hasAnthropicCredentials(source) || gatewayEnabled({ ...source });
 }
 
 /**
@@ -133,7 +149,8 @@ export function readEnv(source: EnvSource = process.env): WebEnv {
     APP_VERSION: nonEmpty(source.APP_VERSION) ?? pkg.version,
     GIT_SHA: nonEmpty(source.VERCEL_GIT_COMMIT_SHA),
     DATABASE_URL: database,
-    HAS_ANTHROPIC_CREDENTIALS: Boolean(nonEmpty(source.ANTHROPIC_API_KEY) ?? nonEmpty(source.ANTHROPIC_AUTH_TOKEN)),
+    HAS_ANTHROPIC_CREDENTIALS: hasAnthropicCredentials(source),
+    HAS_MODEL_CREDENTIALS: hasModelCredentials(source),
     AUTH_PROVIDERS: authProviders(source),
     // ── Phase 1: intake artifacts ──
     HAS_BLOB_TOKEN: hasBlobStore(source),

@@ -2,7 +2,7 @@
 import type { Session } from "next-auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildProviders, googleProfile, householdName } from "@/auth";
-import { authProviders, devAuthBypassActive, emailFrom, hasBlobStore, resendApiKey } from "@/lib/env";
+import { authProviders, devAuthBypassActive, emailFrom, hasBlobStore, hasModelCredentials, resendApiKey } from "@/lib/env";
 import { resolveAuthRedirect, safeCallbackPath } from "@/lib/safe-redirect";
 import { DEV_SESSION_IDS, getSession } from "@/lib/session";
 import { stubBaseEnv } from "./helpers/routes";
@@ -164,5 +164,28 @@ describe("marketplace env fallbacks", () => {
     expect(hasBlobStore({})).toBe(false);
     expect(hasBlobStore({ BLOB_STORE_ID: "store_x" })).toBe(true);
     expect(hasBlobStore({ BLOB_READ_WRITE_TOKEN: "t" })).toBe(true);
+  });
+});
+
+describe("model credentials", () => {
+  it("accepts direct Anthropic credentials or a configured AI Gateway", () => {
+    expect(hasModelCredentials({})).toBe(false);
+    expect(hasModelCredentials({ ANTHROPIC_API_KEY: "sk-ant-x" })).toBe(true);
+    expect(hasModelCredentials({ ANTHROPIC_AUTH_TOKEN: "t" })).toBe(true);
+    expect(hasModelCredentials({ NEO_MODEL_GATEWAY: "true", AI_GATEWAY_API_KEY: "vck_x" })).toBe(true);
+    // The gateway needs both the flag and the key.
+    expect(hasModelCredentials({ AI_GATEWAY_API_KEY: "vck_x" })).toBe(false);
+    expect(hasModelCredentials({ NEO_MODEL_GATEWAY: "true" })).toBe(false);
+    expect(hasModelCredentials({ NEO_MODEL_GATEWAY: "false", AI_GATEWAY_API_KEY: "vck_x" })).toBe(false);
+  });
+  it("exposes HAS_MODEL_CREDENTIALS next to HAS_ANTHROPIC_CREDENTIALS", async () => {
+    const { readEnv } = await import("@/lib/env");
+    const gateway = readEnv({ NEO_MODEL_GATEWAY: "true", AI_GATEWAY_API_KEY: "vck_x" });
+    expect(gateway.HAS_MODEL_CREDENTIALS).toBe(true);
+    expect(gateway.HAS_ANTHROPIC_CREDENTIALS).toBe(false);
+    const direct = readEnv({ ANTHROPIC_API_KEY: "sk-ant-x" });
+    expect(direct.HAS_MODEL_CREDENTIALS).toBe(true);
+    expect(direct.HAS_ANTHROPIC_CREDENTIALS).toBe(true);
+    expect(readEnv({}).HAS_MODEL_CREDENTIALS).toBe(false);
   });
 });

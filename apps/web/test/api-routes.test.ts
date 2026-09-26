@@ -71,6 +71,15 @@ describe("auth and validation", () => {
     expect(res.status).toBe(503);
     expect(await res.json()).toMatchObject({ code: "agent_unavailable" });
   });
+
+  it("still returns 503 when the AI Gateway flag is on without a key", async () => {
+    vi.stubEnv("MOCK_MODE", "false");
+    vi.stubEnv("NEO_MODEL_GATEWAY", "true");
+    vi.stubEnv("AI_GATEWAY_API_KEY", "");
+    const res = await agentPOST(post("/api/agent", { message: "hi" }));
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ code: "agent_unavailable" });
+  });
 });
 
 describe("POST /api/agent (real agent loop, scripted MOCK_MODE model)", () => {

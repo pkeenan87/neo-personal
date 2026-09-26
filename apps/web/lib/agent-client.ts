@@ -3,7 +3,7 @@
  * (and later the mobile/desktop wrappers) talk through; it is NOT a stub
  * and should survive the integration pass unchanged.
  */
-import type { AgentEvent } from "@neo/core";
+import type { ChatEvent } from "./chat-state";
 import {
   CONVERSATION_ID_HEADER,
   type AgentRequestBody,
@@ -56,7 +56,7 @@ export interface StreamAgentOptions {
   /** Artifact ids from uploadArtifacts (≤ 5). */
   attachments?: string[];
   signal?: AbortSignal;
-  onEvent: (e: AgentEvent) => void;
+  onEvent: (e: ChatEvent) => void;
   /** Called as soon as response headers arrive, before any events. */
   onConversationId?: (id: string) => void;
   /** Called once the server accepted the turn (2xx), before any events. */
@@ -71,7 +71,7 @@ export interface StreamResult {
   conversationId: string | null;
 }
 
-async function consume(res: Response, onEvent: (e: AgentEvent) => void): Promise<void> {
+async function consume(res: Response, onEvent: (e: ChatEvent) => void): Promise<void> {
   if (!res.body) return;
   for await (const e of readAgentEvents(res.body)) onEvent(e);
 }
@@ -120,7 +120,7 @@ export interface ConfirmActionOptions {
   approved: boolean;
   signal?: AbortSignal;
   /** The confirm route streams the resumed agent turn as NDJSON. */
-  onEvent?: (e: AgentEvent) => void;
+  onEvent?: (e: ChatEvent) => void;
 }
 
 /** POST /api/agent/confirm and stream the resumed turn. */
