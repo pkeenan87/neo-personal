@@ -1,4 +1,4 @@
-import { KeyRound, Link2, MailWarning, ShieldCheck } from "lucide-react";
+import { ArrowDown, ArrowRight, Check, Code2, KeyRound, Link2, LockKeyhole, MailWarning, ShieldCheck, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { NeoMark } from "@/components/NeoMark";
@@ -6,6 +6,7 @@ import { SignInPanel } from "@/components/SignInPanel";
 import { DevBypassBanner } from "@/components/DevBypassBanner";
 import { env } from "@/lib/env";
 import { getSession } from "@/lib/session";
+import styles from "./landing.module.css";
 
 const AUTH_ERRORS: Record<string, string> = {
   OAuthAccountNotLinked: "This email is already registered with a different sign-in method. Please sign in with your original method.",
@@ -50,53 +51,90 @@ export default async function LandingPage({
           : undefined;
 
   return (
-    <div className="flex min-h-dvh flex-col">
+    <div className={styles.landing}>
       {e.DEV_AUTH_BYPASS && <DevBypassBanner />}
-      <header className="mx-auto flex w-full max-w-5xl items-center justify-between px-4 py-4 pt-[max(1rem,env(safe-area-inset-top))]">
-        <div className="flex items-center gap-2 text-lg font-semibold">
-          <NeoMark className="size-7 text-accent" />
-          Neo
-        </div>
+      <a href="#main" className={styles.skipLink}>Skip to content</a>
+      <header className={styles.header}>
+        <Link href="/" className={styles.brand} aria-label="Neo home">
+          <NeoMark className={styles.brandMark} />
+          <span>neo<span className={styles.brandDot}>.</span></span>
+        </Link>
+        <nav aria-label="Main navigation" className={styles.nav}>
+          <a href="#how-it-works" className={styles.navAbout}>How it works</a>
+          <a href="#get-started" className={styles.navSignIn}>Sign in <ArrowRight size={15} aria-hidden="true" /></a>
+        </nav>
       </header>
 
-      <main className="mx-auto grid w-full max-w-5xl flex-1 content-center items-center gap-10 px-4 py-8 md:grid-cols-[1.2fr_1fr] md:py-16">
-        <section>
-          <p className="inline-flex items-center gap-1.5 rounded-full bg-accent-soft px-3 py-1 text-xs font-semibold text-accent">
-            <ShieldCheck className="size-3.5" aria-hidden="true" />
-            Your personal security assistant
-          </p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-            Not sure if it&apos;s a scam? Ask Neo.
-          </h1>
-          <p className="mt-4 max-w-xl text-lg leading-relaxed text-muted">
-            Neo checks suspicious links, emails, and text messages and tells you, in plain language, whether they&apos;re
-            safe and exactly what to do next.
-          </p>
-          <ul className="mt-8 space-y-4">
-            {FEATURES.map((f) => (
-              <li key={f.title} className="flex gap-3">
-                <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-accent">
-                  <f.icon className="size-5" aria-hidden="true" />
-                </div>
-                <div>
-                  <h2 className="font-semibold">{f.title}</h2>
-                  <p className="text-sm leading-relaxed text-muted">{f.body}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
+      {notice && <div className={styles.notice} role="status">{notice} <a href="#get-started" className="underline">Go to sign in</a></div>}
+
+      <main id="main" tabIndex={-1}>
+        <section className={styles.hero} aria-labelledby="hero-title">
+          <div className={styles.heroCopy}>
+            <p className={styles.eyebrow}><span /> YOUR PERSONAL SECURITY ASSISTANT</p>
+            <h1 id="hero-title">A little doubt.<br />A <span>clear answer.</span></h1>
+            <p className={styles.heroDescription}>
+              Strange link? Urgent email? Something just feels off?
+              Ask Neo before you click. Get a clear verdict, the reasons behind it,
+              and a safer next step.
+            </p>
+            <div className={styles.heroActions}>
+              <a href="#get-started" className={styles.primaryButton}>Ask Neo <ArrowRight size={18} aria-hidden="true" /></a>
+              <a href="#how-it-works" className={styles.secondaryButton}>See how it works <ArrowDown size={16} aria-hidden="true" /></a>
+            </div>
+            <p className={styles.heroNote}><Code2 size={15} aria-hidden="true" /> Free &amp; open source <span>·</span> Built for everyday life</p>
+          </div>
+
+          <div className={styles.heroVisual}>
+            <div className={styles.orbit} aria-hidden="true" />
+            <div className={styles.orbitInner} aria-hidden="true" />
+            <NeoMark className={styles.heroMark} />
+            <div className={styles.shieldCaption}><ShieldCheck size={14} aria-hidden="true" /> A second look. A smarter next step.</div>
+            <div className={styles.example}>
+              <div className={styles.exampleHeader}><span className={styles.exampleDot} /> NEO LINK CHECK <span>EXAMPLE</span></div>
+              <p className={styles.exampleQuestion}>“Your package is on hold. Pay a small fee to release it.”</p>
+              <div className={styles.verdict}><TriangleAlert size={17} aria-hidden="true" /> Looks suspicious</div>
+              <p className={styles.exampleAnswer}>An unexpected payment request is a warning sign. Open the delivery company’s official app to check your shipment.</p>
+              <div className={styles.exampleFoot}><Check size={13} aria-hidden="true" /> Clear reasoning. Practical next steps.</div>
+            </div>
+          </div>
         </section>
 
-        <section aria-label="Sign in" className="flex justify-center md:justify-end">
-          <SignInPanel notice={notice} providers={e.AUTH_PROVIDERS} />
+        <section id="how-it-works" className={styles.features} aria-labelledby="features-title">
+          <div className={styles.sectionHeading}>
+            <div><p className={styles.eyebrow}>LESS GUESSWORK. MORE PEACE OF MIND.</p><h2 id="features-title">You don’t have to figure it out alone.</h2></div>
+            <p>From the first “is this real?”<br />to knowing what to do next.</p>
+          </div>
+          <div className={styles.featureGrid}>
+            {FEATURES.map((f, index) => (
+              <article key={f.title} className={styles.feature}>
+                <div className={styles.featureTop}><f.icon size={23} aria-hidden="true" /><span>0{index + 1}</span></div>
+                <h3>{f.title}</h3>
+                <p>{f.body}</p>
+              </article>
+            ))}
+          </div>
+        </section>
+
+        <section id="get-started" className={styles.getStarted} aria-labelledby="start-title">
+          <div className={styles.startCopy}>
+            <p className={styles.eyebrow}><LockKeyhole size={14} aria-hidden="true" /> A SAFER NEXT STEP STARTS HERE</p>
+            <h2 id="start-title">Trust your instincts.<br /><span>Then ask Neo.</span></h2>
+            <p>Bring the message, link, or question that’s on your mind. We’ll help you make sense of it.</p>
+            <Link href="/privacy" className={styles.privacyLink}>Your privacy matters <ArrowRight size={14} aria-hidden="true" /></Link>
+          </div>
+          <div className={styles.signIn}>
+            <h3>Welcome to Neo</h3>
+            <p>Sign in to check something suspicious.</p>
+            <SignInPanel providers={e.AUTH_PROVIDERS} />
+          </div>
         </section>
       </main>
 
-      <footer className="mx-auto w-full max-w-5xl px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-xs text-muted">
-        Neo is free and open source (MIT). It can make mistakes. When in doubt, don&apos;t click.{" "}
-        <Link href="/privacy" className="text-accent hover:text-accent-hover">
-          Privacy policy
-        </Link>
+      <footer className={styles.footer}>
+        <Link href="/" className={styles.footerBrand} aria-label="Neo home"><NeoMark className={styles.footerMark} /> neo.</Link>
+        <p>A little more clarity. A little less worry.</p>
+        <div className={styles.footerLinks}><span>Free &amp; open source (MIT)</span><span aria-hidden="true">·</span><Link href="/privacy">Privacy policy</Link></div>
+        <p className={styles.disclaimer}>Neo can make mistakes. When in doubt, don’t click.</p>
       </footer>
     </div>
   );
