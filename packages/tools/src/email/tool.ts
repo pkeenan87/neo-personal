@@ -10,20 +10,33 @@ import type { EmailAnalysis } from "./types.js";
 export const MAX_RAW_EMAIL_BYTES = 512 * 1024;
 
 const nullish = <T extends z.ZodType>(t: T) => t.nullish().transform((v) => v ?? undefined);
+/**
+ * Optional string that also treats blank as absent. Models reached through a
+ * gateway with OpenAI-style strict tool calling fill every property, sending
+ * `raw: ""` and `pasted: { body: "" }` next to the `artifact_ref` they mean;
+ * a blank is never a valid value here, so it is the same as omitting the field.
+ */
+const blankAsAbsent = <T extends z.ZodType<string, string>>(t: T) =>
+  z
+    .string()
+    .nullish()
+    .transform((v) => (v === null || v === undefined || v.trim() === "" ? undefined : v))
+    .pipe(t.optional());
+
+const PastedSchema = z
+  .object({
+    from: blankAsAbsent(z.string().max(1000)),
+    subject: blankAsAbsent(z.string().max(2000)),
+    body: blankAsAbsent(z.string().max(MAX_RAW_EMAIL_BYTES)),
+  })
+  .strict();
 
 export const AnalyzeEmailInputSchema = z
   .object({
-    artifact_ref: nullish(z.string().trim().min(1).max(200)),
-    raw: nullish(z.string().min(1).refine((s) => Buffer.byteLength(s, "utf8") <= MAX_RAW_EMAIL_BYTES, { message: "raw exceeds 512 KB" })),
-    pasted: nullish(
-      z
-        .object({
-          from: nullish(z.string().max(1000)),
-          subject: nullish(z.string().max(2000)),
-          body: z.string().min(1).max(MAX_RAW_EMAIL_BYTES),
-        })
-        .strict(),
-    ),
+    artifact_ref: blankAsAbsent(z.string().trim().min(1).max(200)),
+    raw: blankAsAbsent(z.string().refine((s) => Buffer.byteLength(s, "utf8") <= MAX_RAW_EMAIL_BYTES, { message: "raw exceeds 512 KB" })),
+    // A pasted object without a body (every field blank) is the same as omitting it.
+    pasted: nullish(PastedSchema).transform((p) => (p && p.body !== undefined ? (p as typeof p & { body: string }) : undefined)),
   })
   .strict()
   .refine((v) => [v.artifact_ref, v.raw, v.pasted].filter((x) => x !== undefined).length === 1, {

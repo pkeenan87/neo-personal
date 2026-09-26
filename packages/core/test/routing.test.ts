@@ -51,6 +51,15 @@ describe("catalog and tables", () => {
         expect(m.pricing.input).toBeGreaterThan(0);
         if (m.family === "anthropic") expect(m.directId).toBeDefined();
         else expect(m.directId).toBeUndefined();
+        if (t === "large") {
+          // Premium models are rate-limited per account by the gateway; every large rung falls back to a catalog model.
+          expect(m.fallbacks?.length).toBeGreaterThan(0);
+          const ids = MODEL_FAMILIES.flatMap((ff) => TIERS.map((tt) => MODEL_CATALOG[ff][tt].id));
+          for (const fb of m.fallbacks ?? []) {
+            expect(fb).not.toBe(m.id);
+            expect(ids).toContain(fb);
+          }
+        }
       }
     }
   });

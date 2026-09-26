@@ -20,7 +20,7 @@ import {
   gatewayEnabled,
   refusalFallbacksEnabled,
 } from "./config.js";
-import { createModelClient, modelEntryFor, requestShape, withGatewayOptions } from "./client.js";
+import { createModelClient, modelEntryFor, requestShape, servedModelOf, withGatewayOptions } from "./client.js";
 import { gatewayModelId } from "./routing.js";
 import { mergeConsecutiveUserMessages, prepareMessages } from "./context-manager.js";
 import { wrapToolResult } from "./injection-guard.js";
@@ -258,7 +258,7 @@ interface RunState {
   client: Anthropic;
   model: string;
   effort: Effort;
-  /** `message.model` of the last response. */
+  /** Model that produced the last response (`servedModelOf`: the gateway's canonical slug, else `message.model`). */
   servedModel?: string;
   routeEmitted: boolean;
   history: MessageParam[];
@@ -415,7 +415,7 @@ async function callModel(state: RunState, iteration: number): Promise<ModelTurn>
         logger.info("Response served by refusal fallback model", COMPONENT, {
           conversationId: opts.ctx.conversationId,
           model: state.model,
-          servedByModel: message.model,
+          servedByModel: servedModelOf(message),
           stopReason: message.stop_reason,
         });
       }
@@ -449,12 +449,13 @@ function recordUsage(state: RunState, message: Message): AgentEvent {
   state.usage.output_tokens += u.output_tokens;
   state.usage.cache_read_input_tokens = (state.usage.cache_read_input_tokens ?? 0) + cacheRead;
   state.usage.cache_creation_input_tokens = (state.usage.cache_creation_input_tokens ?? 0) + cacheCreation;
-  if (message.model) state.servedModel = message.model;
+  const served = servedModelOf(message);
+  if (served) state.servedModel = served;
   const totalIn = u.input_tokens + cacheRead + cacheCreation;
   logger.info("API usage", COMPONENT, {
     conversationId: state.opts.ctx.conversationId,
     tenantId: state.opts.ctx.tenantId,
-    model: message.model,
+    model: served,
     inputTokens: u.input_tokens,
     outputTokens: u.output_tokens,
     cacheReadTokens: cacheRead,
@@ -468,7 +469,7 @@ function recordUsage(state: RunState, message: Message): AgentEvent {
     output_tokens: u.output_tokens,
     cache_read_input_tokens: cacheRead,
     cache_creation_input_tokens: cacheCreation,
-    ...(message.model ? { model: message.model } : {}),
+    ...(served ? { model: served } : {}),
   };
 }
 
@@ -633,7 +634,7 @@ async function loop(state: RunState): Promise<LoopExit> {
     if (stop === "refusal") {
       logger.warn("Model refused the request", COMPONENT, {
         conversationId: opts.ctx.conversationId,
-        model: message.model,
+        model: servedModelOf(message),
         refusalCategory: message.stop_details?.category ?? null,
       });
       await state.emit({ type: "error", message: REFUSAL_MESSAGE });

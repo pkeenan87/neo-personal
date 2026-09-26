@@ -20,6 +20,8 @@ export interface ScriptedTurn {
   stop_details?: unknown;
   usage?: Partial<Message["usage"]> & { iterations?: unknown[] };
   model?: string;
+  /** Gateway routing metadata (`provider_metadata.gateway.routing`), as AI Gateway adds it to the message. */
+  provider_metadata?: unknown;
 }
 
 export type TurnScript =
@@ -51,6 +53,7 @@ export function makeMessage(turn: ScriptedTurn): Message {
       cache_read_input_tokens: 0,
       ...turn.usage,
     },
+    ...(turn.provider_metadata !== undefined ? { provider_metadata: turn.provider_metadata } : {}),
   } as unknown as Message;
 }
 

@@ -663,6 +663,19 @@ describe("runAgentLoop — model routing (Phase 2)", () => {
     expect(res.servedModel).toBe("claude-sonnet-5-20260901");
   });
 
+  it("reports the gateway's canonical slug as the served model after a model fallback", async () => {
+    const route = resolveRoute({ tier: "large", preference: "balanced", family: "anthropic", router: "rule", source: {} });
+    const served = {
+      ...endTurn("ok"),
+      model: "claude-opus-5",
+      provider_metadata: { gateway: { routing: { canonicalSlug: "anthropic/claude-sonnet-5", finalProvider: "anthropic", modelAttemptCount: 2 } } },
+    };
+    const { events, opts } = setup([served], { route });
+    const res = await runAgentLoop(opts);
+    expect(events.find((e) => e.type === "usage")).toMatchObject({ model: "anthropic/claude-sonnet-5" });
+    expect(res.servedModel).toBe("anthropic/claude-sonnet-5");
+  });
+
   it("emits the route once across tool iterations", async () => {
     const route = pinnedRoute("playbook", {});
     const { events, opts } = setup([toolTurn(toolUse("tu_1", "check_url")), endTurn()], { route });

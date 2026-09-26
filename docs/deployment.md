@@ -85,7 +85,7 @@ From Phase 2 every model call can go through [Vercel AI Gateway](https://vercel.
    vercel ai-gateway api-keys create --name neo-prod --limit 25 --refresh-period monthly --alert-thresholds 75,100
    ```
    Use a separate, smaller key for Preview if previews run with `MOCK_MODE=false`.
-3. **Environment variables** in Production and Preview: `AI_GATEWAY_API_KEY` (Sensitive) and `NEO_MODEL_GATEWAY=true`. Leave `NEO_MODEL_FAMILIES` unset (Anthropic only) until the spike passes another family. Keep `ANTHROPIC_API_KEY` set for one release: unsetting `NEO_MODEL_GATEWAY` (and redeploying) falls back to direct Anthropic.
+3. **Environment variables** in Production and Preview: `AI_GATEWAY_API_KEY` (Sensitive) and `NEO_MODEL_GATEWAY=true`. Set `NEO_MODEL_FAMILIES` only to families that passed the prompt-injection eval (`apps/web/scripts/injection-eval.ts`; results in `_specs/model-routing.md`). `ANTHROPIC_API_KEY` was removed from Vercel once the gateway had served production traffic (2026-09-26): rolling back to direct Anthropic now means re-adding the key, unsetting `NEO_MODEL_GATEWAY` and redeploying.
 4. **Verify on a preview** before promoting. Send one chat check, then open the Vercel dashboard → AI Gateway → Logs and look at the request:
    - `finalProvider` is one from the family's order (`anthropic`, `bedrock`, `vertexAnthropic` or `claudeaws` for Claude);
    - `inferenceEndpoint.geoRegion` is `us`;
