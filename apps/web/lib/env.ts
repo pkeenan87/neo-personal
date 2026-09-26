@@ -69,7 +69,7 @@ export interface WebEnv {
   /** Registered sign-in providers (a provider is registered only when configured). */
   AUTH_PROVIDERS: { google: boolean; resend: boolean };
   // ── Phase 1: intake artifacts (_specs/intake.md) ──
-  /** BLOB_READ_WRITE_TOKEN is set (Vercel Blob). Unset → in-memory blob client (MOCK_MODE / local only). */
+  /** Vercel Blob is reachable: BLOB_READ_WRITE_TOKEN, or BLOB_STORE_ID (OIDC store set by the Vercel Blob integration). Unset → in-memory blob client (MOCK_MODE / local only). */
   HAS_BLOB_TOKEN: boolean;
   /** NEO_MASTER_KEY is set (artifact encryption). Validity is checked by masterKeyFromEnv. */
   HAS_MASTER_KEY: boolean;
@@ -85,6 +85,34 @@ export interface WebEnv {
  */
 export function databaseUrl(source: EnvSource = process.env): string | undefined {
   return nonEmpty(source.NEO_DATABASE_URL) ?? nonEmpty(source.DATABASE_URL);
+}
+
+/**
+ * Vercel Blob is usable: an explicit read-write token, or an OIDC-connected store
+ * (`BLOB_STORE_ID`, which the Vercel Blob integration sets; the SDK then authenticates
+ * with the runtime `VERCEL_OIDC_TOKEN`).
+ */
+export function hasBlobStore(source: EnvSource = process.env): boolean {
+  return Boolean(nonEmpty(source.BLOB_READ_WRITE_TOKEN) ?? nonEmpty(source.BLOB_STORE_ID));
+}
+
+/**
+ * Resend API key: `RESEND_API_KEY`, else `AUTH_RESEND_KEY`, else `MESSAGING_RESEND_API_KEY`
+ * (the name the Resend marketplace integration on Vercel sets).
+ */
+export function resendApiKey(source: EnvSource = process.env): string | undefined {
+  return nonEmpty(source.RESEND_API_KEY) ?? nonEmpty(source.AUTH_RESEND_KEY) ?? nonEmpty(source.MESSAGING_RESEND_API_KEY);
+}
+
+/**
+ * Sender for sign-in and notification emails: `EMAIL_FROM`, else `Neo <neo@…>` on the
+ * Resend integration's verified domain (`MESSAGING_RESEND_EMAIL_DOMAIN`), else a placeholder.
+ */
+export function emailFrom(source: EnvSource = process.env): string {
+  const explicit = nonEmpty(source.EMAIL_FROM);
+  if (explicit) return explicit;
+  const domain = nonEmpty(source.MESSAGING_RESEND_EMAIL_DOMAIN)?.toLowerCase();
+  return domain ? `Neo <neo@${domain}>` : "Neo <neo@example.com>";
 }
 
 export function readEnv(source: EnvSource = process.env): WebEnv {
@@ -103,7 +131,7 @@ export function readEnv(source: EnvSource = process.env): WebEnv {
     HAS_ANTHROPIC_CREDENTIALS: Boolean(nonEmpty(source.ANTHROPIC_API_KEY) ?? nonEmpty(source.ANTHROPIC_AUTH_TOKEN)),
     AUTH_PROVIDERS: authProviders(source),
     // ── Phase 1: intake artifacts ──
-    HAS_BLOB_TOKEN: Boolean(nonEmpty(source.BLOB_READ_WRITE_TOKEN)),
+    HAS_BLOB_TOKEN: hasBlobStore(source),
     HAS_MASTER_KEY: Boolean(nonEmpty(source.NEO_MASTER_KEY)),
     ARTIFACT_RETENTION_DAYS: int(source.NEO_ARTIFACT_RETENTION_DAYS, 30) || 30,
     // ── end Phase 1: intake artifacts ──
@@ -112,14 +140,14 @@ export function readEnv(source: EnvSource = process.env): WebEnv {
 
 /**
  * Which Auth.js providers to register. Both need the database (Auth.js adapter).
- * Google needs AUTH_GOOGLE_ID + AUTH_GOOGLE_SECRET. Resend needs AUTH_RESEND_KEY, or
+ * Google needs AUTH_GOOGLE_ID + AUTH_GOOGLE_SECRET. Resend needs a key (see resendApiKey), or
  * MOCK_MODE on a non-deployed environment (the magic link is logged instead of sent).
  */
 export function authProviders(source: EnvSource = process.env): { google: boolean; resend: boolean } {
   const database = Boolean(databaseUrl(source));
   const google = database && Boolean(nonEmpty(source.AUTH_GOOGLE_ID) && nonEmpty(source.AUTH_GOOGLE_SECRET));
   const resend =
-    database && (Boolean(nonEmpty(source.AUTH_RESEND_KEY)) || (bool(source.MOCK_MODE) && !isDeployedEnvironment(source)));
+    database && (Boolean(resendApiKey(source)) || (bool(source.MOCK_MODE) && !isDeployedEnvironment(source)));
   return { google, resend };
 }
 
@@ -137,7 +165,7 @@ export interface InboundEnv {
   NEO_INBOUND_DOMAIN: string | undefined;
   /** Svix signing secret of the Resend `email.received` webhook (`whsec_…`). */
   RESEND_WEBHOOK_SECRET: string | undefined;
-  /** Resend API key for fetching received mail and sending notifications: RESEND_API_KEY, else AUTH_RESEND_KEY. */
+  /** Resend API key for fetching received mail and sending notifications (see resendApiKey). */
   RESEND_API_KEY: string | undefined;
   /** Inngest Cloud event key. Unset + MOCK_MODE → the job runs inline from the webhook. */
   INNGEST_EVENT_KEY: string | undefined;
@@ -157,11 +185,11 @@ export function inboundEnv(source: EnvSource = process.env): InboundEnv {
   return {
     NEO_INBOUND_DOMAIN: nonEmpty(source.NEO_INBOUND_DOMAIN)?.toLowerCase(),
     RESEND_WEBHOOK_SECRET: nonEmpty(source.RESEND_WEBHOOK_SECRET),
-    RESEND_API_KEY: nonEmpty(source.RESEND_API_KEY) ?? nonEmpty(source.AUTH_RESEND_KEY),
+    RESEND_API_KEY: resendApiKey(source),
     INNGEST_EVENT_KEY: nonEmpty(source.INNGEST_EVENT_KEY),
     INNGEST_SIGNING_KEY: nonEmpty(source.INNGEST_SIGNING_KEY),
     NEO_INBOUND_RATE_LIMIT_PER_HOUR: int(source.NEO_INBOUND_RATE_LIMIT_PER_HOUR, 30),
-    EMAIL_FROM: nonEmpty(source.EMAIL_FROM) ?? "Neo <neo@example.com>",
+    EMAIL_FROM: emailFrom(source),
     APP_URL: base.replace(/\/+$/, ""),
   };
 }

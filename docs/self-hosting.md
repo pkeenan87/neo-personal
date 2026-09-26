@@ -36,7 +36,7 @@ Hobby plans on Vercel are for non-commercial use. A private household instance f
 7. **Resend**: verify a sending domain, create an API key, pick an `EMAIL_FROM` on that domain.
 8. **Set environment variables** in Vercel (Production, and separately Preview) from the table below. Generate `AUTH_SECRET` with `openssl rand -base64 32`.
 9. **Artifact encryption key.** Generate `NEO_MASTER_KEY` with `openssl rand -base64 32` and store it as a Sensitive variable. Evidence files are encrypted per household with keys derived from it; losing it makes stored evidence unreadable, and production refuses uploads without it. Optionally set `NEO_ARTIFACT_RETENTION_DAYS` (default 30).
-10. **Vercel Blob**: create a Blob store (Storage tab) and connect it to the project. This sets `BLOB_READ_WRITE_TOKEN`. Files are stored private and encrypted.
+10. **Vercel Blob**: create a Blob store (Storage tab) and connect it to the project. This sets `BLOB_READ_WRITE_TOKEN` (or `BLOB_STORE_ID` for OIDC-connected stores; both work). Files are stored private and encrypted.
 11. **Inngest**: install the Inngest integration from the Vercel Marketplace. It sets `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY` and syncs the app's functions from `/api/inngest` on each deploy.
 12. **Resend inbound** (the forwarding address):
     1. Pick an inbound domain you control, usually a subdomain such as `inbound.example.com`, and set `NEO_INBOUND_DOMAIN` to it.
@@ -64,7 +64,7 @@ Hobby plans on Vercel are for non-commercial use. A private household instance f
 | `AUTH_URL` | No | Unset on Vercel. Set it behind other proxies. |
 | `AUTH_TRUST_HOST` | Yes | `true` on Vercel. |
 | `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET` | One sign-in method required | Google sign-in. |
-| `AUTH_RESEND_KEY`, `EMAIL_FROM` | One sign-in method required | Magic-link sign-in. |
+| `AUTH_RESEND_KEY`, `EMAIL_FROM` | One sign-in method required | Magic-link sign-in. The Resend marketplace integration sets `MESSAGING_RESEND_API_KEY` and `MESSAGING_RESEND_EMAIL_DOMAIN` instead, which are accepted as fallbacks. |
 | `GOOGLE_SAFE_BROWSING_API_KEY` | Recommended | Skipped if unset. |
 | `VIRUSTOTAL_API_KEY` | Recommended | Skipped if unset. 4 req/min on free tier. |
 | `VIRUSTOTAL_SUBMIT` | No | Default `true`: unknown URLs are submitted to VirusTotal for scanning. `false` = lookups only. |
@@ -72,7 +72,7 @@ Hobby plans on Vercel are for non-commercial use. A private household instance f
 | `USAGE_CAP_MONTHLY_CHECKS`, `USAGE_CAP_DAILY_TOKENS` | No | Defaults 50 and 300000 per household. |
 | `NEO_MASTER_KEY` | Yes (for uploads and forwarding) | 32 random bytes, base64. Encrypts evidence at rest. Never rotate it without re-encrypting. |
 | `NEO_ARTIFACT_RETENTION_DAYS` | No | Default 30. Evidence files are deleted after this many days; verdicts are kept. |
-| `BLOB_READ_WRITE_TOKEN` | Yes (for uploads and forwarding) | Set by connecting a Vercel Blob store. |
+| `BLOB_READ_WRITE_TOKEN` or `BLOB_STORE_ID` | Yes (for uploads and forwarding) | Set by connecting a Vercel Blob store (new stores use OIDC and set only `BLOB_STORE_ID`). |
 | `INNGEST_EVENT_KEY`, `INNGEST_SIGNING_KEY` | Yes (for forwarding) | Set by the Inngest integration. |
 | `NEO_INBOUND_DOMAIN` | For forwarding | Domain of the household forwarding addresses, e.g. `inbound.example.com`. Required for the forwarding address. |
 | `RESEND_WEBHOOK_SECRET` | For forwarding | Signing secret of the Resend `email.received` webhook. The webhook returns 503 while unset. |

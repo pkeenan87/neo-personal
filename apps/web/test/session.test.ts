@@ -2,7 +2,7 @@
 import type { Session } from "next-auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildProviders, googleProfile, householdName } from "@/auth";
-import { authProviders, devAuthBypassActive } from "@/lib/env";
+import { authProviders, devAuthBypassActive, emailFrom, hasBlobStore, resendApiKey } from "@/lib/env";
 import { resolveAuthRedirect, safeCallbackPath } from "@/lib/safe-redirect";
 import { DEV_SESSION_IDS, getSession } from "@/lib/session";
 import { stubBaseEnv } from "./helpers/routes";
@@ -84,6 +84,7 @@ describe("provider registration", () => {
     expect(authProviders({ ...db, AUTH_GOOGLE_ID: "id" })).toEqual({ google: false, resend: false });
     expect(authProviders({ ...db, AUTH_GOOGLE_ID: "id", AUTH_GOOGLE_SECRET: "s" })).toEqual({ google: true, resend: false });
     expect(authProviders({ ...db, AUTH_RESEND_KEY: "re_x" })).toEqual({ google: false, resend: true });
+    expect(authProviders({ ...db, MESSAGING_RESEND_API_KEY: "re_marketplace" })).toEqual({ google: false, resend: true });
     expect(buildProviders({ ...db, AUTH_GOOGLE_ID: "id", AUTH_GOOGLE_SECRET: "s", AUTH_RESEND_KEY: "re_x" }).map((p) => (p as { id: string }).id)).toEqual(["google", "resend"]);
   });
 
@@ -144,5 +145,24 @@ describe("googleProfile", () => {
     expect(verified.emailVerified).toBeInstanceOf(Date);
     expect(googleProfile({ sub: "g2", email_verified: false }).emailVerified).toBeNull();
     expect(googleProfile({ sub: "g3" })).toEqual({ id: "g3", name: null, email: null, image: null, emailVerified: null });
+  });
+});
+
+describe("marketplace env fallbacks", () => {
+  it("resolves the Resend key from RESEND_API_KEY, AUTH_RESEND_KEY, then MESSAGING_RESEND_API_KEY", () => {
+    expect(resendApiKey({})).toBeUndefined();
+    expect(resendApiKey({ MESSAGING_RESEND_API_KEY: "re_m" })).toBe("re_m");
+    expect(resendApiKey({ AUTH_RESEND_KEY: "re_a", MESSAGING_RESEND_API_KEY: "re_m" })).toBe("re_a");
+    expect(resendApiKey({ RESEND_API_KEY: "re_r", AUTH_RESEND_KEY: "re_a" })).toBe("re_r");
+  });
+  it("derives EMAIL_FROM from the integration's verified domain", () => {
+    expect(emailFrom({})).toBe("Neo <neo@example.com>");
+    expect(emailFrom({ MESSAGING_RESEND_EMAIL_DOMAIN: "Mail.Example.org" })).toBe("Neo <neo@mail.example.org>");
+    expect(emailFrom({ EMAIL_FROM: "Neo <hi@x.test>", MESSAGING_RESEND_EMAIL_DOMAIN: "y.test" })).toBe("Neo <hi@x.test>");
+  });
+  it("treats an OIDC-connected Blob store as configured", () => {
+    expect(hasBlobStore({})).toBe(false);
+    expect(hasBlobStore({ BLOB_STORE_ID: "store_x" })).toBe(true);
+    expect(hasBlobStore({ BLOB_READ_WRITE_TOKEN: "t" })).toBe(true);
   });
 });

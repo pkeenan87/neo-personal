@@ -25,7 +25,7 @@ import type { Provider } from "next-auth/providers";
 import Google from "next-auth/providers/google";
 import Resend from "next-auth/providers/resend";
 import { headers } from "next/headers";
-import { authProviders, type EnvSource } from "@/lib/env";
+import { authProviders, emailFrom, resendApiKey, type EnvSource } from "@/lib/env";
 import { resolveAuthRedirect } from "@/lib/safe-redirect";
 import { recordAudit } from "@/lib/server/audit";
 import { getDb } from "@/lib/server/db";
@@ -105,11 +105,11 @@ export function buildProviders(source: EnvSource = process.env): Provider[] {
     );
   }
   if (enabled.resend) {
-    const key = source.AUTH_RESEND_KEY?.trim();
+    const key = resendApiKey(source);
     providers.push(
       Resend({
         ...(key ? { apiKey: key } : {}),
-        from: source.EMAIL_FROM?.trim() || "Neo <neo@example.com>",
+        from: emailFrom(source),
         maxAge: MAGIC_LINK_MAX_AGE_S,
         // No key (only possible in MOCK_MODE on a non-deployed environment, see
         // authProviders): log the link to the server console instead of sending it.
