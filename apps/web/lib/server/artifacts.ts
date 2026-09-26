@@ -168,6 +168,7 @@ export function getArtifactStore(): ArtifactStore | null {
   const db = getDb();
   const key = [status, e.DATABASE_URL ?? "", masterKey ? "k" : "", e.ARTIFACT_RETENTION_DAYS].join("|");
   if (g.__neoArtifactStore?.key !== key) {
+    // No token → the SDK authenticates with Vercel OIDC against BLOB_STORE_ID.
     const blob = status === "memory" ? createMemoryBlobClient() : createVercelBlobClient(process.env.BLOB_READ_WRITE_TOKEN);
     const store = db
       ? createArtifactStore(db, {

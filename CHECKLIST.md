@@ -83,7 +83,7 @@ Everything in Phase 1 runs locally and in CI with `MOCK_MODE=true`. Turning it o
 - [ ] Register the domain (section 5). Pick the inbound subdomain, for example `inbound.<domain>`.
 - [ ] Install **Resend** from the Vercel Marketplace (`vercel integration add resend/resend-email`, you accept the terms) and verify the sending domain **and** the inbound subdomain (MX records Resend gives you). Set `NEO_INBOUND_DOMAIN`. Create a webhook for `email.received` pointing at `https://<domain>/api/inbound/resend` and set its signing secret (`whsec_…`) as `RESEND_WEBHOOK_SECRET`. The webhook payload carries metadata only: the job fetches the message with `GET /emails/receiving/{id}` and downloads the raw MIME from the signed download URL in that response, so the API key (`RESEND_API_KEY`, or `AUTH_RESEND_KEY`, which doubles as the sending key) must be allowed to read received mail.
 - [ ] Install **Inngest** from the Vercel Marketplace (`vercel integration add inngest/account`). It sets `INNGEST_EVENT_KEY` and `INNGEST_SIGNING_KEY`. In the Inngest dashboard, sync the app at `https://<domain>/api/inngest` and check that both functions (`email-received`, `artifacts-expire`) are listed.
-- [ ] Create a **Vercel Blob** store (private) for the project: `vercel blob store add neo-artifacts`. It sets `BLOB_READ_WRITE_TOKEN`.
+- [ ] Create a **Vercel Blob** store (private) for the project: `vercel blob store add neo-artifacts`. It sets `BLOB_READ_WRITE_TOKEN`, or `BLOB_STORE_ID` for an OIDC store (both work).
 - [ ] Generate the artifact master key and add it as a sensitive Vercel env var:
   ```
   vercel env add NEO_MASTER_KEY production --sensitive   # value: openssl rand -base64 32
