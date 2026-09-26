@@ -54,7 +54,8 @@ export function subscribeTheme(callback: () => void) {
 }
 
 // Runs before the body paints so a saved preference never flashes the other theme.
-// Only the compile-time THEME_COLORS and FIXED_LIGHT_PATHS constants are interpolated, never user input.
+// Only the compile-time THEME_COLORS and FIXED_LIGHT_PATHS constants (plain
+// path literals) are interpolated, never user input.
 // If the Content-Security-Policy is ever enforced with nonces, this inline
 // script must carry the request nonce.
-export const THEME_INIT_SCRIPT = `(()=>{let t="system";try{const v=localStorage.getItem("neo-theme");if(v==="light"||v==="dark")t=v}catch{}const d=!${JSON.stringify(FIXED_LIGHT_PATHS)}.includes(location.pathname)&&(t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches));document.documentElement.dataset.theme=d?"dark":"light";document.documentElement.dataset.themePreference=t;document.querySelector('meta[name="theme-color"]')?.setAttribute("content",d?"${THEME_COLORS.dark}":"${THEME_COLORS.light}")})()`;
+export const THEME_INIT_SCRIPT = `(()=>{let t="system";try{const v=localStorage.getItem("neo-theme");if(v==="light"||v==="dark")t=v}catch{}const d=![${FIXED_LIGHT_PATHS.map((path) => `"${path}"`).join(",")}].includes(location.pathname)&&(t==="dark"||(t==="system"&&matchMedia("(prefers-color-scheme: dark)").matches));document.documentElement.dataset.theme=d?"dark":"light";document.documentElement.dataset.themePreference=t;document.querySelector('meta[name="theme-color"]')?.setAttribute("content",d?"${THEME_COLORS.dark}":"${THEME_COLORS.light}")})()`;
