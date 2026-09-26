@@ -5,6 +5,10 @@
     "typecheck": { "dependsOn": ["^build"] },
     "lint": {},
     "test": { "dependsOn": ["^build"] },
-    "dev": { "cache": false, "persistent": true }
+    "dev": { "cache": false, "persistent": true },
+    "@neo/web#build": {
+      "dependsOn": ["^build", "@neo/web#typecheck"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    }
   }
 }

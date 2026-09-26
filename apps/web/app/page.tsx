@@ -1,4 +1,5 @@
 import { KeyRound, Link2, MailWarning, ShieldCheck } from "lucide-react";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { NeoMark } from "@/components/NeoMark";
 import { SignInPanel } from "@/components/SignInPanel";
@@ -92,7 +93,10 @@ export default async function LandingPage({
       </main>
 
       <footer className="mx-auto w-full max-w-5xl px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-xs text-muted">
-        Neo is free and open source (MIT). It can make mistakes. When in doubt, don&apos;t click.
+        Neo is free and open source (MIT). It can make mistakes. When in doubt, don&apos;t click.{" "}
+        <Link href="/privacy" className="text-accent hover:text-accent-hover">
+          Privacy policy
+        </Link>
       </footer>
     </div>
   );
