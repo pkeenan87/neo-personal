@@ -4,7 +4,7 @@
  * unknown/ill-shaped events are skipped rather than aborting the stream,
  * so a single bad line never kills a response.
  */
-import type { AgentEvent } from "@neo/core";
+import type { ChatEvent } from "./chat-state";
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -13,9 +13,11 @@ function isObj(v: unknown): v is Record<string, unknown> {
 const str = (v: unknown): v is string => typeof v === "string";
 const num = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const optNum = (v: unknown) => v === undefined || num(v);
+const optStr = (v: unknown) => v === undefined || str(v);
+const oneOf = (v: unknown, values: readonly string[]) => str(v) && values.includes(v);
 
-/** Runtime guard for the AgentEvent union (docs/contracts.md). */
-export function isAgentEvent(v: unknown): v is AgentEvent {
+/** Runtime guard for the AgentEvent union (docs/contracts.md), including the Phase 2 `route` event. */
+export function isAgentEvent(v: unknown): v is ChatEvent {
   if (!isObj(v) || !str(v.type)) return false;
   switch (v.type) {
     case "text_delta":
@@ -32,7 +34,19 @@ export function isAgentEvent(v: unknown): v is AgentEvent {
         num(v.input_tokens) &&
         num(v.output_tokens) &&
         optNum(v.cache_read_input_tokens) &&
-        optNum(v.cache_creation_input_tokens)
+        optNum(v.cache_creation_input_tokens) &&
+        optStr(v.model)
+      );
+    case "route":
+      return (
+        str(v.model) &&
+        str(v.displayName) &&
+        oneOf(v.tier, ["small", "medium", "large"]) &&
+        oneOf(v.effort, ["low", "medium", "high"]) &&
+        oneOf(v.family, ["anthropic", "openai", "kimi", "grok"]) &&
+        oneOf(v.preference, ["cost", "balanced", "intelligence"]) &&
+        oneOf(v.router, ["jev", "rule", "pinned"]) &&
+        optStr(v.reason)
       );
     case "done":
       return str(v.stop_reason);
@@ -44,7 +58,7 @@ export function isAgentEvent(v: unknown): v is AgentEvent {
 }
 
 /** Parse one NDJSON line. Returns null for blank, malformed, or non-AgentEvent lines. */
-export function parseEventLine(line: string): AgentEvent | null {
+export function parseEventLine(line: string): ChatEvent | null {
   const trimmed = line.trim();
   if (!trimmed) return null;
   try {
@@ -64,18 +78,18 @@ export function createNdjsonDecoder() {
   const decoder = new TextDecoder();
   let buffer = "";
   return {
-    push(chunk: Uint8Array | string): AgentEvent[] {
+    push(chunk: Uint8Array | string): ChatEvent[] {
       buffer += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
       const lines = buffer.split("\n");
       buffer = lines.pop() ?? "";
-      const out: AgentEvent[] = [];
+      const out: ChatEvent[] = [];
       for (const line of lines) {
         const e = parseEventLine(line);
         if (e) out.push(e);
       }
       return out;
     },
-    flush(): AgentEvent[] {
+    flush(): ChatEvent[] {
       buffer += decoder.decode();
       const rest = buffer;
       buffer = "";
@@ -86,7 +100,7 @@ export function createNdjsonDecoder() {
 }
 
 /** Async-iterate the AgentEvents in an NDJSON byte stream. */
-export async function* readAgentEvents(stream: ReadableStream<Uint8Array>): AsyncGenerator<AgentEvent> {
+export async function* readAgentEvents(stream: ReadableStream<Uint8Array>): AsyncGenerator<ChatEvent> {
   const reader = stream.getReader();
   const dec = createNdjsonDecoder();
   try {

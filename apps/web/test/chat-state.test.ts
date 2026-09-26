@@ -6,11 +6,13 @@ import {
   messagesFromStored,
   messageText,
   pendingConfirmation,
+  type ChatEvent,
   type ChatState,
+  type RouteEvent,
 } from "@/lib/chat-state";
-import type { AgentEvent } from "@neo/core";
+import type { Route } from "@neo/core";
 
-function run(events: AgentEvent[], state: ChatState = initialChatState()): ChatState {
+function run(events: ChatEvent[], state: ChatState = initialChatState()): ChatState {
   let s = chatReducer(state, { type: "send", userId: "u1", assistantId: "a1", text: "hi" });
   let now = 1000;
   for (const event of events) s = chatReducer(s, { type: "event", event, now: (now += 50) });
@@ -63,7 +65,7 @@ describe("chat reducer", () => {
   });
 
   it("accumulates usage and caps tool traces", () => {
-    const events: AgentEvent[] = [
+    const events: ChatEvent[] = [
       { type: "usage", input_tokens: 1, output_tokens: 2 },
       { type: "usage", input_tokens: 3, output_tokens: 4 },
     ];
@@ -94,5 +96,105 @@ describe("messagesFromStored", () => {
     expect(msgs[1]!.parts.map((p) => p.kind)).toEqual(["text", "tool", "text"]);
     expect(msgs[1]!.parts[1]).toMatchObject({ trace: { id: "t1", status: "error", result: "bad" } });
     expect(messageText(msgs[2]!)).toBe("thanks");
+  });
+});
+
+// ─── Phase 2: model routing (_specs/model-routing.md) ───
+
+const routeEvent: RouteEvent = {
+  type: "route",
+  model: "anthropic/claude-sonnet-5",
+  displayName: "Sonnet 5",
+  tier: "medium",
+  effort: "medium",
+  family: "anthropic",
+  preference: "balanced",
+  router: "jev",
+  reason: "Jev: complexity 1/2, stakes 0/2",
+};
+
+const storedRoute: Route = {
+  tier: "large",
+  family: "anthropic",
+  model: "anthropic/claude-opus-5",
+  displayName: "Opus 5",
+  effort: "high",
+  preference: "balanced",
+  router: "pinned",
+  signals: { reason: "Playbook" },
+};
+
+describe("chat reducer: route and served model", () => {
+  it("stores a route event that arrives before any text on the assistant message", () => {
+    const s = run([routeEvent, { type: "text_delta", text: "Hi" }, { type: "done", stop_reason: "end_turn" }]);
+    const a = s.messages[1]!;
+    expect(a.role).toBe("assistant");
+    expect(a.route).toEqual({
+      tier: "medium",
+      family: "anthropic",
+      model: "anthropic/claude-sonnet-5",
+      displayName: "Sonnet 5",
+      effort: "medium",
+      preference: "balanced",
+      router: "jev",
+      signals: { reason: "Jev: complexity 1/2, stakes 0/2" },
+    });
+    expect(messageText(a)).toBe("Hi");
+  });
+
+  it("stores a route event that arrives after text without touching the parts", () => {
+    const s = run([{ type: "text_delta", text: "Hi" }, { ...routeEvent, reason: undefined, router: "rule" }]);
+    const a = s.messages[1]!;
+    expect(a.route).toMatchObject({ model: "anthropic/claude-sonnet-5", router: "rule" });
+    expect(a.route?.signals).toBeUndefined();
+    expect(a.parts).toEqual([{ kind: "text", text: "Hi" }]);
+  });
+
+  it("records usage.model as the served model and keeps summing tokens", () => {
+    const s = run([
+      routeEvent,
+      { type: "usage", input_tokens: 1, output_tokens: 2 },
+      { type: "usage", input_tokens: 3, output_tokens: 4, model: "claude-sonnet-5-20260901" },
+    ]);
+    const a = s.messages[1]!;
+    expect(a.usage).toEqual({ input_tokens: 4, output_tokens: 6 });
+    expect(a.servedModel).toBe("claude-sonnet-5-20260901");
+  });
+
+  it("leaves servedModel unset when usage carries no model", () => {
+    const a = run([{ type: "usage", input_tokens: 1, output_tokens: 2 }]).messages[1]!;
+    expect(a.servedModel).toBeUndefined();
+    expect(a.route).toBeUndefined();
+  });
+});
+
+describe("messagesFromStored: per-turn routes", () => {
+  it("attaches each stored turn's route to the assistant message of that turn", () => {
+    const msgs = messagesFromStored([
+      { messages: [{ role: "user", content: "hello" }, { role: "assistant", content: "Hi." }] },
+      {
+        messages: [
+          { role: "user", content: "run the playbook" },
+          { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "check_url", input: {} }] },
+          { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] },
+          { role: "assistant", content: "Done." },
+        ],
+        route: storedRoute,
+      },
+    ]);
+    expect(msgs.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(msgs[1]!.route).toBeUndefined();
+    expect(msgs[3]!.route).toEqual(storedRoute);
+    expect(msgs[2]!.route).toBeUndefined();
+  });
+
+  it("still accepts bare messages mixed with turns", () => {
+    const msgs = messagesFromStored([
+      { role: "user", content: "a" },
+      { role: "assistant", content: "b" },
+      { messages: [{ role: "user", content: "c" }, { role: "assistant", content: "d" }], route: null },
+    ]);
+    expect(msgs).toHaveLength(4);
+    expect(msgs.every((m) => m.route === undefined)).toBe(true);
   });
 });
