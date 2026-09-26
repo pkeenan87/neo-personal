@@ -7,7 +7,6 @@ import { DevBypassBanner } from "@/components/DevBypassBanner";
 import { env } from "@/lib/env";
 import { getSession } from "@/lib/session";
 import styles from "./landing.module.css";
-import { ThemeToggle } from "@/components/ThemeToggle";
 
 const AUTH_ERRORS: Record<string, string> = {
   OAuthAccountNotLinked: "This email is already registered with a different sign-in method. Please sign in with your original method.",
@@ -61,7 +60,6 @@ export default async function LandingPage({
           <span>neo<span className={styles.brandDot}>.</span></span>
         </Link>
         <nav aria-label="Main navigation" className={styles.nav}>
-          <ThemeToggle />
           <a href="#how-it-works" className={styles.navAbout}>How it works</a>
           <a href="#get-started" className={styles.navSignIn}>Sign in <ArrowRight size={15} aria-hidden="true" /></a>
         </nav>

@@ -5,10 +5,13 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { THEME_INIT_SCRIPT, THEME_STORAGE_KEY } from "@/lib/theme";
 
+vi.mock("next/navigation", () => ({ usePathname: () => window.location.pathname }));
+
 let systemDark: boolean;
 let change: (() => void) | undefined;
 
 beforeEach(() => {
+  window.history.replaceState(null, "", "/dashboard");
   localStorage.clear();
   delete document.documentElement.dataset.theme;
   delete document.documentElement.dataset.themePreference;
@@ -70,6 +73,22 @@ describe("appearance preferences", () => {
     renderTheme();
     await userEvent.setup().selectOptions(screen.getByRole("combobox"), "dark");
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
+  });
+
+  it("always renders the homepage light while keeping the saved preference", () => {
+    systemDark = true;
+    localStorage.setItem(THEME_STORAGE_KEY, "dark");
+    window.history.replaceState(null, "", "/");
+    new Function(THEME_INIT_SCRIPT)();
+    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(document.documentElement.dataset.themePreference).toBe("dark");
+    expect(document.querySelector('meta[name="theme-color"]')).toBeNull();
+
+    renderTheme();
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    act(() => change?.());
+    expect(document.documentElement).toHaveAttribute("data-theme", "light");
+    expect(screen.getByRole("combobox", { name: "Appearance" })).toHaveValue("dark");
   });
 
   it.each(["light", "dark", "system", "invalid"])("applies saved %s appearance before hydration", (preference) => {

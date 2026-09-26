@@ -1,9 +1,13 @@
 "use client";
 
+import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { applyTheme, currentTheme, storedTheme, THEME_EVENT, THEME_STORAGE_KEY } from "@/lib/theme";
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  // Re-applied on every route change so fixed-light routes (see FIXED_LIGHT_PATHS)
+  // switch in and out correctly during client-side navigation.
   useEffect(() => {
     applyTheme(storedTheme());
     window.dispatchEvent(new Event(THEME_EVENT));
@@ -22,7 +26,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       media.removeEventListener("change", onSystemChange);
       window.removeEventListener("storage", onStorage);
     };
-  }, []);
+  }, [pathname]);
 
   return children;
 }

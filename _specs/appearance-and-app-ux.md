@@ -8,10 +8,10 @@ Bring the homepage's emerald visual identity into chat, dashboard, and settings,
 
 ## Functional requirements
 
-- Offer a labeled appearance selector on the homepage and signed-in page headers.
+- Offer a labeled appearance selector on signed-in page headers. The homepage always renders light and has no selector.
 - Default to the operating system preference. Remember explicit choices in browser local storage and apply them before first paint.
 - Keep theme controls synchronized across routes and tabs. Follow operating system changes only in System mode.
-- Apply the chosen mode to semantic colors, native controls, and severity/status colors. The homepage also supports both modes.
+- Apply the chosen mode to semantic colors, native controls, and severity/status colors on signed-in routes.
 - Continue allowing theme changes when storage is unavailable.
 - Resolve `/settings` to the existing forwarding settings page.
 - Support Escape, focus containment, and focus return in the mobile chat drawer; release modal behavior at desktop widths.
