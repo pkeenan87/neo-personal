@@ -99,7 +99,7 @@ Everything in Phase 1 runs locally and in CI with `MOCK_MODE=true`. Turning it o
 
 Everything in Phase 2 runs locally and in CI with `MOCK_MODE=true`. Details in `docs/deployment.md` ("AI Gateway"). In order:
 
-- [ ] Run the spike with a gateway key in `apps/web/.env.local` (`cd apps/web && node --env-file=.env.local scripts/gateway-spike.ts`) and paste the results table into `_specs/model-routing.md`. It answers the open questions (fallback beta, structured outputs, cache hits, other families, Jev with and without ZDR).
+- [x] Run the spike (2026-09-26, all checks pass; results in the spec) with a gateway key in `apps/web/.env.local` (`cd apps/web && node --env-file=.env.local scripts/gateway-spike.ts`) and paste the results table into `_specs/model-routing.md`. It answers the open questions (fallback beta, structured outputs, cache hits, other families, Jev with and without ZDR).
 - [ ] Create the gateway API key with a budget (section 1).
 - [ ] Run migration `0004_model_routing` as the owner (`MIGRATION_DATABASE_URL=... pnpm db:migrate`) **before** deploying the Phase 2 code (it is additive).
 - [ ] Set `AI_GATEWAY_API_KEY` (Sensitive) and `NEO_MODEL_GATEWAY=true` in Production and Preview. Keep `ANTHROPIC_API_KEY` set for one release as the rollback path (unset `NEO_MODEL_GATEWAY` and redeploy to go back to direct Anthropic).
