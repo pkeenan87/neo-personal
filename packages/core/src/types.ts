@@ -163,7 +163,16 @@ export interface ConversationStore {
   get(
     id: string,
     tenantId: string,
-  ): Promise<{ id: string; messages: MessageParam[]; pendingConfirmation?: unknown } | undefined>;
+  ): Promise<
+    | {
+        id: string;
+        messages: MessageParam[];
+        pendingConfirmation?: unknown;
+        /** Route of the most recent turn that recorded one (Phase 2). */
+        lastRoute?: Route;
+      }
+    | undefined
+  >;
   appendTurn(
     id: string,
     tenantId: string,
@@ -171,6 +180,8 @@ export interface ConversationStore {
       messages: MessageParam[];
       usage?: { input_tokens: number; output_tokens: number };
       pendingConfirmation?: unknown | null;
+      /** How this turn was routed (Phase 2); stored on the turn row. */
+      route?: Route;
     },
   ): Promise<void>;
   list(tenantId: string, userId: string): Promise<Array<{ id: string; title: string | null; updatedAt: Date }>>;

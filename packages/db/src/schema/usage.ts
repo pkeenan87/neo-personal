@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { check, index, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import type { Tier } from "@neo/core";
 import { users } from "./auth.js";
 import { conversations } from "./conversations.js";
 import { tenants } from "./tenants.js";
@@ -22,6 +23,8 @@ export const usageEvents = pgTable(
     conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
     kind: text("kind").$type<UsageKind>().notNull().default("check"),
     model: text("model").notNull(),
+    /** Routed tier of the turn (Phase 2); null for unrouted or older rows. */
+    tier: text("tier").$type<Tier>(),
     inputTokens: integer("input_tokens").notNull().default(0),
     outputTokens: integer("output_tokens").notNull().default(0),
     cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
@@ -31,5 +34,6 @@ export const usageEvents = pgTable(
   (t) => [
     index("usage_events_tenant_created_idx").on(t.tenantId, t.createdAt),
     check("usage_events_kind_check", sql`${t.kind} in ('check', 'resume')`),
+    check("usage_events_tier_check", sql`${t.tier} is null or ${t.tier} in ('small', 'medium', 'large')`),
   ],
 );

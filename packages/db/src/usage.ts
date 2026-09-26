@@ -1,4 +1,5 @@
 import { and, eq, gte, lt, sql } from "drizzle-orm";
+import type { Tier } from "@neo/core";
 import type { Db } from "./client.js";
 import { auditEvents, usageEvents, type UsageKind } from "./schema/index.js";
 import { tenantScoped } from "./tenant.js";
@@ -51,6 +52,8 @@ export type RecordCheckInput = {
   cacheCreationTokens?: number;
   /** `check` (default) counts toward the monthly cap; `resume` (confirm resumptions) counts tokens only. */
   kind?: UsageKind;
+  /** Routed tier of the turn (Phase 2); omitted for unrouted runs. */
+  tier?: Tier;
 };
 
 /** [start, end) of the UTC calendar month and UTC day containing `now`. */
@@ -117,6 +120,7 @@ async function recordCheck(db: Db, input: RecordCheckInput): Promise<void> {
     conversationId: input.conversationId ?? null,
     kind: input.kind ?? "check",
     model: input.model,
+    tier: input.tier ?? null,
     inputTokens: nonNegInt(input.inputTokens),
     outputTokens: nonNegInt(input.outputTokens),
     cacheReadTokens: nonNegInt(input.cacheReadTokens),
