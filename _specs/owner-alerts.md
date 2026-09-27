@@ -149,7 +149,7 @@ checked message itself.
       desktop tokens cannot acknowledge or change the threshold.
 - [ ] Threshold `off` sends nothing; the feed still fills.
 - [ ] Alert emails escape every interpolated string and contain no links other than Neo's.
-- [ ] Migration 0008 applies on PGlite and Neon; RLS test covers `alerts`.
+- [x] Migration 0008 applies on PGlite and Neon (production: applied 2026-09-27 before merge); RLS test covers `alerts`.
 
 ## Open questions
 
