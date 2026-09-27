@@ -15,6 +15,7 @@ import {
   type DesktopAuthRequestPublic,
 } from "@neo/db";
 import type { NeoSession } from "@/lib/session";
+import { alertDeviceEnrolled } from "./alerts";
 import { getDb } from "./db";
 import {
   memoryCreateDesktopAuthRequest,
@@ -69,8 +70,13 @@ export async function decideDeviceAuth(
   return decideDesktopAuthRequest(db, { userCode, approve, approver });
 }
 
+/**
+ * Redeem once. A monitoring request that enrolled a device raises the owner's low
+ * `device_enrolled` alert, unless the device protects an owner (_specs/device-enrollment.md).
+ */
 export async function redeemDeviceAuth(deviceCode: string): Promise<DesktopAuthRedemption> {
   const db = getDb();
-  if (!db) return memoryRedeemDesktopAuthRequest(deviceCode);
-  return redeemDesktopAuthRequest(db, deviceCode);
+  const r = db ? await redeemDesktopAuthRequest(db, deviceCode) : await memoryRedeemDesktopAuthRequest(deviceCode);
+  if (r.status === "approved" && r.device) await alertDeviceEnrolled(r.device);
+  return r;
 }

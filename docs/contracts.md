@@ -564,22 +564,27 @@ JSON errors `{ error, code }`.
 - **Household view:** `GET /api/household` adds `devices: DeviceItem[]` (owner: all; member: their own) and `enrollmentCodes: EnrollmentCodeItem[]` (owner only).
 - **Enrollment codes (owner, browser session):**
   - `POST /api/household/members/[userId]/enrollment-codes` → 201 `{ id, code, expiresAt, memberName }`; 404 `not_found`; 409 `code_limit` | `device_limit`.
-  - `DELETE /api/household/enrollment-codes/[id]` → 204.
+  - `DELETE /api/household/enrollment-codes/[id]` → 204; idempotent for a code in the household (also used or already cancelled); 404 `not_found` for unknown ids.
 - **Enrollment (no auth; shared 10 per hour per IP):**
-  - `POST /api/devices/enroll/preview { code }` → `{ householdName, memberName, ownerName, expiresAt }`; 404 `not_found`.
-  - `POST /api/devices/enroll { code, kind, platform, name, clientVersion }` → 201 `{ token, tokenId, device, householdName, memberName }`; 404 `not_found`; 409 `device_limit`; 400 `invalid`.
+  - `POST /api/devices/enroll/preview { code }` → `{ householdName, memberName, ownerName, expiresAt }`; 404 `not_found`; 400 `invalid` without a `code` string.
+  - `POST /api/devices/enroll { code, kind, platform, name, clientVersion }` → 201 `{ token, tokenId, device, householdName, memberName }` (`Cache-Control: no-store`); 404 `not_found`; 409 `device_limit`; 400 `invalid` (bad device fields or no `code`).
+  - 429 `rate_limited` with `Retry-After`.
 - **Device self-service (scope `device`):**
-  - `POST /api/devices/heartbeat { clientVersion? }` → `{ device, householdName, memberName, heartbeatSeconds: 3600 }`; 12 per hour per device.
-  - `DELETE /api/devices/self` → 204.
+  - Both require a monitoring token's own `deviceId`: a browser session (which resolves for any scope) or a full token gets 403 `insufficient_scope`; a revoked device's token gets 401.
+  - `POST /api/devices/heartbeat { clientVersion? }` → `{ device, householdName, memberName, heartbeatSeconds: 3600 }`; 12 per hour per device (429); 400 `invalid` for a non-string or over-32-character `clientVersion`.
+  - `DELETE /api/devices/self` → 204; the device's `revoked_by` is null (audit `by: "device"`).
 - **Device management (browser session):**
   - `PATCH /api/household/devices/[id] { name }` (owner) → `{ device }`.
-  - `DELETE /api/household/devices/[id]` (owner, or the protected member) → 204; 403 `forbidden`; 404 `not_found`.
+  - `DELETE /api/household/devices/[id]` (owner, or the protected member) → 204; 403 `forbidden`; 404 `not_found` (unknown or already removed).
+  - Both are browser-only: a full desktop token gets 403 `browser_session_required`. Members get 403 `forbidden` from PATCH and from the code routes.
 - **Device sign-in:** `POST /api/desktop/device` accepts `device?: { kind, platform, name, clientVersion }` (malformed → 400 `bad_request`). The token response adds `scopes` and `device: DeviceItem | null` (null for a full token); 409 `device_limit` when the household has 20 active devices. `/desktop/authorize` names what is granted.
 - **Alerts:**
-  - `device_enrolled` (low, self-enrollment by a non-owner, dedupe `device_enrolled:<deviceId>`).
+  - `device_enrolled` (low, self-enrollment by a non-owner through the device flow, raised in `redeemDeviceAuth`; dedupe `device_enrolled:<deviceId>`).
   - `device_removed` (high, removal by the member or the device, dedupe `device_removed:<deviceId>`).
-  - `device_offline` (medium, dedupe `device_offline:<deviceId>:<epoch of last seen>`).
+  - `device_offline` (medium, dedupe `device_offline:<deviceId>:<epoch ms of lastSeenAt ?? createdAt>`).
+  - Helpers in `lib/server/alerts`: `alertDeviceEnrolled(device)`, `alertDeviceRemoved(device, by: "member" | "device")`, `alertDeviceOffline(device)`; each returns whether an alert was raised and skips devices whose member is an owner or gone. Emails link to `/settings/household` (no `verdictId`).
   - Devices protecting an owner never alert; owners' own actions never alert.
-- **Offline job:** Inngest cron `devices-offline` (hourly) runs `runOfflineDeviceSweep()`. The daily retention job also calls `purgeOldDevices`.
-- **Member email:** enrollment by code emails the member, with idempotency key `device-enrolled:<deviceId>`.
+- **Offline job:** Inngest cron `devices-offline` (`0 * * * *`) runs `runOfflineDeviceSweep(deps?, now?) → { stale, marked, alerted, errors }` (`lib/server/device-enrollment.ts`). The daily retention job (`artifacts-expire`) gains `ExpireDeps.purgeOldDevices` and a `purge-devices` step; its result adds `devicesDeleted`.
+- **Server module:** `lib/server/device-enrollment.ts` holds the session-level operations (`Outcome<T>` like `lib/server/household.ts`): `householdDevices`, `createCode`, `revokeCode`, `previewEnrollment`, `enrollWithCode`, `renameHouseholdDevice`, `removeHouseholdDevice`, `heartbeat`, `unenrollSelf`; limits `DEVICE_ENROLL_LIMIT`, `HEARTBEAT_LIMIT`.
+- **Member email:** enrollment by code emails the member (`renderDeviceEnrolledEmail`, subject `A device is now protected by Neo`, link `<request origin>/settings/household`), with idempotency key `device-enrolled:<deviceId>`; not sent when the member created the code (an owner enrolling their own device).
 - **Audit events:** `device.enrollment_code_created`, `device.enrollment_code_revoked`, `device.enrolled`, `device.renamed`, `device.revoked` (`by: "owner" | "member" | "device"`).
