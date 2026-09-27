@@ -128,8 +128,8 @@ describe("owner invites", () => {
       [OWNER.userId, "owner"],
       [GRANDMA.userId, "member"],
     ]);
-    // The owner is told.
-    expect(memorySentEmails().at(-1)).toMatchObject({ to: OWNER.email, subject: "Grandma joined Pat's household" });
+    // The owner is told through a member_joined alert (_specs/owner-alerts.md).
+    expect(memorySentEmails().at(-1)).toMatchObject({ to: OWNER.email, subject: "Neo alert: Grandma joined your household" });
     // Used: gone from the list, and a second accept is 404.
     expect((await householdAs(OWNER)).invites).toEqual([]);
     as(GRANDMA);

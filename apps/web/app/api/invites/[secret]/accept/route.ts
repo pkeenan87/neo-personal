@@ -19,5 +19,5 @@ export async function POST(req: Request, ctx: { params: Promise<{ secret: string
   const { secret } = await ctx.params;
   const body = await readJsonObject(req);
   const confirmLeave = body?.confirmLeave === true;
-  return householdRoute("api.invites.accept", session.tenantId, () => acceptInvite(session, secret, confirmLeave, new URL(req.url).origin));
+  return householdRoute("api.invites.accept", session.tenantId, () => acceptInvite(session, secret, confirmLeave));
 }

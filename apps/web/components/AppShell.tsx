@@ -3,6 +3,7 @@
 import { LayoutDashboard, LogOut, MessageSquare, Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { signOut } from "@/lib/auth-client";
 import { NeoMark } from "./NeoMark";
 import { ThemeToggle } from "./ThemeToggle";
@@ -47,7 +48,22 @@ function SettingsNav() {
 }
 
 /** Top navigation for signed-in pages outside the chat (dashboard, verdict detail). */
+/** True when the viewer has open high or critical alerts (_specs/owner-alerts.md); false on any error. */
+function useUrgentAlerts(): boolean {
+  const [urgent, setUrgent] = useState(false);
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetch("/api/alerts?status=open&limit=1", { signal: ctrl.signal, cache: "no-store" })
+      .then((res) => (res.ok ? (res.json() as Promise<{ urgentCount?: number }>) : null))
+      .then((body) => setUrgent((body?.urgentCount ?? 0) > 0))
+      .catch(() => undefined);
+    return () => ctrl.abort();
+  }, []);
+  return urgent;
+}
+
 export function AppShell({ active, children }: { active?: NavKey; children: React.ReactNode }) {
+  const urgent = useUrgentAlerts();
   return (
     <div className="flex min-h-dvh flex-col bg-[radial-gradient(ellipse_at_top_right,var(--accent-soft),transparent_55%)]">
       <a href="#app-main" className="sr-only z-50 rounded-xl bg-accent px-4 py-3 text-accent-fg focus:not-sr-only focus:fixed focus:top-2 focus:left-2">Skip to content</a>
@@ -68,8 +84,14 @@ export function AppShell({ active, children }: { active?: NavKey; children: Reac
                   active === item.key ? "bg-accent-soft font-semibold text-accent" : "text-muted hover:bg-surface-2 hover:text-fg"
                 }`}
               >
-                <item.icon className="size-4" aria-hidden="true" />
+                <span className="relative">
+                  <item.icon className="size-4" aria-hidden="true" />
+                  {item.key === "dashboard" && urgent ? (
+                    <span className="absolute -top-1 -right-1 size-2 rounded-full bg-red-600 ring-2 ring-bg dark:bg-red-400" aria-hidden="true" />
+                  ) : null}
+                </span>
                 <span className="max-sm:sr-only">{item.label}</span>
+                {item.key === "dashboard" && urgent ? <span className="sr-only">(new alerts)</span> : null}
               </Link>
             ))}
           </nav>

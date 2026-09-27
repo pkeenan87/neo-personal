@@ -6,6 +6,7 @@ import {
   artifacts,
   auditEvents,
   conversations,
+  alerts,
   householdInvites,
   inboundAddresses,
   inboundMessages,
@@ -27,6 +28,7 @@ export const tenantTables = {
   inboundAddresses,
   inboundMessages,
   householdInvites,
+  alerts,
 } as const;
 
 /** Any table with a `tenantId` column. */

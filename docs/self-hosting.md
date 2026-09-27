@@ -164,6 +164,8 @@ GRANT EXECUTE ON FUNCTION public.list_expired_artifacts(integer) TO app_user;
 GRANT EXECUTE ON FUNCTION public.purge_old_inbound_messages(integer) TO app_user;
 -- Migration 0007 (household invite lookup).
 GRANT EXECUTE ON FUNCTION public.lookup_household_invite(text) TO app_user;
+-- Migration 0008 (alert retention).
+GRANT EXECUTE ON FUNCTION public.purge_old_alerts() TO app_user;
 ```
 
 (`packages/db/sql/create-app-user.sql` is the same script with a verification query.) Run migrations as the owner. Run the app as `app_user`. You can confirm isolation with:

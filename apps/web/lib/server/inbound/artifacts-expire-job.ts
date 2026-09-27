@@ -1,6 +1,7 @@
 /**
- * `artifacts-expire` (cron `0 4 * * *`): purge artifacts past their retention
- * and delete rejected/failed inbound rows older than 90 days.
+ * `artifacts-expire` (cron `0 4 * * *`): purge artifacts past their retention,
+ * delete rejected/failed inbound rows older than 90 days, and delete old owner
+ * alerts (acknowledged > 90 days, any > 180 days; _specs/owner-alerts.md).
  */
 import { logger } from "@neo/core";
 import type { ArtifactStore } from "@neo/db";
@@ -14,12 +15,14 @@ export interface ExpireDeps {
   artifacts: ArtifactStore | null;
   /** Delete rejected/failed inbound rows older than this many days, across tenants. */
   purgeOldInbound(olderThanDays: number): Promise<number>;
+  /** Delete old owner alerts across tenants; returns the count. */
+  purgeOldAlerts(): Promise<number>;
 }
 
 export async function runArtifactsExpire(
   deps: ExpireDeps,
   step: StepRunner = inlineSteps,
-): Promise<{ artifactsPurged: number; artifactErrors: number; inboundRowsDeleted: number }> {
+): Promise<{ artifactsPurged: number; artifactErrors: number; inboundRowsDeleted: number; alertsDeleted: number }> {
   const artifacts = await step.run("purge-artifacts", async () => {
     if (!deps.artifacts) return { purged: 0, errors: 0 };
     const expired = await deps.artifacts.listExpired(ARTIFACT_BATCH);
@@ -42,7 +45,8 @@ export async function runArtifactsExpire(
     return { purged, errors };
   });
   const inboundRowsDeleted = await step.run("purge-inbound-rows", () => deps.purgeOldInbound(INBOUND_ROW_RETENTION_DAYS));
-  const result = { artifactsPurged: artifacts.purged, artifactErrors: artifacts.errors, inboundRowsDeleted };
+  const alertsDeleted = await step.run("purge-alerts", () => deps.purgeOldAlerts());
+  const result = { artifactsPurged: artifacts.purged, artifactErrors: artifacts.errors, inboundRowsDeleted, alertsDeleted };
   logger.info("Retention run finished", "retention", result);
   return result;
 }

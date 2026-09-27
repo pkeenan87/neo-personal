@@ -64,7 +64,10 @@ function sections(email: string): Section[] {
             Only to do what you asked: analyze the thing you submitted, show you the result, keep your history so you can
             come back to it, email you the result of a forwarded message, and enforce the free usage limits. In a
             household, each member sees their own checks and the household owner sees everyone&apos;s. Chats are private
-            to the person who had them.
+            to the person who had them. When a member&apos;s check comes back malicious or suspicious, or someone joins or
+            leaves, the owner gets an alert on the dashboard and, depending on their settings, by email. Alerts contain
+            Neo&apos;s one-line summary of the check, never the checked message itself, and the member can see the alerts
+            about them.
           </p>
           <p className="mt-3">
             Neo does not sell or rent your data, does not show ads, does not build advertising profiles, and does not use

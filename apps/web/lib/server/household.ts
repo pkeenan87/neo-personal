@@ -29,7 +29,8 @@ import type { NeoSession } from "@/lib/session";
 import { deleteOrphanedBlobs } from "./artifacts";
 import { recordAudit } from "./audit";
 import { getDb } from "./db";
-import { renderInviteEmail, renderMemberJoinedEmail, renderMemberRemovedEmail } from "./email/household-email";
+import { alertMemberJoined, alertMemberLeft } from "./alerts";
+import { renderInviteEmail, renderMemberRemovedEmail } from "./email/household-email";
 import { getMailer } from "./email/resend";
 import {
   memoryAcceptInvite,
@@ -204,7 +205,7 @@ const ACCEPT_ERRORS: Record<AcceptInviteError, { status: number; message: string
   confirm_required: { status: 400, message: "Confirm that your current household will be deleted." },
 };
 
-export async function acceptInvite(session: NeoSession, secret: string, confirmLeave: boolean, origin: string): Promise<Outcome<AcceptInviteResponse>> {
+export async function acceptInvite(session: NeoSession, secret: string, confirmLeave: boolean): Promise<Outcome<AcceptInviteResponse>> {
   const slot = takeRateSlot("household-invite-use", session.userId, INVITE_USE_LIMIT.limit, INVITE_USE_LIMIT.windowMs);
   if (!slot.ok) return rateLimited(slot.retryAfterSeconds);
   const db = getDb();
@@ -219,25 +220,9 @@ export async function acceptInvite(session: NeoSession, secret: string, confirmL
     ...(r.previousTenantId ? { previousTenantIdHash: hashPii(r.previousTenantId) } : {}),
   });
   await deleteOrphanedBlobs(r.orphanedBlobUrls);
-  await notifyOwnerOfJoin(session, r.tenantId, r.householdName, origin);
+  // The owner hears about it through an alert (_specs/owner-alerts.md: `member_joined`, emailed by default).
+  await alertMemberJoined(r.tenantId, { userId: session.userId, name: session.name || null, email: session.email || null });
   return { ok: true, value: { tenantId: r.tenantId, householdName: r.householdName } };
-}
-
-async function notifyOwnerOfJoin(joiner: NeoSession, tenantId: string, householdName: string, origin: string): Promise<void> {
-  const mailer = getMailer();
-  if (!mailer) return;
-  try {
-    const members = await householdMembers({ ...joiner, tenantId, role: "member" });
-    const owner = members.find((m) => m.role === "owner");
-    if (!owner?.email) return;
-    const email = renderMemberJoinedEmail({ memberName: joiner.name, householdName, url: `${origin}/settings/household` });
-    await mailer.send({ to: owner.email, ...email, idempotencyKey: `household-joined:${tenantId}:${joiner.userId}` });
-  } catch (err) {
-    logger.error("Member joined email failed", "household", {
-      tenantId,
-      errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300),
-    });
-  }
 }
 
 export async function removeMember(session: NeoSession, userId: string, origin: string): Promise<Outcome<null>> {
@@ -250,6 +235,7 @@ export async function removeMember(session: NeoSession, userId: string, origin: 
     : memoryRemoveMember(session.tenantId, userId);
   if (r.status === "not_found") return fail(404, "not_found", "That person is not in your household.");
   if (r.status === "cannot_remove_owner") return fail(400, "cannot_remove_owner", "The household owner cannot be removed.");
+  await alertMemberLeft(session.tenantId, { userId, name: target?.name ?? null, email: target?.email ?? null }, true);
   const mailer = getMailer();
   if (mailer && target?.email) {
     try {
@@ -271,5 +257,6 @@ export async function leave(session: NeoSession): Promise<Outcome<null>> {
   const r = db ? await leaveHousehold(db, { tenantId: session.tenantId, userId: session.userId }) : memoryLeave(session.tenantId, session.userId);
   if (r.status === "not_found") return fail(404, "not_found", "You are not in this household.");
   if (r.status === "owner_cannot_leave") return fail(400, "owner_cannot_leave", "The owner cannot leave their own household.");
+  await alertMemberLeft(session.tenantId, { userId: session.userId, name: session.name || null, email: session.email || null }, false);
   return { ok: true, value: null };
 }

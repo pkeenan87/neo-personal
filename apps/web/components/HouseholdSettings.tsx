@@ -1,7 +1,8 @@
 "use client";
 
-import { Link2, Mail, Send, Trash2, UserPlus, Users } from "lucide-react";
+import { BellRing, Link2, Mail, Send, Trash2, UserPlus, Users } from "lucide-react";
 import { useState } from "react";
+import type { AlertThreshold } from "@/lib/alert-types";
 import type { HouseholdResponse } from "@/lib/dashboard-types";
 import type { CreateInviteResponse } from "@/lib/household-types";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -25,13 +26,30 @@ function expiresIn(iso: string): string {
   return `expires in ${days} days`;
 }
 
-export function HouseholdSettingsView({ initial, currentUserId }: { initial: HouseholdResponse; currentUserId: string }) {
+const THRESHOLD_OPTIONS: { value: AlertThreshold; label: string; hint: string }[] = [
+  { value: "high", label: "Malicious checks and new members", hint: "Recommended." },
+  { value: "medium", label: "Also suspicious checks", hint: "More email, fewer surprises." },
+  { value: "critical", label: "Only critical alerts", hint: "Critical alerts come with device monitoring, which is not available yet, so for now this sends nothing." },
+  { value: "off", label: "Nothing", hint: "Alerts still appear on your dashboard." },
+];
+
+export function HouseholdSettingsView({
+  initial,
+  currentUserId,
+  initialThreshold = "high",
+}: {
+  initial: HouseholdResponse;
+  currentUserId: string;
+  /** The owner's alert email threshold (_specs/owner-alerts.md). */
+  initialThreshold?: AlertThreshold;
+}) {
   const { toast } = useToast();
   const [home, setHome] = useState(initial);
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState(false);
   const [link, setLink] = useState<string | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
+  const [threshold, setThreshold] = useState<AlertThreshold>(initialThreshold);
   const isOwner = home.role === "owner";
 
   async function refresh() {
@@ -61,6 +79,27 @@ export function HouseholdSettingsView({ initial, currentUserId }: { initial: Hou
       await refresh();
     } catch (err) {
       toast({ intent: "error", title: err instanceof Error ? err.message : "Could not create the invite." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveThreshold(next: AlertThreshold) {
+    if (busy || next === threshold) return;
+    const previous = threshold;
+    setThreshold(next);
+    setBusy(true);
+    try {
+      const res = await fetch("/api/settings/alerts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ threshold: next }),
+      });
+      if (!res.ok) throw new Error(await errorMessage(res, "Could not save your alert setting."));
+      toast({ intent: "success", title: "Alert emails updated" });
+    } catch (err) {
+      setThreshold(previous);
+      toast({ intent: "error", title: err instanceof Error ? err.message : "Could not save your alert setting." });
     } finally {
       setBusy(false);
     }
@@ -294,6 +333,39 @@ export function HouseholdSettingsView({ initial, currentUserId }: { initial: Hou
               })}
             </ul>
           )}
+        </section>
+      ) : null}
+
+      {isOwner ? (
+        <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
+          <fieldset>
+            <legend className="mb-1 flex items-center gap-2 text-sm font-semibold">
+              <BellRing className="size-4" aria-hidden="true" />
+              Alert emails
+            </legend>
+            <p className="mb-3 text-xs text-muted">
+              Neo alerts you when a member checks something dangerous or someone joins or leaves. Choose what reaches your inbox.
+            </p>
+            <div className="space-y-1">
+              {THRESHOLD_OPTIONS.map((o) => (
+                <label key={o.value} className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl px-2 py-2 hover:bg-surface-2">
+                  <input
+                    type="radio"
+                    name="alert-threshold"
+                    value={o.value}
+                    checked={threshold === o.value}
+                    disabled={busy}
+                    onChange={() => void saveThreshold(o.value)}
+                    className="mt-0.5 size-4 shrink-0"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium">{o.label}</span>
+                    <span className="block text-xs text-muted">{o.hint}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </fieldset>
         </section>
       ) : null}
 

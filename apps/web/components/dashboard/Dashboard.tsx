@@ -16,12 +16,16 @@ import {
   type VerdictSummaryResponse,
 } from "@/lib/dashboard-types";
 import { VERDICT_LABELS } from "@/lib/verdict-fence";
+import type { AlertListResponse } from "@/lib/alert-types";
+import { AlertsPanel } from "./AlertsPanel";
 import { BarList, LABEL_BG, PerDayChart } from "./charts";
 
 export interface DashboardProps {
   household: HouseholdSummary;
   /** The household's forwarding address has received mail. */
   forwardingUsed: boolean;
+  /** Open alerts visible to the viewer (_specs/owner-alerts.md); omitted = none. */
+  alerts?: AlertListResponse;
   initialRange?: SinceDays;
 }
 
@@ -69,7 +73,7 @@ interface Loaded {
   recent: VerdictListResponse;
 }
 
-export function Dashboard({ household, forwardingUsed, initialRange = 30 }: DashboardProps) {
+export function Dashboard({ household, forwardingUsed, alerts, initialRange = 30 }: DashboardProps) {
   const [range, setRange] = useState<SinceDays>(initialRange);
   const [member, setMember] = useState<string>("");
   const [data, setData] = useState<Loaded | null>(null);
@@ -182,6 +186,8 @@ export function Dashboard({ household, forwardingUsed, initialRange = 30 }: Dash
           </div>
         </div>
       </div>
+
+      {alerts && <AlertsPanel initial={alerts} isOwner={isOwner} />}
 
       {error && error.key === key && (
         <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">
