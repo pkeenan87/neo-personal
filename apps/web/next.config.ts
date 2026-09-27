@@ -28,6 +28,7 @@ const nextConfig: NextConfig = {
       },
       {
         // Invite secrets are in the path (_specs/household-invites.md); never send them onward.
+        // Mirrored in vercel.json, whose headers win on Vercel.
         source: "/invite/:path*",
         headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
       },
