@@ -51,11 +51,11 @@ API (browser session required on every route that creates, changes or accepts me
   - Email invites are sent with the Resend mailer (MOCK_MODE: `memorySentEmails()`), idempotency key
     `invite:<id>`. The email names the inviter and the household, says what joining means, and that the link
     expires in 7 days. Send failure returns 502 `email_failed` and revokes the invite.
-- `POST /api/household/invites/:id/resend` (owner, email invites only) → 200: issues a new secret, resets
+- `POST /api/household/invites/:id/resend` (owner, email invites only) → 200 `{ invite }`: issues a new secret, resets
   `expires_at`, sends again (idempotency key `invite:<id>:<n>`). Same rate limit bucket.
 - `DELETE /api/household/invites/:id` (owner) → 204; sets `revoked_at`. 404 for unknown or not pending.
 - `GET /api/invites/:secret` (session required, any role) → 200 preview
-  `{ householdName, inviterName, kind, emailMatches, currentHousehold: { name, role, memberCount,
+  `{ householdName, inviterName, kind, emailMatches, alreadyMember, currentHousehold: { name, role, memberCount,
   conversationCount, verdictCount, hasForwardingAddress } }`. 404 `not_found` for unknown, expired, revoked or
   used. 429 at 10 per 10 minutes per user.
 - `POST /api/invites/:secret/accept { confirmLeave: true }` (browser session) → 200 `{ tenantId, householdName }`.
@@ -76,8 +76,8 @@ API (browser session required on every route that creates, changes or accepts me
   404 for a non-member.
 - `POST /api/household/leave` (member) → 204. Owners get 400 `owner_cannot_leave`.
 - Removing or leaving: delete the membership, delete the leaver's conversations and turns in the household
-  (their private chats), keep their verdicts (household security history; shown as "Former member"), clear
-  `forwarder_user_id` references, revoke their desktop tokens. The next request resolves no tenant and
+  (their private chats), keep their verdicts (household security history; shown as "Former member"), revoke their
+  desktop tokens and delete their pending desktop sign-ins. The next request resolves no tenant and
   `resolveTenant` creates a fresh one-person household, as today.
 
 Sessions:
@@ -93,8 +93,8 @@ Emails (Resend, plain HTML + text like the verdict email):
 - "You were removed from <household>" (to the member) on removal. No email on leave.
 
 Audit events: `household.invite_created`, `household.invite_revoked`, `household.invite_resent`,
-`household.invite_accepted` (inviting tenant), `household.joined_other` (old tenant, written before it is
-deleted; lost with it, so also logged with hashed ids), `household.member_removed`, `household.member_left`.
+`household.invite_accepted` (inviting tenant; the deleted household's id is logged, hashed, since its own audit
+rows are deleted with it), `household.member_removed`, `household.member_left`.
 Emails in metadata are hashed with `hashPii`.
 
 UI:
@@ -143,18 +143,21 @@ one-person household.
 
 ## Acceptance criteria
 
-- [ ] Owner creates an email invite; the invitee (new account, matching email) accepts; the owner sees them under
-      Settings → Household and on the dashboard member filter; the invitee's old household is gone.
-- [ ] Link invite accepted by a second account; reusing the link returns 404.
-- [ ] Wrong account for an email invite: 403 `email_mismatch`, nothing changes.
-- [ ] Owner with members cannot accept (409); member of another household cannot accept (409).
-- [ ] Remove and leave: membership gone, the user's conversations in the household deleted, verdicts kept, desktop
-      tokens revoked, next request creates a fresh household.
-- [ ] Expired, revoked and used invites return 404; resend issues a new link and the old one stops working.
-- [ ] Limits: 10 members + pending, 20 invites per day, accept and preview rate limits return 429 with `Retry-After`.
-- [ ] Desktop tokens get 403 on every mutating household route.
-- [ ] Migration 0007 applies on PGlite and on Neon; RLS test covers `household_invites`.
-- [ ] Emails render in MOCK_MODE (`memorySentEmails()`) and in production via Resend.
+- [x] Email invite accepted by the matching account: membership moves, the old household and its data are gone, the
+      owner is emailed (`packages/db/test/household-invites.test.ts`, `apps/web/test/household-invites.test.ts`).
+- [ ] The same on production with two real accounts, including the dashboard member filter.
+- [x] Link invite accepted by a second account; reusing the link returns 404.
+- [x] Wrong account or unverified email for an email invite: 403 `email_mismatch`, nothing changes.
+- [x] Owner with members cannot accept (409); member of another household cannot accept (409).
+- [x] Remove and leave: membership gone, the user's conversations in the household deleted, verdicts kept, desktop
+      tokens revoked, next sign-in creates a fresh household.
+- [x] Expired, revoked and used invites return 404; resend issues a new link and the old one stops working.
+- [x] Limits: 10 members + pending, 20 invites per day, accept and preview rate limits return 429 with `Retry-After`.
+- [x] Desktop tokens get 403 on every mutating household route.
+- [x] Migration 0007 applies on PGlite; RLS test covers `household_invites`; the flow runs as `app_user`.
+- [ ] Migration 0007 applied on Neon (production).
+- [x] Emails render in MOCK_MODE (`memorySentEmails()`).
+- [ ] Invite email delivered by Resend in production.
 
 ## Open questions
 

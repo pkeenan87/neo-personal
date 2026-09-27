@@ -1,8 +1,11 @@
 /**
- * GET /api/household → { tenantId, name, role, members: [{ userId, name, email, role }] }
- * Owners see member emails; members get `email: null` for everyone.
+ * GET /api/household → { tenantId, name, role, members: [{ userId, name, email, role }], invites }
+ * Owners see member emails and pending invites; members get `email: null` for
+ * everyone and `invites: []` (_specs/dashboard.md, _specs/household-invites.md).
  */
+import type { HouseholdResponse } from "@/lib/dashboard-types";
 import { NO_STORE, storageError } from "@/lib/server/dashboard-http";
+import { listInvites } from "@/lib/server/household";
 import { household } from "@/lib/server/verdict-data";
 import { requireApiSession } from "@/lib/session";
 
@@ -13,7 +16,9 @@ export async function GET(): Promise<Response> {
   const { session, response } = await requireApiSession();
   if (!session) return response;
   try {
-    return Response.json(await household(session), { headers: NO_STORE });
+    const [summary, invites] = await Promise.all([household(session), listInvites(session)]);
+    const body: HouseholdResponse = { ...summary, invites };
+    return Response.json(body, { headers: NO_STORE });
   } catch (err) {
     return storageError(err, "api.household", session.tenantId);
   }

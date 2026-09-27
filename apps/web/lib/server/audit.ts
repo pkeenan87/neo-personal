@@ -18,7 +18,10 @@ export type AuditEventType =
   | "verdict.deleted"
   | "inbound.rejected_unknown_sender"
   | "inbound.address_rotated"
-  | "inbound.gmail_forwarding_confirmation";
+  | "inbound.gmail_forwarding_confirmation"
+  | "household.invite_created"
+  | "household.invite_revoked"
+  | "household.invite_resent";
 
 export interface MemoryAuditEvent {
   tenantId: string;

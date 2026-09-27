@@ -2,9 +2,9 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Dashboard } from "@/components/dashboard/Dashboard";
-import type { HouseholdResponse, VerdictListItem, VerdictSummaryResponse } from "@/lib/dashboard-types";
+import type { HouseholdSummary, VerdictListItem, VerdictSummaryResponse } from "@/lib/dashboard-types";
 
-const OWNER_HOUSEHOLD: HouseholdResponse = {
+const OWNER_HOUSEHOLD: HouseholdSummary = {
   tenantId: "t1",
   name: "The Parkers",
   role: "owner",
