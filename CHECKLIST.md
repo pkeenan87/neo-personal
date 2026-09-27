@@ -2,7 +2,7 @@
 
 Things only you can do: accounts, credentials, and decisions. Everything is ordered so each block unblocks the next. Local env values go in `apps/web/.env.local` (gitignored). Production values go in Vercel project settings. Never put a real value in `.env.example`.
 
-Status as of 2026-09-25: Phase 0 is complete and verified in production at https://neo-sable-ten.vercel.app. Google sign-in works for test users, Neon Postgres runs under the `app_user` RLS role, Safe Browsing, VirusTotal, and urlscan keys are live, and the first production URL check persisted a conversation, usage event, and verdict. Remaining blockers for a public launch: a domain, Resend magic links, a privacy policy, and publishing the Google consent screen. Phase 1 (email/SMS analysis, forward-to-address, dashboard) started 2026-09-25; its owner steps are in section 9.
+Status as of 2026-09-26: Phases 0, 1 and 2 and the desktop sign-in are live at https://www.neoshield.dev with the Google consent screen published, the domain, forwarding, AI Gateway routing and the privacy policy in place. Still open: a magic-link sign-in test (3), the optional Neon preview branches (4), a legal read of the privacy policy (5), the social preview image (6), usage-cap numbers after a week of real costs (8) and the Vercel support ticket about premium models (10).
 
 ## 1. Right now (free, unblocks local testing)
 
@@ -26,7 +26,7 @@ Status as of 2026-09-25: Phase 0 is complete and verified in production at https
   select rolname, rolsuper, rolbypassrls from pg_roles where rolname = 'app_user';
   ```
   Both flags must be false.
-- [ ] Start the dev server and confirm conversations survive a restart.
+- [x] Start the dev server and confirm conversations survive a restart. (conversations live in Postgres; verified on production, where they survive deploys)
 - [x] Role name unified to `app_user` everywhere (2026-09-24).
 
 ## 3. Authentication (unblocks turning off the dev bypass)
@@ -51,21 +51,23 @@ Status as of 2026-09-25: Phase 0 is complete and verified in production at https
 ## 5. Domain and public identity
 
 - [x] Google consent screen published 2026-09-26 (Branding: home page and privacy policy set; Audience: In production). Any Google account can sign in now; the scopes are non-sensitive so no verification is needed and no "unverified app" warning shows. Test users are no longer required.
-- [ ] Small follow-up: map Google's `email_verified` claim into the Auth.js user record (currently left empty by the default profile mapper).
+- [x] Small follow-up: map Google's `email_verified` claim into the Auth.js user record. (done: `googleProfile` in `apps/web/auth.ts` records the claim; the sign-in callback requires it)
 
 - [x] Register the domain for Neo: `neoshield.dev`, bought through Vercel 2026-09-26, Vercel DNS. Canonical host is `https://www.neoshield.dev` (apex redirects).
 - [x] Point it at Vercel and set `AUTH_URL` to it (`https://www.neoshield.dev`, 2026-09-26). Google OAuth client has the `www` origin and callback.
 - [x] Privacy policy page at https://www.neoshield.dev/privacy (2026-09-26). Contact address is `NEO_CONTACT_EMAIL` (default `privacy@neoshield.dev`), delivered to your HEY mailbox as an alias since 2026-09-26. [ ] Have a lawyer or a careful reader review the text before wide launch.
-- [ ] Update `SECURITY.md` and `CODE_OF_CONDUCT.md` with a role address on the domain (for example `security@neoshield.dev` as another HEY alias).
+- [x] Update `SECURITY.md` and `CODE_OF_CONDUCT.md` with a role address on the domain. (2026-09-26: both use `privacy@neoshield.dev`, the existing HEY alias)
 
 ## 6. GitHub housekeeping
 
-- [ ] Confirm you are happy with the main branch ruleset (PRs required, zero approvals, "All checks passed" required, admins can bypass). Adjust at Settings, Rules.
-- [ ] Add a repo description, topics (`security`, `phishing`, `claude`, `nextjs`), and a social preview image.
-- [ ] Decide whether to archive or add a README note to the old public `pkeenan87/Neo` snapshot so people do not confuse the two.
-- [ ] Watch the first Dependabot PRs and merge them once CI passes.
+- [x] Confirm you are happy with the main branch ruleset (PRs required, zero approvals, "All checks passed" required, admins can bypass). (verified 2026-09-26 via the API: ruleset `main` active, PR required with 0 approvals and thread resolution, squash/merge only, `All checks passed` required and strict, no deletion or force-push, Admin role bypasses)
+- [x] Add a repo description, topics (`security`, `phishing`, `claude`, `nextjs`), and a social preview image. (2026-09-26: description kept, homepage set to https://www.neoshield.dev, topics `security phishing claude nextjs anthropic vercel`. [ ] Social preview image: GitHub has no API for it; upload one at Settings → General → Social preview, 1280×640)
+- [ ] Decide whether to archive or add a README note to the old public `pkeenan87/Neo` snapshot so people do not confuse the two. Suggested: do both. Prepend a note to its README ("Archived snapshot; Neo continues at pkeenan87/neo-personal, live at neoshield.dev"), set the description to match, then Settings → General → Archive this repository. (Left for you: writing to that repository needs your own hands.)
+- [x] Watch the first Dependabot PRs and merge them once CI passes. (2026-09-26: #13 minor-and-patch group and #3 jest-dom 7 merged after rebase; #4 TypeScript 7 fails CI and stays open until the toolchain supports it)
 
 ## 7. Work repo follow-ups
+
+**Deferred.** The work Neo repo is maintained in the corporate environment; `~/Work/Neo` and the public snapshot are archives. Nothing to port from here.
 
 - [ ] Diff the private work Neo repo against `~/Work/Neo` (June 2026) to see if anything in the lifted files changed. If so, tell me which files and I will port the changes.
 - [ ] Port the injection-guard regex fix back to the work repo. The `encoded_payload` and `SYSTEM:` role-header patterns in `web/lib/injection-guard.ts` are quadratic on long input (about 400 ms per 20K characters). The fixed versions are in `packages/core/src/injection-guard.ts` here.
@@ -80,8 +82,8 @@ Status as of 2026-09-25: Phase 0 is complete and verified in production at https
 
 Everything in Phase 1 runs locally and in CI with `MOCK_MODE=true`. Turning it on in production needs, in order:
 
-- [ ] Register the domain (section 5). Pick the inbound subdomain, for example `inbound.<domain>`.
-- [x] Install **Resend** from the Vercel Marketplace (done 2026-09-26). `NEO_INBOUND_DOMAIN=inbound.neoshield.dev` is set. [ ] Enable receiving: in Resend, add `inbound.neoshield.dev` as a domain (or enable the receiving toggle) and add the MX record it shows to Vercel DNS (`vercel dns add neoshield.dev inbound MX <value> <priority>`). Create a webhook for `email.received` pointing at `https://<domain>/api/inbound/resend` and set its signing secret (`whsec_…`) as `RESEND_WEBHOOK_SECRET`. The webhook payload carries metadata only: the job fetches the message with `GET /emails/receiving/{id}` and downloads the raw MIME from the signed download URL in that response, so the API key (`RESEND_API_KEY`, or `AUTH_RESEND_KEY`, which doubles as the sending key) must be allowed to read received mail.
+- [x] Register the domain (section 5). Pick the inbound subdomain, for example `inbound.<domain>`. (`neoshield.dev`, inbound on `inbound.neoshield.dev`, 2026-09-26)
+- [x] Install **Resend** from the Vercel Marketplace (done 2026-09-26). `NEO_INBOUND_DOMAIN=inbound.neoshield.dev` is set. [x] Enable receiving (done 2026-09-26, MX on `inbound.neoshield.dev`, webhook secret set): in Resend, add `inbound.neoshield.dev` as a domain (or enable the receiving toggle) and add the MX record it shows to Vercel DNS (`vercel dns add neoshield.dev inbound MX <value> <priority>`). Create a webhook for `email.received` pointing at `https://<domain>/api/inbound/resend` and set its signing secret (`whsec_…`) as `RESEND_WEBHOOK_SECRET`. The webhook payload carries metadata only: the job fetches the message with `GET /emails/receiving/{id}` and downloads the raw MIME from the signed download URL in that response, so the API key (`RESEND_API_KEY`, or `AUTH_RESEND_KEY`, which doubles as the sending key) must be allowed to read received mail.
 - [x] Install **Inngest** from the Vercel Marketplace (done 2026-09-26; keys set). Synced 2026-09-26 by `curl -X PUT https://www.neoshield.dev/api/inngest` (the integration's automatic sync failed; see `docs/deployment.md`). First forwarded email processed end to end the same day.
 - [x] Create a **Vercel Blob** store (done 2026-09-26, OIDC store; `/api/health` reports `artifacts: ok`).
 - [x] Generate the artifact master key (set 2026-09-26) and add it as a sensitive Vercel env var:
@@ -90,9 +92,9 @@ Everything in Phase 1 runs locally and in CI with `MOCK_MODE=true`. Turning it o
   ```
   Losing this key makes every stored `.eml` and screenshot unreadable; keep a copy in your password manager.
 - [x] Run migration `0003_phase1` as the owner (`MIGRATION_DATABASE_URL=... pnpm db:migrate`) **before** deploying the Phase 1 code (it is additive). If `app_user` did not exist at that point, re-run `packages/db/sql/create-app-user.sql` for the three function grants. Then redeploy. (done 2026-09-25, verified: tables, columns, RLS, definer grants)
-- [ ] Check `GET /api/health`: `artifacts: "ok"`, `inbound: "ok"`.
-- [ ] Forward one email from your Gmail to your household address (shown on `/settings/forwarding`) and confirm the verdict email arrives and shows on `/dashboard`. To set up a Gmail auto-forward, Gmail first sends a confirmation email to the address: its code appears on `/settings/forwarding` (owner only).
-- [ ] Decide `NEO_ARTIFACT_RETENTION_DAYS` (default 30) and whether inbound triage should stay on Sonnet 5.
+- [x] Check `GET /api/health`: `artifacts: "ok"`, `inbound: "ok"`. (verified 2026-09-26)
+- [x] Forward one email from your Gmail to your household address (shown on `/settings/forwarding`) and confirm the verdict email arrives and shows on `/dashboard`. To set up a Gmail auto-forward, Gmail first sends a confirmation email to the address: its code appears on `/settings/forwarding` (owner only). (done 2026-09-26; first forwarded email triaged end to end)
+- [x] Decide `NEO_ARTIFACT_RETENTION_DAYS` (default 30) and whether inbound triage should stay on Sonnet 5. (decided 2026-09-26: keep the 30-day default and Sonnet 5)
 
 
 ## 10. Phase 2 go-live (AI Gateway and model routing)
@@ -112,4 +114,4 @@ Everything in Phase 2 runs locally and in CI with `MOCK_MODE=true`. Details in `
 
 - [x] Run migrations `0005_desktop_tokens` and `0006_desktop_auth` as the owner (`MIGRATION_DATABASE_URL=... pnpm db:migrate`) **before** deploying the desktop-auth code (both additive; until then the desktop routes answer 503 `storage_unavailable`). (done 2026-09-26, verified on production)
 - [x] From the Omarchy bar: click **Sign in with Neo** (or run `omarchy-neo login`), approve in the browser with your Google account, confirm the token appears under **Settings → Desktop** named after the machine, and that the bar shows usage and recent verdicts. (done 2026-09-26)
-- [ ] Put `~/Work/omarchy-neoshield-plugin` under git (it is not a repository yet) and push it to `pkeenan87/omarchy-neoshield-plugin`, which the README already points at.
+- [x] Put `~/Work/omarchy-neoshield-plugin` under git and push it to `pkeenan87/omarchy-neoshield-plugin`. (done 2026-09-26, `cbeb111` on `origin/main`)

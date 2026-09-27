@@ -36,7 +36,7 @@ This Code of Conduct applies within all community spaces, and also applies when 
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement privately, via the contact email on the maintainer's GitHub profile ([@pkeenan87](https://github.com/pkeenan87)). Do not use public issues for conduct reports. All complaints will be reviewed and investigated promptly and fairly.
+Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the community leaders responsible for enforcement privately, by email to **privacy@neoshield.dev** (the maintainer, [@pkeenan87](https://github.com/pkeenan87)). Do not use public issues for conduct reports. All complaints will be reviewed and investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the reporter of any incident.
 

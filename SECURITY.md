@@ -26,7 +26,7 @@ Please include:
 - The commit SHA or date you tested against, and whether it was self-hosted or the hosted service.
 - Any proof-of-concept payloads (prompt injection strings, URLs, emails). Redact any real third-party personal data.
 
-If you cannot use GitHub Security Advisories, contact the maintainer via the email on their GitHub profile and ask for a private channel. Do not send vulnerability details in the first message.
+If you cannot use GitHub Security Advisories, email **privacy@neoshield.dev** and ask for a private channel. Do not send vulnerability details in the first message.
 
 ## Response targets
 
