@@ -3,7 +3,7 @@
  * /api/verdicts/summary, /api/verdicts/[id], /api/household. Dates are ISO-8601.
  * Shared by the route handlers and the browser widgets.
  */
-import type { HouseholdInviteItem } from "./household-types";
+import type { DeviceItem, EnrollmentCodeItem, HouseholdInviteItem } from "./household-types";
 import type { SubjectType, Verdict, VerdictLabel } from "@neo/verdict";
 
 export type VerdictSourceName = "chat" | "inbound" | "api";
@@ -72,6 +72,10 @@ export interface HouseholdSummary {
 /** GET /api/household: the summary plus pending invites (_specs/household-invites.md), empty for members. */
 export interface HouseholdResponse extends HouseholdSummary {
   invites: HouseholdInviteItem[];
+  /** Active devices (_specs/device-enrollment.md): all for owners, their own for members. */
+  devices: DeviceItem[];
+  /** Pending enrollment codes; empty for members. */
+  enrollmentCodes: EnrollmentCodeItem[];
 }
 
 /** GET /api/usage (Phase 0). */
