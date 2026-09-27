@@ -103,5 +103,29 @@ export {
   type DesktopAuthRedemption,
   type DesktopAuthRequestPublic,
 } from "./desktop-auth.js";
+export {
+  HOUSEHOLD_INVITE_TTL_MS,
+  INVITE_SECRET_PREFIX,
+  MAX_HOUSEHOLD_SIZE,
+  acceptHouseholdInvite,
+  createHouseholdInvite,
+  hashInviteSecret,
+  inviteSecretPrefix,
+  isInviteSecretFormat,
+  leaveHousehold,
+  listPendingHouseholdInvites,
+  mintInviteSecret,
+  normalizeInviteEmail,
+  previewHouseholdInvite,
+  removeHouseholdMember,
+  revokeHouseholdInvite,
+  rotateHouseholdInvite,
+  type AcceptInviteError,
+  type AcceptInviteResult,
+  type CreateInviteError,
+  type DetachResult,
+  type HouseholdInvitePublic,
+  type InvitePreview,
+} from "./household.js";
 // runMigrations lives in the "@neo/db/migrate" subpath so app bundles never see the migrations folder.
 export type { ConversationStore, MessageParam } from "@neo/core";

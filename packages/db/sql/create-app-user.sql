@@ -26,6 +26,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO ap
 GRANT EXECUTE ON FUNCTION public.resolve_inbound_address(text) TO app_user;
 GRANT EXECUTE ON FUNCTION public.list_expired_artifacts(integer) TO app_user;
 GRANT EXECUTE ON FUNCTION public.purge_old_inbound_messages(integer) TO app_user;
+GRANT EXECUTE ON FUNCTION public.lookup_household_invite(text) TO app_user;  -- 0007
 
 -- Verify: both columns must be false.
 SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'app_user';
