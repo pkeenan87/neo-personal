@@ -421,3 +421,47 @@ export function decideTier(answers: JevAnswers, confidence: Record<string, numbe
 - Settings API errors follow the forwarding route: `{ error: <message>, code: "bad_request" | "unauthenticated" | "storage_unavailable" }`; a POST with neither field is a 400; a store failure is 503 `storage_unavailable`. `lib/routing-types.ts` holds the wire types; the page computes the preference → model list on the server (`preferenceModels()`) so `@neo/core`'s catalog stays out of the client bundle except `displayNameFor`. `AppShell` shows a Forwarding | Routing sub-navigation on settings pages.
 - Chat state: `ChatEvent = AgentEvent`; `messagesFromStored` accepts `StoredMessage | StoredTurn` (`{ messages, route? }`) entries. `ConversationStore.get` returns only `lastRoute`, so after a reload only the most recent assistant message shows a chip (`lib/server/chat-data.ts`). `lib/ndjson.ts` validates the `route` event and `usage.model`. `MessageActions` exports `modelChip()`; the chip is `<span data-testid="model-chip">`.
 - `.env.example` no longer sets `NEO_ENABLE_FALLBACKS=true` (unset means: on in direct mode, off on the gateway).
+
+# Package contracts (Phase 3)
+
+Plan `_plans/phase-3-household-devices.md`. Everything below is additive.
+
+## @neo/db (spec `_specs/household-invites.md`)
+
+Migration `0007_household_invites` (run as the owner before deploying): new `household_invites` (`kind` `email|link`, lowercased `email` required iff `kind = 'email'`, unique `token_hash` = SHA-256 of `neo_inv_` + 43 base64url chars, `token_prefix`, `send_count`, `invited_by`, `expires_at` (7 days), `accepted_by`, `accepted_at`, `revoked_at`) with the `tenant_isolation` RLS policy and in `tenantTables`; security-definer `lookup_household_invite(token_hash text) → (id, tenant_id)` for pending invites (`EXECUTE` granted to `app_user`); unique index `memberships_one_household` on `memberships(user_id)` replacing `memberships_user_idx` (the migration aborts if a user already has two memberships).
+
+```ts
+MAX_HOUSEHOLD_SIZE = 10;                // members + pending invites
+HOUSEHOLD_INVITE_TTL_MS;                // 7 days
+mintInviteSecret(); isInviteSecretFormat(s); hashInviteSecret(s); inviteSecretPrefix(s); normalizeInviteEmail(s): string | null;
+createHouseholdInvite(db, { tenantId, invitedBy, kind, email?, now? })
+  → { invite: HouseholdInvitePublic, secret } | { error: "invalid_email" | "already_member" | "invite_pending" | "household_full" };
+listPendingHouseholdInvites(db, tenantId, now?) → HouseholdInvitePublic[];     // newest first
+revokeHouseholdInvite(db, tenantId, inviteId, now?) → boolean;
+rotateHouseholdInvite(db, tenantId, inviteId, now?) → { invite, secret } | { error: "not_found" };   // email invites only; bumps send_count
+previewHouseholdInvite(db, { secret, userId, now? }) → InvitePreview | null;
+acceptHouseholdInvite(db, { secret, userId, confirmLeave, now? })
+  → { status: "accepted", inviteId, kind, tenantId, householdName, invitedBy, previousTenantId, orphanedBlobUrls }
+  | { status: "not_found" | "email_mismatch" | "already_member" | "owns_household_with_members" | "already_in_household" | "confirm_required" };
+removeHouseholdMember(db, { tenantId, userId, removedBy }) → { status: "removed" | "cannot_remove_owner", conversationsDeleted } | { status: "not_found" };
+leaveHousehold(db, { tenantId, userId }) → { status: "left" | "owner_cannot_leave", conversationsDeleted } | { status: "not_found" };
+```
+
+Accepting deletes the user's one-person household (cascade) and returns its artifact blob URLs for the caller to delete after commit. Leaving or removal deletes the user's conversations in the household, keeps their verdicts, revokes their desktop tokens for the household and deletes their pending desktop sign-ins. Audit events written by `@neo/db`: `household.invite_accepted`, `household.member_removed`, `household.member_left`.
+
+## apps/web
+
+### HTTP contract: household (`_specs/household-invites.md`)
+
+Wire types: `apps/web/lib/household-types.ts`. JSON errors `{ error, code }`. Every mutating route needs a browser session (403 `browser_session_required` for a desktop token); owner-only routes return 403 `forbidden` to members.
+
+- `GET /api/household` adds `invites: HouseholdInviteItem[]` (`{ id, kind, email, tokenPrefix, createdAt, expiresAt, invitedByName }`), empty for members.
+- `POST /api/household/invites { kind: "email", email } | { kind: "link" }` (owner) → 201 `{ invite, url }`; `url` is `<origin>/invite/<secret>`, returned once. 400 `invalid_email` | `household_full` | `bad_request`, 409 `already_member` | `invite_pending`, 429 `rate_limited` (20 per 24 h per tenant, shared with resend), 502 `email_failed` (the invite is revoked).
+- `POST /api/household/invites/[id]/resend` (owner) → 200 `{ invite }`; new secret, new expiry, old link dead. 404 `not_found`.
+- `DELETE /api/household/invites/[id]` (owner) → 204; 404 `not_found`.
+- `DELETE /api/household/members/[userId]` (owner) → 204; 400 `cannot_remove_owner`, 404 `not_found`. Emails the removed member.
+- `POST /api/household/leave` (member) → 204; 400 `owner_cannot_leave`.
+- `GET /api/invites/[secret]` (any session) → `InvitePreviewResponse` `{ householdName, inviterName, kind, emailMatches, alreadyMember, currentHousehold: { name, role, memberCount, conversationCount, verdictCount, hasForwardingAddress } | null }`; 404 `not_found`; 429 (10 per 10 min per user).
+- `POST /api/invites/[secret]/accept { confirmLeave: true }` (browser session) → 200 `{ tenantId, householdName }`; 400 `confirm_required`, 403 `email_mismatch`, 404 `not_found`, 409 `already_member` | `owns_household_with_members` | `already_in_household`; 429 (10 per 10 min per user). Emails the owner.
+- Pages: `/settings/household`, `/invite/[secret]` (`Referrer-Policy: no-referrer`).
+- Audit events written by the web app: `household.invite_created`, `household.invite_revoked`, `household.invite_resent` (emails hashed with `hashPii`).

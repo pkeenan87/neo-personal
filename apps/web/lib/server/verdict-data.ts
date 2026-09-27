@@ -14,7 +14,7 @@
 import { hashPii, logger } from "@neo/core";
 import { VerdictSchema, type Verdict } from "@neo/verdict";
 import type {
-  HouseholdResponse,
+  HouseholdSummary,
   SinceDays,
   VerdictDetailResponse,
   VerdictListItem,
@@ -36,6 +36,7 @@ import {
   type VerdictRow,
 } from "@neo/db";
 import { getArtifactStore } from "./artifacts";
+import { memoryHouseholdName } from "./memory-household";
 import { memoryState } from "./memory-state";
 import { memoryListMembers, memoryVerdictQueries } from "./verdict-memory";
 
@@ -234,10 +235,12 @@ export async function deleteVerdict(session: NeoSession, id: string): Promise<bo
   return true;
 }
 
-export async function household(session: NeoSession): Promise<HouseholdResponse> {
+export async function household(session: NeoSession): Promise<HouseholdSummary> {
   const members = await householdMembers(session);
   const d = db();
-  const name = (d ? await safe(() => getHouseholdName(d, session.tenantId), "household name") : undefined) ?? "Your household";
+  const name = d
+    ? ((await safe(() => getHouseholdName(d, session.tenantId), "household name")) ?? "Your household")
+    : memoryHouseholdName(session.tenantId);
   return {
     tenantId: session.tenantId,
     name,

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, index, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { check, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import type { ModelFamily, RoutingPreference } from "@neo/core";
 import { users } from "./auth.js";
 
@@ -35,7 +35,8 @@ export const memberships = pgTable(
   },
   (t) => [
     primaryKey({ name: "memberships_tenant_user_pk", columns: [t.tenantId, t.userId] }),
-    index("memberships_user_idx").on(t.userId),
+    // A user belongs to exactly one household (_specs/household-invites.md).
+    uniqueIndex("memberships_one_household").on(t.userId),
     check("memberships_role_check", sql`${t.role} in ('owner', 'member')`),
     check("memberships_routing_preference_check", sql`${t.routingPreference} in ('cost', 'balanced', 'intelligence')`),
     check("memberships_model_family_check", sql`${t.modelFamily} in ('anthropic', 'openai', 'kimi', 'grok')`),

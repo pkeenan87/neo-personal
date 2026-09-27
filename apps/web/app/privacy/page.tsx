@@ -62,8 +62,9 @@ function sections(email: string): Section[] {
         <>
           <p>
             Only to do what you asked: analyze the thing you submitted, show you the result, keep your history so you can
-            come back to it, email you the result of a forwarded message, and enforce the free usage limits. Members of
-            the same household can see each other&apos;s checks; the household owner can see everyone&apos;s.
+            come back to it, email you the result of a forwarded message, and enforce the free usage limits. In a
+            household, each member sees their own checks and the household owner sees everyone&apos;s. Chats are private
+            to the person who had them.
           </p>
           <p className="mt-3">
             Neo does not sell or rent your data, does not show ads, does not build advertising profiles, and does not use
@@ -163,6 +164,11 @@ function sections(email: string): Section[] {
           <li>Delete any verdict from its page; this also deletes the evidence attached to it.</li>
           <li>Delete any conversation from the chat sidebar.</li>
           <li>Rotate your household&apos;s forwarding address at any time from Settings; the old one stops working.</li>
+          <li>
+            Leave a household at any time from Settings → Household; your chats in it are deleted and the checks you ran
+            stay with the household. Joining someone else&apos;s household deletes your own one-person household and
+            everything in it, after you confirm.
+          </li>
           <li>
             Ask for a copy of your data or for your account and household to be deleted by emailing{" "}
             <a href={`mailto:${email}`} className="text-accent hover:text-accent-hover">

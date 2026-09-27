@@ -13,6 +13,7 @@ import {
   createArtifactStore,
   createMemoryBlobClient,
   createVercelBlobClient,
+  type BlobClient,
   type ArtifactMeta,
   type ArtifactStore,
 } from "@neo/db";
@@ -150,7 +151,7 @@ export function artifactsStatus(): ArtifactsStatus {
   return "ok";
 }
 
-const g = globalThis as typeof globalThis & { __neoArtifactStore?: { key: string; store: ArtifactStore } };
+const g = globalThis as typeof globalThis & { __neoArtifactStore?: { key: string; store: ArtifactStore; blob: BlobClient } };
 
 /**
  * The app's single artifact store (uploads, inbound mail, dashboard evidence,
@@ -179,9 +180,21 @@ export function getArtifactStore(): ArtifactStore | null {
           allowPlaintext: !masterKey,
         })
       : createInMemoryArtifactStore({ blob, retentionDays: e.ARTIFACT_RETENTION_DAYS });
-    g.__neoArtifactStore = { key, store };
+    g.__neoArtifactStore = { key, store, blob };
   }
   return g.__neoArtifactStore.store;
+}
+
+/**
+ * Best-effort delete of blobs whose rows are already gone (a household deleted when its
+ * owner joined another one). Failures are logged; the blob paths hold ciphertext only.
+ */
+export async function deleteOrphanedBlobs(urls: string[]): Promise<void> {
+  if (urls.length === 0 || !getArtifactStore()) return;
+  const blob = g.__neoArtifactStore?.blob;
+  if (!blob) return;
+  const failed = (await Promise.allSettled(urls.map((u) => blob.del(u)))).filter((r) => r.status === "rejected").length;
+  if (failed > 0) logger.error("Orphaned blob delete failed", "artifacts", { errorMessage: `${failed} of ${urls.length} failed` });
 }
 
 /** Test helper: drop the cached store (and its memory blobs). */

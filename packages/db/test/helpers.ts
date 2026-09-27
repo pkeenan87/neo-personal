@@ -42,6 +42,7 @@ export async function becomeAppUser(client: PGlite): Promise<void> {
     grant execute on function public.resolve_inbound_address(text) to app_user;
     grant execute on function public.list_expired_artifacts(integer) to app_user;
     grant execute on function public.purge_old_inbound_messages(integer) to app_user;
+    grant execute on function public.lookup_household_invite(text) to app_user;
     set role app_user;
   `);
 }

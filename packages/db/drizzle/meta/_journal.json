@@ -50,6 +50,13 @@
       "when": 1790466569389,
       "tag": "0006_desktop_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790471643508,
+      "tag": "0007_household_invites",
+      "breakpoints": true
     }
   ]
 }

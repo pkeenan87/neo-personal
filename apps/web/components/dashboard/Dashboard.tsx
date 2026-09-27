@@ -8,7 +8,7 @@ import { relativeTime } from "@/components/ConversationSidebar";
 import { PlaybookButtons } from "@/components/PlaybookButtons";
 import {
   SINCE_DAYS,
-  type HouseholdResponse,
+  type HouseholdSummary,
   type SinceDays,
   type UsageResponse,
   type VerdictListItem,
@@ -19,7 +19,7 @@ import { VERDICT_LABELS } from "@/lib/verdict-fence";
 import { BarList, LABEL_BG, PerDayChart } from "./charts";
 
 export interface DashboardProps {
-  household: HouseholdResponse;
+  household: HouseholdSummary;
   /** The household's forwarding address has received mail. */
   forwardingUsed: boolean;
   initialRange?: SinceDays;
