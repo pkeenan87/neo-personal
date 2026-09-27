@@ -250,7 +250,7 @@ Monitoring tokens get `device signals:write url:check`. Scopes are fixed at mint
 - [ ] Leaving or being removed revokes the member's devices; their tokens stop resolving.
 - [ ] Owners see and manage all devices; members see and remove only their own; desktop tokens cannot manage
       devices or codes.
-- [ ] Migration 0009 applies on PGlite and Neon; RLS test covers `devices` and `device_enrollment_codes`.
+- [x] Migration 0009 applies on PGlite and Neon (production: applied 2026-09-27 before merge); RLS test covers `devices` and `device_enrollment_codes`.
 
 ## Open Questions
 
