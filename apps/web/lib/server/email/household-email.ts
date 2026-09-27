@@ -69,3 +69,30 @@ export function renderMemberRemovedEmail(input: { householdName: string; url: st
     text: [...paragraphs, "", safeUrl(input.url), "", FOOTER].join("\n"),
   };
 }
+
+/**
+ * To the member a device was enrolled for by code (_specs/device-enrollment.md). Says who
+ * enrolled it, what it reports and never reports, and where to remove it.
+ */
+export function renderDeviceEnrolledEmail(input: {
+  enrolledByName: string | null;
+  deviceName: string;
+  householdName: string;
+  url: string;
+}): RenderedEmail {
+  const enroller = name(input.enrolledByName, "Your household owner");
+  const device = name(input.deviceName, "a device");
+  const household = name(input.householdName, "your household");
+  const subject = "A device is now protected by Neo";
+  const paragraphs = [
+    `${enroller} added "${device}" to ${household} on Neo, to help protect you from scams.`,
+    "What it reports: a check-in with its app version and the time, so the household can see it is still working. Once the Neo browser extension and PC app ship, it will also report the scam warnings it shows you.",
+    "What it never reports: your browsing history, the pages you visit, your files, or your checks and chats with Neo.",
+    `You can remove it at any time under Settings → Household. ${enroller} will be told.`,
+  ];
+  return {
+    subject,
+    html: layout(subject, paragraphs, { href: input.url, label: "Open household settings" }),
+    text: [...paragraphs, "", `Household settings: ${safeUrl(input.url)}`, "", FOOTER].join("\n"),
+  };
+}

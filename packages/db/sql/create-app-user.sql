@@ -28,6 +28,9 @@ GRANT EXECUTE ON FUNCTION public.list_expired_artifacts(integer) TO app_user;
 GRANT EXECUTE ON FUNCTION public.purge_old_inbound_messages(integer) TO app_user;
 GRANT EXECUTE ON FUNCTION public.lookup_household_invite(text) TO app_user;  -- 0007
 GRANT EXECUTE ON FUNCTION public.purge_old_alerts() TO app_user;  -- 0008
+GRANT EXECUTE ON FUNCTION public.lookup_device_enrollment_code(text) TO app_user;  -- 0009
+GRANT EXECUTE ON FUNCTION public.list_stale_devices(timestamptz) TO app_user;  -- 0009
+GRANT EXECUTE ON FUNCTION public.purge_old_devices() TO app_user;  -- 0009
 
 -- Verify: both columns must be false.
 SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'app_user';

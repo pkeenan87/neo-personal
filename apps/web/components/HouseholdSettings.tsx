@@ -8,11 +8,13 @@ import type { CreateInviteResponse } from "@/lib/household-types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { relativeTime } from "./ConversationSidebar";
 import { CopyButton } from "./CopyButton";
+import { DevicesSection } from "./household/DevicesSection";
 import { useToast } from "./toast-context";
 
 type Pending =
   | { kind: "remove"; userId: string; label: string }
   | { kind: "revoke"; inviteId: string; label: string }
+  | { kind: "device"; deviceId: string; label: string; memberName: string | null }
   | { kind: "leave" };
 
 async function errorMessage(res: Response, fallback: string): Promise<string> {
@@ -133,10 +135,19 @@ export function HouseholdSettingsView({
       const url =
         pending.kind === "remove"
           ? `/api/household/members/${encodeURIComponent(pending.userId)}`
-          : `/api/household/invites/${encodeURIComponent(pending.inviteId)}`;
+          : pending.kind === "device"
+            ? `/api/household/devices/${encodeURIComponent(pending.deviceId)}`
+            : `/api/household/invites/${encodeURIComponent(pending.inviteId)}`;
       const res = await fetch(url, { method: "DELETE" });
-      if (!res.ok) throw new Error(await errorMessage(res, "Something went wrong."));
-      toast({ intent: "success", title: pending.kind === "remove" ? `${pending.label} was removed` : "Invite revoked" });
+      // A device someone else already removed is gone either way.
+      if (!res.ok && !(pending.kind === "device" && res.status === 404)) {
+        throw new Error(
+          pending.kind === "device" && res.status === 403
+            ? "You can only remove devices that protect you."
+            : await errorMessage(res, "Something went wrong."),
+        );
+      }
+      toast({ intent: "success", title: pending.kind === "revoke" ? "Invite revoked" : `${pending.label} was removed` });
       await refresh();
       setPending(null);
     } catch (err) {
@@ -146,16 +157,27 @@ export function HouseholdSettingsView({
     }
   }
 
+  const owner = home.members.find((m) => m.role === "owner");
+  const ownerName = owner?.name || "The household owner";
+
   const dialog =
     pending?.kind === "remove"
       ? {
           title: `Remove ${pending.label}?`,
-          body: "Their chats in this household are deleted and their desktop sign-ins stop working. Checks they ran stay in your household history. They get an email and can keep using Neo on their own.",
+          body: "Their chats in this household are deleted, and their desktop sign-ins and devices stop working. Checks they ran stay in your household history. They get an email and can keep using Neo on their own.",
           confirmLabel: "Remove",
         }
       : pending?.kind === "revoke"
         ? { title: "Revoke this invite?", body: `The link for ${pending.label} will stop working.`, confirmLabel: "Revoke" }
-        : pending?.kind === "leave"
+        : pending?.kind === "device"
+          ? {
+              title: `Remove ${pending.label}?`,
+              body: isOwner
+                ? `It stops reporting scam warnings${pending.memberName ? ` for ${pending.memberName}` : ""}. To protect it again, add it with a new enrollment code.`
+                : `It stops reporting scam warnings to your household. ${ownerName} will be told.`,
+              confirmLabel: "Remove",
+            }
+          : pending?.kind === "leave"
           ? {
               title: `Leave ${home.name}?`,
               body: "Your chats in this household are deleted. Checks you ran stay with the household. Next time you use Neo you get a household of your own.",
@@ -163,7 +185,6 @@ export function HouseholdSettingsView({
             }
           : null;
 
-  const owner = home.members.find((m) => m.role === "owner");
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
@@ -222,6 +243,18 @@ export function HouseholdSettingsView({
           </button>
         ) : null}
       </section>
+
+      <DevicesSection
+        devices={home.devices}
+        enrollmentCodes={home.enrollmentCodes}
+        members={home.members}
+        currentUserId={currentUserId}
+        isOwner={isOwner}
+        busy={busy}
+        setBusy={setBusy}
+        refresh={refresh}
+        onRemove={(d) => setPending({ kind: "device", deviceId: d.id, label: d.name, memberName: d.memberName })}
+      />
 
       {isOwner ? (
         <section className="rounded-2xl border border-border bg-surface p-5 shadow-sm">

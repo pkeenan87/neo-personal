@@ -8,12 +8,14 @@ import {
   decideDesktopAuthRequest,
   getDesktopAuthRequest,
   redeemDesktopAuthRequest,
+  type DeviceInput,
   type DesktopAuthApprover,
   type DesktopAuthDecision,
   type DesktopAuthRedemption,
   type DesktopAuthRequestPublic,
 } from "@neo/db";
 import type { NeoSession } from "@/lib/session";
+import { alertDeviceEnrolled } from "./alerts";
 import { getDb } from "./db";
 import {
   memoryCreateDesktopAuthRequest,
@@ -33,10 +35,18 @@ export const DEVICE_DECIDE_LIMIT = { limit: 20, windowMs: 10 * 60 * 1000 } as co
 
 export const DEFAULT_CLIENT_NAME = "Desktop client";
 
-export async function startDeviceAuth(clientName: string): Promise<{ id: string; userCode: string; deviceCode: string; expiresAt: Date } | { error: "bad_name" }> {
+/**
+ * Start a device authorization. With `device`, a monitoring request: redemption
+ * enrolls the device and mints a monitoring token (_specs/device-enrollment.md).
+ */
+export async function startDeviceAuth(
+  clientName: string,
+  device?: DeviceInput,
+): Promise<{ id: string; userCode: string; deviceCode: string; expiresAt: Date } | { error: "bad_name" | "invalid_device" }> {
+  const input = device ? { clientName, device } : { clientName };
   const db = getDb();
-  if (!db) return memoryCreateDesktopAuthRequest({ clientName });
-  return createDesktopAuthRequest(db, { clientName });
+  if (!db) return memoryCreateDesktopAuthRequest(input);
+  return createDesktopAuthRequest(db, input);
 }
 
 export async function lookupDeviceAuth(userCode: string): Promise<DesktopAuthRequestPublic | null> {
@@ -60,8 +70,13 @@ export async function decideDeviceAuth(
   return decideDesktopAuthRequest(db, { userCode, approve, approver });
 }
 
+/**
+ * Redeem once. A monitoring request that enrolled a device raises the owner's low
+ * `device_enrolled` alert, unless the device protects an owner (_specs/device-enrollment.md).
+ */
 export async function redeemDeviceAuth(deviceCode: string): Promise<DesktopAuthRedemption> {
   const db = getDb();
-  if (!db) return memoryRedeemDesktopAuthRequest(deviceCode);
-  return redeemDesktopAuthRequest(db, deviceCode);
+  const r = db ? await redeemDesktopAuthRequest(db, deviceCode) : await memoryRedeemDesktopAuthRequest(deviceCode);
+  if (r.status === "approved" && r.device) await alertDeviceEnrolled(r.device);
+  return r;
 }

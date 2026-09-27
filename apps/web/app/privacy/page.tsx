@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 /** Bump when the policy text changes materially. */
-export const PRIVACY_POLICY_UPDATED = "2026-09-26";
+export const PRIVACY_POLICY_UPDATED = "2026-09-27";
 
 const REPO_URL = "https://github.com/pkeenan87/neo-personal";
 
@@ -48,6 +48,11 @@ function sections(email: string): Section[] {
             numbers it extracted, your conversation history, and counts of how many checks your household has used.
           </li>
           <li>
+            <strong>Protected devices.</strong> When the household owner adds a browser or computer to protect a member,
+            Neo keeps its name, kind, and platform, and the device checks in regularly with its app version and the time.
+            In this release a device sends nothing else.
+          </li>
+          <li>
             <strong>Technical records.</strong> Our hosting provider keeps standard request logs (IP address, browser,
             timestamps). Neo&apos;s own logs record hashed identifiers and outcome codes, never the content of what you
             submitted.
@@ -67,7 +72,8 @@ function sections(email: string): Section[] {
             to the person who had them. When a member&apos;s check comes back malicious or suspicious, or someone joins or
             leaves, the owner gets an alert on the dashboard and, depending on their settings, by email. Alerts contain
             Neo&apos;s one-line summary of the check, never the checked message itself, and the member can see the alerts
-            about them.
+            about them. When a device is added to protect a member, the member gets an email saying so, and they can see
+            and remove their devices in Settings → Household; removing one tells the owner.
           </p>
           <p className="mt-3">
             Neo does not sell or rent your data, does not show ads, does not build advertising profiles, and does not use
@@ -135,6 +141,9 @@ function sections(email: string): Section[] {
             <strong>Verdicts and conversations</strong> are kept until you delete them, so your history stays useful.
           </li>
           <li>
+            <strong>Removed devices</strong> are deleted 90 days after removal.
+          </li>
+          <li>
             <strong>Your account</strong> is kept until you ask us to delete it.
           </li>
           <li>
@@ -172,6 +181,7 @@ function sections(email: string): Section[] {
             stay with the household. Joining someone else&apos;s household deletes your own one-person household and
             everything in it, after you confirm.
           </li>
+          <li>See and remove the devices that protect you from Settings → Household.</li>
           <li>
             Ask for a copy of your data or for your account and household to be deleted by emailing{" "}
             <a href={`mailto:${email}`} className="text-accent hover:text-accent-hover">

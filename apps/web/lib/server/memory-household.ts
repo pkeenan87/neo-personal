@@ -3,7 +3,8 @@
  * (MOCK_MODE, tests). Mirrors @neo/db household.ts over the shared members map
  * in memory-state.ts. There is no users table here, so the session's email is
  * trusted as verified, and a session whose tenant has no registered members is
- * treated as the sole owner of it.
+ * treated as the sole owner of it. Leaving or removal also revokes the member's
+ * devices and pending enrollment codes (memory-devices.ts), like @neo/db.
  */
 import {
   HOUSEHOLD_INVITE_TTL_MS,
@@ -20,6 +21,8 @@ import {
   type InvitePreview,
 } from "@neo/db";
 import type { NeoSession } from "@/lib/session";
+// Circular with memory-devices.ts (household names); only used at call time.
+import { memoryDeleteTenantDevices, memoryDetachMemberDevices } from "./memory-devices";
 import { memoryListMembers, memoryState, memoryVerdicts, setMemoryMembers } from "./memory-state";
 
 interface MemInvite extends HouseholdInvitePublic {
@@ -191,6 +194,7 @@ export function memoryAcceptInvite(session: NeoSession, secret: string, confirmL
   state.members.delete(session.tenantId);
   state.verdicts = state.verdicts.filter((v) => v.tenantId !== session.tenantId);
   state.inboundAddresses = state.inboundAddresses.filter((a) => a.tenantId !== session.tenantId);
+  memoryDeleteTenantDevices(session.tenantId, now);
   setMemoryMembers(inv.tenantId, [
     ...memoryListMembers(inv.tenantId),
     { userId: session.userId, name: session.name || null, email: session.email || null, role: "member" },
@@ -217,6 +221,7 @@ function memoryDetach(tenantId: string, userId: string): "not_found" | "owner" |
     tenantId,
     members.filter((x) => x.userId !== userId),
   );
+  memoryDetachMemberDevices(tenantId, userId);
   return "done";
 }
 

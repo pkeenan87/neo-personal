@@ -58,3 +58,64 @@ export type InviteErrorCode =
   | "browser_session_required"
   | "unauthenticated"
   | "storage_unavailable";
+
+/** Devices (_specs/device-enrollment.md). */
+export type DeviceKind = "browser_extension" | "desktop_agent";
+export type DevicePlatform = "chrome" | "edge" | "firefox" | "windows" | "macos" | "linux";
+
+export interface DeviceItem {
+  id: string;
+  userId: string;
+  memberName: string | null;
+  kind: DeviceKind;
+  platform: DevicePlatform;
+  name: string;
+  clientVersion: string;
+  enrollment: "code" | "self";
+  enrolledByName: string | null;
+  createdAt: string;
+  lastSeenAt: string | null;
+  /** `offline` after 48 h without a heartbeat; `never_seen` before the first one. */
+  status: "active" | "offline" | "never_seen";
+}
+
+export interface EnrollmentCodeItem {
+  id: string;
+  userId: string;
+  memberName: string | null;
+  createdAt: string;
+  expiresAt: string;
+}
+
+/** POST /api/household/members/[userId]/enrollment-codes; `code` is shown once. */
+export interface CreateEnrollmentCodeResponse {
+  id: string;
+  code: string;
+  expiresAt: string;
+  memberName: string | null;
+}
+
+/** POST /api/devices/enroll/preview */
+export interface EnrollmentPreviewResponse {
+  householdName: string;
+  memberName: string | null;
+  ownerName: string | null;
+  expiresAt: string;
+}
+
+/** POST /api/devices/enroll */
+export interface EnrollDeviceResponse {
+  token: string;
+  tokenId: string;
+  device: DeviceItem;
+  householdName: string;
+  memberName: string | null;
+}
+
+/** POST /api/devices/heartbeat */
+export interface HeartbeatResponse {
+  device: DeviceItem;
+  householdName: string;
+  memberName: string | null;
+  heartbeatSeconds: number;
+}

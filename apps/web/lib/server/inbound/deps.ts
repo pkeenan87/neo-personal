@@ -6,6 +6,7 @@ import { inboundEnv } from "@/lib/env";
 import { sharedUrlCache } from "../agent-run";
 import { recordAudit } from "../audit";
 import { getDb } from "../db";
+import { purgeOldDevices } from "../devices";
 import { getMailer, getReceivedMailClient } from "../email/resend";
 import { checkCaps, noteCapHit, recordUsage } from "../usage";
 import type { ExpireDeps } from "./artifacts-expire-job";
@@ -44,5 +45,6 @@ export function createExpireDeps(): ExpireDeps {
     purgeOldInbound: repo.purgeOld,
     // Without a database, in-memory alerts are bounded and die with the process.
     purgeOldAlerts: async () => (db ? purgeOldAlerts(db) : 0),
+    purgeOldDevices,
   };
 }

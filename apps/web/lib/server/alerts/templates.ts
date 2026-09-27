@@ -65,3 +65,45 @@ export function leftAlertText(memberName: string, removed: boolean): AlertText {
 export function hourBucket(now = new Date()): string {
   return now.toISOString().slice(0, 13);
 }
+
+// ─── Devices (_specs/device-enrollment.md) ─────────────────────────
+
+const DEVICE_NAME_MAX = 64;
+
+/** Device names are client- or user-supplied: cleaned and truncated like member names. */
+export function deviceLabel(name: string | null | undefined): string {
+  return truncate(cleanText(name ?? ""), DEVICE_NAME_MAX) || "A device";
+}
+
+export function deviceEnrolledAlertText(memberName: string, deviceName: string): AlertText {
+  return {
+    severity: "low",
+    title: `${memberName} added ${deviceName}`,
+    body: `${memberName} signed in on ${deviceName} and approved Neo there. It will report scam warnings about ${memberName} to your household. If you did not expect this, remove it under Settings → Household.`,
+  };
+}
+
+export function deviceRemovedAlertText(memberName: string, deviceName: string, by: "member" | "device"): AlertText {
+  return by === "member"
+    ? {
+        severity: "high",
+        title: `${memberName} removed ${deviceName}`,
+        body: `${memberName} removed ${deviceName} from Neo, so it no longer reports scam warnings. Scammers often tell people to remove security software. Check in with ${memberName} if this is unexpected.`,
+      }
+    : {
+        severity: "high",
+        title: `${deviceName} was uninstalled`,
+        body: `Neo was switched off or uninstalled on ${deviceName} (${memberName}), so it no longer reports scam warnings. Scammers often tell people to remove security software. Check in with ${memberName} if this is unexpected.`,
+      };
+}
+
+export function deviceOfflineAlertText(memberName: string, deviceName: string, lastSeen: Date | null): AlertText {
+  const when = lastSeen
+    ? `last checked in on ${lastSeen.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`
+    : "has not checked in since it was added";
+  return {
+    severity: "medium",
+    title: `${deviceName} (${memberName}) has not checked in for 2 days`,
+    body: `Neo on ${deviceName} ${when}. The device may be switched off or away, or Neo may have been removed from it. Check in with ${memberName} if this is unexpected.`,
+  };
+}

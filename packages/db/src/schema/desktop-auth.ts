@@ -12,6 +12,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.js";
+import type { DeviceKind, DevicePlatform } from "./devices.js";
 import { tenants, type MembershipRole } from "./tenants.js";
 
 export const DESKTOP_AUTH_STATUSES = ["pending", "approved", "denied"] as const;
@@ -37,10 +38,23 @@ export const desktopAuthRequests = pgTable(
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }).notNull(),
     decidedAt: timestamp("decided_at", { mode: "date", withTimezone: true }),
+    /** Monitoring requests (_specs/device-enrollment.md) carry the device; null for full-token requests. */
+    deviceKind: text("device_kind").$type<DeviceKind>(),
+    devicePlatform: text("device_platform").$type<DevicePlatform>(),
+    deviceName: text("device_name"),
+    deviceClientVersion: text("device_client_version"),
   },
   (t) => [
     index("desktop_auth_requests_expires_idx").on(t.expiresAt),
     check("desktop_auth_requests_status_check", sql`${t.status} in ('pending', 'approved', 'denied')`),
     check("desktop_auth_requests_role_check", sql`${t.role} is null or ${t.role} in ('owner', 'member')`),
+    check(
+      "desktop_auth_requests_device_check",
+      sql`(${t.deviceKind} is null and ${t.devicePlatform} is null and ${t.deviceName} is null and ${t.deviceClientVersion} is null)
+        or (${t.deviceKind} in ('browser_extension', 'desktop_agent')
+          and ${t.devicePlatform} in ('chrome', 'edge', 'firefox', 'windows', 'macos', 'linux')
+          and char_length(${t.deviceName}) between 1 and 64
+          and char_length(${t.deviceClientVersion}) between 1 and 32)`,
+    ),
   ],
 );

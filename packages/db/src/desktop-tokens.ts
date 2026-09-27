@@ -4,12 +4,18 @@
  * Token format: `neo_dt_` + 43-char base64url (32 random bytes). Only the
  * SHA-256 hex hash is stored. Resolve by hash before a tenant context exists
  * (same pattern as Auth.js sessions — this table has no RLS).
+ *
+ * `full` tokens act as the user and are what Settings → Desktop lists and caps.
+ * Monitoring tokens (_specs/device-enrollment.md) belong to a device, hold
+ * MONITORING_SCOPES only and are managed as devices (see devices.ts).
  */
 import { createHash, randomBytes } from "node:crypto";
-import { and, desc, eq, isNull } from "drizzle-orm";
-import type { Db } from "./client.js";
-import { desktopTokens } from "./schema/desktop-tokens.js";
+import { and, arrayContains, desc, eq, isNull } from "drizzle-orm";
+import type { Db, Tx } from "./client.js";
+import { desktopTokens, type TokenScope } from "./schema/desktop-tokens.js";
+import { devices } from "./schema/devices.js";
 import type { MembershipRole } from "./schema/tenants.js";
+import { tenantScoped } from "./tenant.js";
 
 export const DESKTOP_TOKEN_PREFIX = "neo_dt_";
 export const MAX_DESKTOP_TOKEN_NAME = 64;
@@ -30,6 +36,9 @@ export interface ResolvedDesktopToken {
   userId: string;
   tenantId: string;
   role: MembershipRole;
+  scopes: TokenScope[];
+  /** The device a monitoring token reports for; null for full tokens. */
+  deviceId: string | null;
 }
 
 export function hashDesktopToken(token: string): string {
@@ -52,11 +61,12 @@ export function normalizeDesktopTokenName(name: string): string | null {
   return trimmed;
 }
 
+/** Active `full` tokens; monitoring tokens are managed as devices. */
 export async function listDesktopTokens(db: Db, userId: string): Promise<DesktopTokenPublic[]> {
   const rows = await db
     .select()
     .from(desktopTokens)
-    .where(and(eq(desktopTokens.userId, userId), isNull(desktopTokens.revokedAt)))
+    .where(and(eq(desktopTokens.userId, userId), isNull(desktopTokens.revokedAt), arrayContains(desktopTokens.scopes, ["full"])))
     .orderBy(desc(desktopTokens.createdAt));
   return rows.map((r) => ({
     id: r.id,
@@ -102,6 +112,37 @@ export async function createDesktopToken(
   };
 }
 
+/**
+ * Insert a monitoring token for a device (MONITORING_SCOPES). Runs inside the caller's
+ * transaction so the device and its token commit together. Not capped per user: devices
+ * have their own household cap.
+ */
+export async function insertDeviceToken(
+  tx: Tx | Db,
+  input: { userId: string; tenantId: string; role: MembershipRole; name: string; deviceId: string; scopes: readonly TokenScope[] },
+): Promise<{ token: string; record: DesktopTokenPublic }> {
+  if (input.scopes.includes("full")) throw new Error("@neo/db: a device token cannot hold the full scope");
+  const { token, hash, prefix } = mintToken();
+  const [row] = await tx
+    .insert(desktopTokens)
+    .values({
+      userId: input.userId,
+      tenantId: input.tenantId,
+      role: input.role,
+      name: normalizeDesktopTokenName(input.name) ?? "Device",
+      tokenHash: hash,
+      tokenPrefix: prefix,
+      scopes: [...input.scopes],
+      deviceId: input.deviceId,
+    })
+    .returning();
+  if (!row) throw new Error("desktop token insert returned no row");
+  return {
+    token,
+    record: { id: row.id, name: row.name, tokenPrefix: row.tokenPrefix, createdAt: row.createdAt, lastUsedAt: row.lastUsedAt },
+  };
+}
+
 export async function revokeDesktopToken(db: Db, userId: string, tokenId: string): Promise<boolean> {
   const updated = await db
     .update(desktopTokens)
@@ -121,16 +162,25 @@ export async function resolveDesktopToken(db: Db, token: string): Promise<Resolv
       tenantId: desktopTokens.tenantId,
       role: desktopTokens.role,
       revokedAt: desktopTokens.revokedAt,
+      scopes: desktopTokens.scopes,
+      deviceId: desktopTokens.deviceId,
     })
     .from(desktopTokens)
     .where(eq(desktopTokens.tokenHash, hash))
     .limit(1);
   if (!row || row.revokedAt) return null;
+  if (row.deviceId) {
+    // devices has RLS, so read it under the token's tenant. Revoking a device revokes its
+    // tokens too; this check also covers a device revoked by any other path.
+    const deviceId = row.deviceId;
+    const device = await tenantScoped(db, row.tenantId).first(devices, eq(devices.id, deviceId));
+    if (!device || device.revokedAt) return null;
+  }
   // Fire-and-forget last-used bump; auth must not wait on the write.
   void db
     .update(desktopTokens)
     .set({ lastUsedAt: new Date() })
     .where(eq(desktopTokens.id, row.id))
     .catch(() => undefined);
-  return { id: row.id, userId: row.userId, tenantId: row.tenantId, role: row.role };
+  return { id: row.id, userId: row.userId, tenantId: row.tenantId, role: row.role, scopes: row.scopes, deviceId: row.deviceId };
 }

@@ -25,6 +25,7 @@ import {
   type AlertOwner,
   type AlertRow,
   type CreateAlertInput,
+  type DevicePublic,
   type HouseholdMember,
 } from "@neo/db";
 import type { Verdict } from "@neo/verdict";
@@ -50,7 +51,17 @@ import {
   memorySetThreshold,
 } from "../memory-alerts";
 import { memoryListMembers } from "../memory-state";
-import { displayName, hourBucket, joinedAlertText, leftAlertText, verdictAlertText } from "./templates";
+import {
+  deviceEnrolledAlertText,
+  deviceLabel,
+  deviceOfflineAlertText,
+  deviceRemovedAlertText,
+  displayName,
+  hourBucket,
+  joinedAlertText,
+  leftAlertText,
+  verdictAlertText,
+} from "./templates";
 
 export const ALERT_CREATED_EVENT = "neo/alert.created";
 /** Alert emails per household per UTC day before the "more than usual" notice. */
@@ -72,10 +83,12 @@ function errText(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).slice(0, 300);
 }
 
-async function members(tenantId: string): Promise<HouseholdMember[]> {
+/** The household's members (database or memory). */
+export async function tenantMembers(tenantId: string): Promise<HouseholdMember[]> {
   const db = getDb();
   return db ? listMembers(db, tenantId) : memoryListMembers(tenantId);
 }
+const members = tenantMembers;
 
 // ─── Raising ───────────────────────────────────────────────────────
 
@@ -156,6 +169,69 @@ export async function alertMemberLeft(
     ...leftAlertText(displayName(user.name, user.email), removed),
     dedupeKey: `member_left:${user.userId}:${hourBucket()}`,
   });
+}
+
+// ─── Devices (_specs/device-enrollment.md) ─────────────────────────
+
+/**
+ * The device's protected member when it may alert: devices protecting an owner (or
+ * someone no longer in the household) never do. Never throws.
+ */
+async function alertableMember(device: DevicePublic): Promise<HouseholdMember | null> {
+  try {
+    const m = (await members(device.tenantId)).find((x) => x.userId === device.userId);
+    return m && m.role === "member" ? m : null;
+  } catch (err) {
+    logger.error("Device alert member lookup failed", "alerts", { tenantId: device.tenantId, errorMessage: errText(err) });
+    return null;
+  }
+}
+
+/** `device_enrolled` (low): a member enrolled their own device through the browser sign-in. */
+export async function alertDeviceEnrolled(device: DevicePublic): Promise<boolean> {
+  if (device.enrollment !== "self") return false;
+  const member = await alertableMember(device);
+  if (!member) return false;
+  const row = await raiseAlert({
+    tenantId: device.tenantId,
+    subjectUserId: device.userId,
+    kind: "device_enrolled",
+    ...deviceEnrolledAlertText(displayName(member.name, member.email), deviceLabel(device.name)),
+    deviceId: device.id,
+    dedupeKey: `device_enrolled:${device.id}`,
+  });
+  return row !== null;
+}
+
+/** `device_removed` (high): the protected member removed it, or the device unenrolled itself. */
+export async function alertDeviceRemoved(device: DevicePublic, by: "member" | "device"): Promise<boolean> {
+  const member = await alertableMember(device);
+  if (!member) return false;
+  const row = await raiseAlert({
+    tenantId: device.tenantId,
+    subjectUserId: device.userId,
+    kind: "device_removed",
+    ...deviceRemovedAlertText(displayName(member.name, member.email), deviceLabel(device.name), by),
+    deviceId: device.id,
+    dedupeKey: `device_removed:${device.id}`,
+  });
+  return row !== null;
+}
+
+/** `device_offline` (medium): no heartbeat for 48 hours. One per outage (keyed on the last check-in). */
+export async function alertDeviceOffline(device: DevicePublic): Promise<boolean> {
+  const member = await alertableMember(device);
+  if (!member) return false;
+  const since = device.lastSeenAt ?? device.createdAt;
+  const row = await raiseAlert({
+    tenantId: device.tenantId,
+    subjectUserId: device.userId,
+    kind: "device_offline",
+    ...deviceOfflineAlertText(displayName(member.name, member.email), deviceLabel(device.name), device.lastSeenAt),
+    deviceId: device.id,
+    dedupeKey: `device_offline:${device.id}:${since.getTime()}`,
+  });
+  return row !== null;
 }
 
 // ─── Delivery ──────────────────────────────────────────────────────

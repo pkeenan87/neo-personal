@@ -24,7 +24,12 @@ export type AuditEventType =
   | "household.invite_resent"
   | "alert.acknowledged"
   | "alert.acknowledged_all"
-  | "settings.alert_threshold_changed";
+  | "settings.alert_threshold_changed"
+  | "device.enrollment_code_created"
+  | "device.enrollment_code_revoked"
+  | "device.enrolled"
+  | "device.renamed"
+  | "device.revoked";
 
 export interface MemoryAuditEvent {
   tenantId: string;

@@ -20,6 +20,8 @@ import {
   conversations,
   desktopAuthRequests,
   desktopTokens,
+  deviceEnrollmentCodes,
+  devices,
   householdInvites,
   inboundAddresses,
   memberships,
@@ -459,10 +461,18 @@ async function detachMember(
     // Their private chats go; their verdicts stay as household history.
     const deleted = await t.delete(conversations, eq(conversations.userId, userId));
     await t.delete(memberships, eq(memberships.userId, userId));
-    // Desktop tokens snapshot the tenant; revoke rather than leave them pointing here.
+    const now = new Date();
+    // Their devices and pending enrollment codes here stop working (_specs/device-enrollment.md).
+    await t.update(devices, { revokedAt: now, revokedBy: actorUserId === userId ? null : actorUserId }, and(eq(devices.userId, userId), isNull(devices.revokedAt)));
+    await t.update(
+      deviceEnrollmentCodes,
+      { revokedAt: now },
+      and(eq(deviceEnrollmentCodes.userId, userId), isNull(deviceEnrollmentCodes.revokedAt), isNull(deviceEnrollmentCodes.redeemedAt)),
+    );
+    // Desktop tokens (full and device) snapshot the tenant; revoke rather than leave them pointing here.
     await t.tx
       .update(desktopTokens)
-      .set({ revokedAt: new Date() })
+      .set({ revokedAt: now })
       .where(and(eq(desktopTokens.userId, userId), eq(desktopTokens.tenantId, tenantId), isNull(desktopTokens.revokedAt)));
     await t.tx.delete(desktopAuthRequests).where(and(eq(desktopAuthRequests.userId, userId), eq(desktopAuthRequests.tenantId, tenantId)));
     await t.insert(auditEvents, {

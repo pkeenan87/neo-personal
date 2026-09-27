@@ -44,6 +44,9 @@ export async function becomeAppUser(client: PGlite): Promise<void> {
     grant execute on function public.purge_old_inbound_messages(integer) to app_user;
     grant execute on function public.lookup_household_invite(text) to app_user;
     grant execute on function public.purge_old_alerts() to app_user;
+    grant execute on function public.lookup_device_enrollment_code(text) to app_user;
+    grant execute on function public.list_stale_devices(timestamptz) to app_user;
+    grant execute on function public.purge_old_devices() to app_user;
     set role app_user;
   `);
 }

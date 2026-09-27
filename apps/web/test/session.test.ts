@@ -68,6 +68,7 @@ describe("getSession with Auth.js", () => {
       role: "owner",
       email: "ana@example.test",
       name: "Ana",
+      scopes: ["full"],
     });
   });
 

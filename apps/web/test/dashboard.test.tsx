@@ -27,7 +27,13 @@ function summary(patch: Partial<VerdictSummaryResponse> = {}): VerdictSummaryRes
   };
 }
 
-function item(id: string, verdict: VerdictListItem["verdict"], headline: string, userId = "u-max"): VerdictListItem {
+function item(
+  id: string,
+  verdict: VerdictListItem["verdict"],
+  headline: string,
+  userId = "u-max",
+  createdAt = new Date().toISOString(),
+): VerdictListItem {
   return {
     id,
     subjectType: "url",
@@ -35,7 +41,7 @@ function item(id: string, verdict: VerdictListItem["verdict"], headline: string,
     confidence: 0.9,
     headline,
     source: "chat",
-    createdAt: new Date().toISOString(),
+    createdAt,
     userId,
     conversationId: null,
     artifactId: null,
@@ -96,8 +102,9 @@ describe("Dashboard", () => {
       perDay: [{ day: new Date().toISOString().slice(0, 10), malicious: 2, suspicious: 3, likely_safe: 6, insufficient_evidence: 1 }],
     });
     data.lists = {
-      malicious: [item("v1", "malicious", "Fake PayPal login")],
-      suspicious: [item("v2", "suspicious", "Odd delivery text")],
+      // Fixed times: "Needs attention" sorts newest first, so same-millisecond stamps made the order flaky.
+      malicious: [item("v1", "malicious", "Fake PayPal login", "u-max", new Date(Date.now() - 60_000).toISOString())],
+      suspicious: [item("v2", "suspicious", "Odd delivery text", "u-max", new Date(Date.now() - 120_000).toISOString())],
       all: [item("v1", "malicious", "Fake PayPal login"), item("v3", "likely_safe", "Real bank email", "u-owner")],
       c1: [item("v4", "likely_safe", "Older check")],
     };

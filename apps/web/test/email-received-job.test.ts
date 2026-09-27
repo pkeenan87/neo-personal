@@ -405,10 +405,10 @@ describe("artifacts-expire job", () => {
     Object.assign(row(newFailed.inboundMessageId), { status: "failed" });
 
     const steps = recordingSteps();
-    const result = await runArtifactsExpire({ artifacts, purgeOldInbound: memoryInbound.purgeOld, purgeOldAlerts: async () => 3 }, steps);
+    const result = await runArtifactsExpire({ artifacts, purgeOldInbound: memoryInbound.purgeOld, purgeOldAlerts: async () => 3, purgeOldDevices: async () => 2 }, steps);
 
-    expect(steps.names).toEqual(["purge-artifacts", "purge-inbound-rows", "purge-alerts"]);
-    expect(result).toEqual({ artifactsPurged: 1, artifactErrors: 0, inboundRowsDeleted: 1, alertsDeleted: 3 });
+    expect(steps.names).toEqual(["purge-artifacts", "purge-inbound-rows", "purge-alerts", "purge-devices"]);
+    expect(result).toEqual({ artifactsPurged: 1, artifactErrors: 0, inboundRowsDeleted: 1, alertsDeleted: 3, devicesDeleted: 2 });
     expect(blob.size).toBe(1); // only "fresh" is left
     expect(await artifacts.get(old.id, TENANT)).toBeUndefined();
     expect(await artifacts.get(fresh.id, TENANT)).toBeDefined();
@@ -426,7 +426,7 @@ describe("artifacts-expire job", () => {
         if (id === "a") throw new Error("blob down");
       }),
     };
-    const result = await runArtifactsExpire({ artifacts: store, purgeOldInbound: async () => 0, purgeOldAlerts: async () => 0 });
+    const result = await runArtifactsExpire({ artifacts: store, purgeOldInbound: async () => 0, purgeOldAlerts: async () => 0, purgeOldDevices: async () => 0 });
     expect(result).toMatchObject({ artifactsPurged: 1, artifactErrors: 1 });
   });
 });

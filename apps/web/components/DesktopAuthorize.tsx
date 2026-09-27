@@ -2,13 +2,27 @@
 
 import { MonitorSmartphone, ShieldCheck, ShieldX } from "lucide-react";
 import { useState } from "react";
-import type { DeviceAuthDecideResponse } from "@/lib/desktop-auth-types";
+import type { DeviceAuthDecideResponse, DeviceAuthDeviceInput } from "@/lib/desktop-auth-types";
+import type { DevicePlatform } from "@/lib/household-types";
 
 export interface DesktopAuthorizeRequest {
   clientName: string;
   expiresAt: string;
   status: "pending" | "approved" | "denied";
+  /** Set for a monitoring request (a device that reports scam warnings); null for full access. */
+  device: DeviceAuthDeviceInput | null;
+  /** The household a monitoring device reports to; null for full access. */
+  householdName: string | null;
 }
+
+const PLATFORM_LABEL: Record<DevicePlatform, string> = {
+  chrome: "Chrome",
+  edge: "Edge",
+  firefox: "Firefox",
+  windows: "Windows",
+  macos: "macOS",
+  linux: "Linux",
+};
 
 export function DesktopAuthorizeView({
   code,
@@ -123,11 +137,31 @@ export function DesktopAuthorizeView({
             <dt className="text-muted">Code</dt>
             <dd className="font-mono text-base tracking-widest">{code}</dd>
             <dt className="text-muted">Device</dt>
-            <dd className="font-medium">{request.clientName}</dd>
+            <dd className="font-medium">{request.device ? request.device.name : request.clientName}</dd>
+            {request.device ? (
+              <>
+                <dt className="text-muted">Platform</dt>
+                <dd>
+                  {PLATFORM_LABEL[request.device.platform]} {request.device.kind === "browser_extension" ? "browser extension" : "desktop app"}
+                </dd>
+              </>
+            ) : null}
+            <dt className="text-muted">Grants</dt>
+            <dd data-testid="grant">
+              {request.device ? (
+                <>
+                  Permission to report scam warnings from this device to <strong>{request.householdName ?? "your household"}</strong>. It cannot
+                  read your checks or chats.
+                </>
+              ) : (
+                <>Full access to your Neo account.</>
+              )}
+            </dd>
           </dl>
           <p className="mt-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-900 dark:text-amber-100">
-            Only approve if you just started this sign-in yourself and the code matches your terminal. Approving gives that device the same
-            access to your household as you have, until you revoke it under Settings → Desktop.
+            {request.device
+              ? "Only approve if you just started this on your own device and the code matches. You can remove the device under Settings → Household."
+              : "Only approve if you just started this sign-in yourself and the code matches your terminal. Approving gives that device the same access to your household as you have, until you revoke it under Settings → Desktop."}
           </p>
           {error ? (
             <p role="alert" className="mt-3 text-sm text-red-700 dark:text-red-300">
