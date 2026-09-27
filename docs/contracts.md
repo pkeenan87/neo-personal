@@ -549,6 +549,9 @@ Changed:
 - `NeoSession` gains `scopes: TokenScope[]` (browser sessions: `["full"]`) and `deviceId?`.
 - `getSession(opts?: { scope?: TokenScope })`: a desktop token resolves only if it holds `opts.scope ?? "full"`. `requireSession` and existing routes are therefore closed to monitoring tokens.
 - `requireApiSession(opts?)` / `requireBrowserApiSession()`: 403 `insufficient_scope` (not 401) for a valid token without the scope.
+- Browser (Auth.js and DEV_AUTH_BYPASS) sessions always resolve with `scopes: ["full"]` and no `deviceId`, whatever scope is asked for; a route that needs a device must also check `session.deviceId`.
+- A `Bearer neo_dt_…` header is resolved before DEV_AUTH_BYPASS and decides alone (session, 403 `insufficient_scope`, or 401), so device clients can be developed against MOCK_MODE with the bypass on.
+- Server helpers: `lib/server/devices.ts` (db-or-memory dispatch for every @neo/db devices function, `toDeviceItem(d, now?)`, `toEnrollmentCodeItem`, `deviceStatus`); in-memory twin `lib/server/memory-devices.ts`.
 
 ### HTTP contract: devices (`_specs/device-enrollment.md`)
 
@@ -571,7 +574,7 @@ JSON errors `{ error, code }`.
 - **Device management (browser session):**
   - `PATCH /api/household/devices/[id] { name }` (owner) → `{ device }`.
   - `DELETE /api/household/devices/[id]` (owner, or the protected member) → 204; 403 `forbidden`; 404 `not_found`.
-- **Device sign-in:** `POST /api/desktop/device` accepts `device?: { kind, platform, name, clientVersion }`. The token response adds `device` and `scopes`; `/desktop/authorize` names what is granted.
+- **Device sign-in:** `POST /api/desktop/device` accepts `device?: { kind, platform, name, clientVersion }` (malformed → 400 `bad_request`). The token response adds `scopes` and `device: DeviceItem | null` (null for a full token); 409 `device_limit` when the household has 20 active devices. `/desktop/authorize` names what is granted.
 - **Alerts:**
   - `device_enrolled` (low, self-enrollment by a non-owner, dedupe `device_enrolled:<deviceId>`).
   - `device_removed` (high, removal by the member or the device, dedupe `device_removed:<deviceId>`).

@@ -3,14 +3,18 @@
  * takes `tenantId` from here and never from the request (_specs/tenant-auth.md).
  *
  *  - Normal path: Auth.js `auth()` (database session) → `{ userId, tenantId, role }`.
- *  - Desktop tokens: `Authorization: Bearer neo_dt_…` → same shape (Omarchy plugin).
+ *  - Desktop tokens: `Authorization: Bearer neo_dt_…` → same shape (Omarchy plugin),
+ *    plus the token's `scopes` (_specs/device-enrollment.md). A token resolves only
+ *    if it holds the scope asked for (`full` unless a route says otherwise), so
+ *    monitoring tokens reach no existing route or page. A Bearer token is checked
+ *    before DEV_AUTH_BYPASS, so device clients can be developed against MOCK_MODE.
  *  - DEV_AUTH_BYPASS (only when not production/preview, see lib/env.ts): a fixed
  *    dev identity. With a database, the dev user and its household are created
  *    on first use; without one, a fixed in-memory dev tenant is used so
  *    MOCK_MODE runs with zero infrastructure.
  */
 import { hashPii, logger } from "@neo/core";
-import { createTenantForUser, isDesktopTokenFormat, users, type Db } from "@neo/db";
+import { createTenantForUser, isDesktopTokenFormat, users, type Db, type TokenScope } from "@neo/db";
 import { eq } from "drizzle-orm";
 import type { Session } from "next-auth";
 import { headers } from "next/headers";
@@ -21,6 +25,10 @@ import { jsonError } from "./server/http";
 import { devAuthBypassRefused, env } from "./env";
 
 export type MembershipRole = "owner" | "member";
+export type { TokenScope };
+
+/** Browser (Auth.js or dev-bypass) sessions and `full` desktop tokens. */
+const FULL_SCOPES: TokenScope[] = ["full"];
 
 export interface NeoSession {
   userId: string;
@@ -30,6 +38,15 @@ export interface NeoSession {
   name: string;
   /** Present when the session came from a desktop personal access token. */
   desktopTokenId?: string;
+  /** What this session may do: `["full"]` for browser sessions; a desktop token's own scopes. */
+  scopes: TokenScope[];
+  /** The device a monitoring token reports for. */
+  deviceId?: string;
+}
+
+export interface SessionOptions {
+  /** Scope a desktop token must hold (default `full`). Browser sessions always resolve. */
+  scope?: TokenScope;
 }
 
 /** Identity used by DEV_AUTH_BYPASS when there is no database. */
@@ -53,7 +70,7 @@ async function ensureDevIdentity(db: Db, email: string, name: string): Promise<{
 
 async function devSession(): Promise<NeoSession> {
   const e = env();
-  const base = { role: "owner" as const, email: e.DEV_USER_EMAIL, name: e.DEV_USER_NAME };
+  const base = { role: "owner" as const, email: e.DEV_USER_EMAIL, name: e.DEV_USER_NAME, scopes: [...FULL_SCOPES] };
   const db = getDb();
   if (!db) return { ...DEV_SESSION_IDS, ...base };
   if (g.__neoDevIdentity?.db !== db || g.__neoDevIdentity.email !== e.DEV_USER_EMAIL) {
@@ -66,45 +83,61 @@ async function devSession(): Promise<NeoSession> {
   return { ...(await g.__neoDevIdentity.ids), ...base };
 }
 
-async function sessionFromDesktopBearer(): Promise<NeoSession | null> {
+/** `undefined`: no Bearer desktop token on the request; otherwise the token string. */
+async function bearerDesktopToken(): Promise<string | undefined> {
   let authz: string | null = null;
   try {
     authz = (await headers()).get("authorization");
   } catch {
-    return null;
+    return undefined;
   }
-  if (!authz?.toLowerCase().startsWith("bearer ")) return null;
+  if (!authz?.toLowerCase().startsWith("bearer ")) return undefined;
   const token = authz.slice(7).trim();
-  if (!isDesktopTokenFormat(token)) return null;
+  return isDesktopTokenFormat(token) ? token : undefined;
+}
+
+type Resolution = { session: NeoSession; failure?: undefined } | { session: null; failure: "unauthenticated" | "insufficient_scope" };
+
+async function sessionFromDesktopToken(token: string, scope: TokenScope): Promise<Resolution> {
   try {
     const resolved = await resolveBearerDesktopToken(token);
-    if (!resolved) return null;
+    if (!resolved) return { session: null, failure: "unauthenticated" };
+    if (!resolved.scopes.includes(scope)) return { session: null, failure: "insufficient_scope" };
     return {
-      userId: resolved.userId,
-      tenantId: resolved.tenantId,
-      role: resolved.role,
-      email: "",
-      name: "desktop",
-      desktopTokenId: resolved.id,
+      session: {
+        userId: resolved.userId,
+        tenantId: resolved.tenantId,
+        role: resolved.role,
+        email: "",
+        name: "desktop",
+        desktopTokenId: resolved.id,
+        scopes: [...resolved.scopes],
+        ...(resolved.deviceId ? { deviceId: resolved.deviceId } : {}),
+      },
     };
   } catch (err) {
     logger.error("Desktop token lookup failed", "auth", {
       errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300),
     });
-    return null;
+    return { session: null, failure: "unauthenticated" };
   }
 }
 
-export async function getSession(): Promise<NeoSession | null> {
+/**
+ * The request's session, or why there is none. A Bearer desktop token decides on its
+ * own (also under DEV_AUTH_BYPASS): valid with the scope, valid without it
+ * (`insufficient_scope`), or unknown/revoked (`unauthenticated`).
+ */
+async function resolveSession(scope: TokenScope): Promise<Resolution> {
+  const token = await bearerDesktopToken();
+  if (token) return sessionFromDesktopToken(token, scope);
+
   const e = env();
-  if (e.DEV_AUTH_BYPASS) return devSession();
+  if (e.DEV_AUTH_BYPASS) return { session: await devSession() };
   if (devAuthBypassRefused() && !g.__neoBypassRefusedLogged) {
     g.__neoBypassRefusedLogged = true;
     logger.error("DEV_AUTH_BYPASS is set on a production/preview deployment and is ignored", "auth");
   }
-
-  const fromToken = await sessionFromDesktopBearer();
-  if (fromToken) return fromToken;
 
   let s: Session | null;
   try {
@@ -115,20 +148,31 @@ export async function getSession(): Promise<NeoSession | null> {
     logger.error("Session lookup failed", "auth", {
       errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300),
     });
-    return null;
+    return { session: null, failure: "unauthenticated" };
   }
   if (!s?.userId || !s.tenantId || !s.role) {
     if (s?.userId) logger.warn("Signed-in user has no household", "auth", { userIdHash: hashPii(s.userId) });
-    return null;
+    return { session: null, failure: "unauthenticated" };
   }
   const email = s.user?.email ?? "";
   return {
-    userId: s.userId,
-    tenantId: s.tenantId,
-    role: s.role,
-    email,
-    name: s.user?.name?.trim() || email.split("@")[0] || "there",
+    session: {
+      userId: s.userId,
+      tenantId: s.tenantId,
+      role: s.role,
+      email,
+      name: s.user?.name?.trim() || email.split("@")[0] || "there",
+      scopes: [...FULL_SCOPES],
+    },
   };
+}
+
+/**
+ * The session, or null. A desktop token resolves only if it holds `opts.scope`
+ * (default `full`); browser sessions always resolve with `scopes: ["full"]`.
+ */
+export async function getSession(opts: SessionOptions = {}): Promise<NeoSession | null> {
+  return (await resolveSession(opts.scope ?? "full")).session;
 }
 
 /**
@@ -146,18 +190,30 @@ export function isBrowserSession(session: NeoSession): boolean {
   return !session.desktopTokenId;
 }
 
-/** For API routes: the session, or a 401 JSON response to return as is. */
-export async function requireApiSession(): Promise<{ session: NeoSession; response?: undefined } | { session?: undefined; response: Response }> {
-  const session = await getSession();
-  if (!session) return { response: jsonError(401, "Sign in to continue.", "unauthenticated") };
-  return { session };
+type ApiSessionResult = { session: NeoSession; response?: undefined } | { session?: undefined; response: Response };
+
+function insufficientScope(): Response {
+  return jsonError(403, "This device's token cannot do that.", "insufficient_scope");
+}
+
+/**
+ * For API routes: the session, or a JSON error response to return as is: 401 without a
+ * session (or with an unknown/revoked token), 403 `insufficient_scope` for a valid desktop
+ * token without `opts.scope` (default `full`), so a client does not sign in again.
+ */
+export async function requireApiSession(opts: SessionOptions = {}): Promise<ApiSessionResult> {
+  const r = await resolveSession(opts.scope ?? "full");
+  if (r.session) return { session: r.session };
+  if (r.failure === "insufficient_scope") return { response: insufficientScope() };
+  return { response: jsonError(401, "Sign in to continue.", "unauthenticated") };
 }
 
 /**
  * For API routes that manage credentials: a browser session only. A desktop
- * token must never mint or approve other tokens (403 `browser_session_required`).
+ * token must never mint or approve other tokens (403 `browser_session_required`;
+ * a monitoring token gets 403 `insufficient_scope`).
  */
-export async function requireBrowserApiSession(): Promise<{ session: NeoSession; response?: undefined } | { session?: undefined; response: Response }> {
+export async function requireBrowserApiSession(): Promise<ApiSessionResult> {
   const r = await requireApiSession();
   if (!r.session) return r;
   if (!isBrowserSession(r.session)) {

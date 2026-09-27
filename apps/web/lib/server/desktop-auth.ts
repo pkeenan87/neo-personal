@@ -8,6 +8,7 @@ import {
   decideDesktopAuthRequest,
   getDesktopAuthRequest,
   redeemDesktopAuthRequest,
+  type DeviceInput,
   type DesktopAuthApprover,
   type DesktopAuthDecision,
   type DesktopAuthRedemption,
@@ -33,10 +34,18 @@ export const DEVICE_DECIDE_LIMIT = { limit: 20, windowMs: 10 * 60 * 1000 } as co
 
 export const DEFAULT_CLIENT_NAME = "Desktop client";
 
-export async function startDeviceAuth(clientName: string): Promise<{ id: string; userCode: string; deviceCode: string; expiresAt: Date } | { error: "bad_name" }> {
+/**
+ * Start a device authorization. With `device`, a monitoring request: redemption
+ * enrolls the device and mints a monitoring token (_specs/device-enrollment.md).
+ */
+export async function startDeviceAuth(
+  clientName: string,
+  device?: DeviceInput,
+): Promise<{ id: string; userCode: string; deviceCode: string; expiresAt: Date } | { error: "bad_name" | "invalid_device" }> {
+  const input = device ? { clientName, device } : { clientName };
   const db = getDb();
-  if (!db) return memoryCreateDesktopAuthRequest({ clientName });
-  return createDesktopAuthRequest(db, { clientName });
+  if (!db) return memoryCreateDesktopAuthRequest(input);
+  return createDesktopAuthRequest(db, input);
 }
 
 export async function lookupDeviceAuth(userCode: string): Promise<DesktopAuthRequestPublic | null> {

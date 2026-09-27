@@ -87,7 +87,7 @@ Monitoring tokens get `device signals:write url:check`. Scopes are fixed at mint
   - The code is shown once and stored hashed.
   - The code expires after **24 hours** and is single-use.
   - The owner may generate one for themselves.
-  - Errors: 404 `not_found` for a user who is not a member; 409 `limit` at 10 pending codes per household or
+  - Errors: 404 `not_found` for a user who is not a member; 409 `code_limit` at 10 pending codes per household, `device_limit` at
     20 active devices per household.
 - `GET /api/household` adds `devices` (active, newest first) and `enrollmentCodes` (pending, without the code) to
   the response.
@@ -101,7 +101,7 @@ Monitoring tokens get `device signals:write url:check`. Scopes are fixed at mint
   - In one transaction: lock the code row `FOR UPDATE`, re-check that it is pending, insert the device (enrollment
     `code`, `enrolled_by` = the code's creator), mint the scoped token for the member, mark the code redeemed.
   - Code input is case-insensitive and accepts it with or without dashes or spaces.
-  - Errors: 404 `not_found`, 409 `limit` (the household reached 20 active devices), 400 `invalid` for an unknown
+  - Errors: 404 `not_found`, 409 `device_limit` (the household reached 20 active devices), 400 `invalid` for an unknown
     kind or platform or a bad name.
 - Rate limits: preview and enroll share **10 per hour per IP**, returning 429 with `Retry-After`.
 - Enrollment by code does not count against the member's 10 desktop tokens; devices have their own cap.

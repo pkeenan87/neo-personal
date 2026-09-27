@@ -17,7 +17,8 @@ export async function GET(): Promise<Response> {
   if (!session) return response;
   try {
     const [summary, invites] = await Promise.all([household(session), listInvites(session)]);
-    const body: HouseholdResponse = { ...summary, invites };
+    // devices / enrollmentCodes: filled by the device routes (_specs/device-enrollment.md).
+    const body: HouseholdResponse = { ...summary, invites, devices: [], enrollmentCodes: [] };
     return Response.json(body, { headers: NO_STORE });
   } catch (err) {
     return storageError(err, "api.household", session.tenantId);

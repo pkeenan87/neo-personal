@@ -101,6 +101,8 @@ describe("HouseholdSettingsView", () => {
         invitedByName: "Pat",
       },
     ],
+    devices: [],
+    enrollmentCodes: [],
   };
 
   function renderView(home: HouseholdResponse, currentUserId = "u-owner") {

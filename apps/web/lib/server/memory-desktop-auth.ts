@@ -4,12 +4,15 @@
  */
 import {
   DESKTOP_AUTH_TTL_MS,
+  MONITORING_SCOPES,
   generateUserCode,
   hashDeviceCode,
   isDeviceCodeFormat,
   mintDeviceCode,
   normalizeClientName,
+  normalizeDeviceInput,
   normalizeUserCode,
+  type DeviceInput,
   type DesktopAuthApprover,
   type DesktopAuthDecision,
   type DesktopAuthRedemption,
@@ -17,6 +20,7 @@ import {
   type DesktopAuthStatus,
 } from "@neo/db";
 import { memoryCreateDesktopToken } from "./memory-desktop-tokens";
+import { memoryEnrollSelfDevice } from "./memory-devices";
 
 interface MemRequest extends DesktopAuthRequestPublic {
   deviceCodeHash: string;
@@ -45,10 +49,16 @@ function byUserCode(code: string): MemRequest | undefined {
 
 export function memoryCreateDesktopAuthRequest(input: {
   clientName: string;
+  device?: DeviceInput;
   now?: Date;
-}): { id: string; userCode: string; deviceCode: string; expiresAt: Date } | { error: "bad_name" } {
+}): { id: string; userCode: string; deviceCode: string; expiresAt: Date } | { error: "bad_name" | "invalid_device" } {
   const clientName = normalizeClientName(input.clientName);
   if (!clientName) return { error: "bad_name" };
+  let device: DeviceInput | null = null;
+  if (input.device !== undefined) {
+    device = normalizeDeviceInput(input.device);
+    if (!device) return { error: "invalid_device" };
+  }
   const now = input.now ?? new Date();
   purgeExpired(now);
   let userCode = generateUserCode();
@@ -56,14 +66,22 @@ export function memoryCreateDesktopAuthRequest(input: {
   const deviceCode = mintDeviceCode();
   const expiresAt = new Date(now.getTime() + DESKTOP_AUTH_TTL_MS);
   // The user code doubles as the map key (rows are keyed by it in memory).
-  store().set(userCode, { id: userCode, clientName, status: "pending", expiresAt, deviceCodeHash: hashDeviceCode(deviceCode), approver: null });
+  store().set(userCode, {
+    id: userCode,
+    clientName,
+    status: "pending",
+    expiresAt,
+    device,
+    deviceCodeHash: hashDeviceCode(deviceCode),
+    approver: null,
+  });
   return { id: userCode, userCode, deviceCode, expiresAt };
 }
 
 export function memoryGetDesktopAuthRequest(userCode: string, now = new Date()): DesktopAuthRequestPublic | null {
   const r = byUserCode(userCode);
   if (!r || r.expiresAt.getTime() <= now.getTime()) return null;
-  return { id: r.id, clientName: r.clientName, status: r.status, expiresAt: r.expiresAt };
+  return { id: r.id, clientName: r.clientName, status: r.status, expiresAt: r.expiresAt, device: r.device ? { ...r.device } : null };
 }
 
 export function memoryDecideDesktopAuthRequest(input: {
@@ -95,6 +113,26 @@ export function memoryRedeemDesktopAuthRequest(deviceCode: string, now = new Dat
   if (row.status === "pending") return { status: "pending" };
   store().delete(row.id);
   if (row.status === "denied" || !row.approver) return { status: "denied" };
+  if (row.device) {
+    const enrolled = memoryEnrollSelfDevice({
+      tenantId: row.approver.tenantId,
+      userId: row.approver.userId,
+      role: row.approver.role,
+      device: row.device,
+      now,
+    });
+    if ("error" in enrolled) return { status: enrolled.error === "device_limit" ? "device_limit" : "not_found" };
+    return {
+      status: "approved",
+      token: enrolled.token,
+      record: enrolled.record,
+      email: row.approver.email,
+      name: row.approver.name,
+      clientName: row.clientName,
+      scopes: [...MONITORING_SCOPES],
+      device: enrolled.device,
+    };
+  }
   const minted = memoryCreateDesktopToken({
     userId: row.approver.userId,
     tenantId: row.approver.tenantId,
@@ -109,5 +147,7 @@ export function memoryRedeemDesktopAuthRequest(deviceCode: string, now = new Dat
     email: row.approver.email,
     name: row.approver.name,
     clientName: row.clientName,
+    scopes: ["full"],
+    device: null,
   };
 }

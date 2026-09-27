@@ -5,6 +5,8 @@
  * authenticates API calls as the approver → it can revoke only itself.
  */
 import type { Session } from "next-auth";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as approvePOST } from "@/app/api/desktop/device/approve/route";
 import { POST as startPOST } from "@/app/api/desktop/device/route";
@@ -13,7 +15,10 @@ import { DELETE as tokensDELETE, GET as tokensGET, POST as tokensPOST } from "@/
 import { GET as usageGET } from "@/app/api/usage/route";
 import type { DeviceAuthRedeemResponse, DeviceAuthStartResponse } from "@/lib/desktop-auth-types";
 import type { DesktopTokenListResponse } from "@/lib/desktop-token-types";
-import { DEVICE_DECIDE_LIMIT, DEVICE_START_LIMIT } from "@/lib/server/desktop-auth";
+import { DesktopAuthorizeView } from "@/components/DesktopAuthorize";
+import type { DeviceAuthDeviceInput } from "@/lib/desktop-auth-types";
+import { DEVICE_DECIDE_LIMIT, DEVICE_START_LIMIT, lookupDeviceAuth } from "@/lib/server/desktop-auth";
+import { memoryEnrollSelfDevice, memoryListDevices, resetMemoryDevices } from "@/lib/server/memory-devices";
 import { resetMemoryDesktopAuth } from "@/lib/server/memory-desktop-auth";
 import { resetRateLimits } from "@/lib/server/rate-limit";
 import { DEV_SESSION_IDS, getSession } from "@/lib/session";
@@ -47,6 +52,7 @@ beforeEach(() => {
   stubBaseEnv(vi);
   resetMemoryState();
   resetMemoryDesktopAuth();
+  resetMemoryDevices();
   resetRateLimits();
   hdrs.current = new Headers();
   authState.session = null;
@@ -78,7 +84,7 @@ describe("device authorization flow", () => {
     const redeemed = await redeemPOST(post("/api/desktop/device/token", { deviceCode: started.deviceCode }));
     expect(redeemed.status).toBe(200);
     const body = (await redeemed.json()) as DeviceAuthRedeemResponse;
-    expect(body).toMatchObject({ status: "approved", clientName: "NeoShield on laptop", email: "dev@neo.local", name: "Dev User" });
+    expect(body).toMatchObject({ status: "approved", clientName: "NeoShield on laptop", email: "dev@neo.local", name: "Dev User", scopes: ["full"], device: null });
     expect(body.token).toMatch(/^neo_dt_[A-Za-z0-9_-]{43}$/);
 
     // One-shot delivery.
@@ -147,5 +153,99 @@ describe("device authorization flow", () => {
       expect((await approvePOST(post("/api/desktop/device/approve", { userCode: "ZZZZ-ZZZZ", approve: true }))).status).toBe(404);
     }
     expect((await approvePOST(post("/api/desktop/device/approve", { userCode: "ZZZZ-ZZZZ", approve: true }))).status).toBe(429);
+  });
+
+  const DEVICE: DeviceAuthDeviceInput = { kind: "browser_extension", platform: "chrome", name: "Chrome on Grandma's laptop", clientVersion: "0.1.0" };
+
+  it("enrolls a device and mints a monitoring token for a request with a device", async () => {
+    const res = await startPOST(post("/api/desktop/device", { clientName: "Neo extension", device: DEVICE }));
+    expect(res.status).toBe(201);
+    const started = (await res.json()) as DeviceAuthStartResponse;
+
+    // The approval page's lookup exposes the device.
+    const lookup = await lookupDeviceAuth(started.userCode);
+    expect(lookup).toMatchObject({ clientName: "Neo extension", status: "pending", device: DEVICE });
+
+    expect((await approvePOST(post("/api/desktop/device/approve", { userCode: started.userCode, approve: true }))).status).toBe(200);
+    const redeemed = await redeemPOST(post("/api/desktop/device/token", { deviceCode: started.deviceCode }));
+    expect(redeemed.status).toBe(200);
+    const body = (await redeemed.json()) as DeviceAuthRedeemResponse;
+    expect(body.scopes).toEqual(["device", "signals:write", "url:check"]);
+    expect(body.device).toMatchObject({
+      userId: DEV_SESSION_IDS.userId,
+      kind: "browser_extension",
+      platform: "chrome",
+      name: "Chrome on Grandma's laptop",
+      clientVersion: "0.1.0",
+      enrollment: "self",
+      lastSeenAt: null,
+      status: "never_seen",
+    });
+
+    // A device, not a desktop token: Settings → Desktop does not list it.
+    expect(memoryListDevices(DEV_SESSION_IDS.tenantId).map((d) => d.id)).toEqual([body.device!.id]);
+    const list = (await (await tokensGET()).json()) as DesktopTokenListResponse;
+    expect(list.tokens).toHaveLength(0);
+
+    // It resolves only for its own scopes.
+    vi.stubEnv("DEV_AUTH_BYPASS", "false");
+    bearer(body.token);
+    expect(await getSession()).toBeNull();
+    expect(await getSession({ scope: "device" })).toMatchObject({ deviceId: body.device!.id, desktopTokenId: body.tokenId });
+    const usage = await usageGET();
+    expect(usage.status).toBe(403);
+    expect(await usage.json()).toMatchObject({ code: "insufficient_scope" });
+  });
+
+  it("rejects a malformed device with 400", async () => {
+    for (const device of [
+      null,
+      "chrome",
+      { ...DEVICE, kind: "phone" },
+      { ...DEVICE, platform: "android" },
+      { ...DEVICE, name: "" },
+      { ...DEVICE, name: "x".repeat(65) },
+      { ...DEVICE, clientVersion: "" },
+      { kind: DEVICE.kind, platform: DEVICE.platform, name: DEVICE.name },
+    ]) {
+      const res = await startPOST(post("/api/desktop/device", { clientName: "Neo extension", device }));
+      expect(res.status, JSON.stringify(device)).toBe(400);
+      expect(await res.json()).toMatchObject({ code: "bad_request" });
+    }
+  });
+
+  it("returns 409 device_limit when the household is full", async () => {
+    for (let i = 0; i < 20; i++) {
+      const r = memoryEnrollSelfDevice({ ...DEV_SESSION_IDS, role: "owner", device: { ...DEVICE, name: `Device ${i}` } });
+      expect("error" in r).toBe(false);
+    }
+    const s = (await (await startPOST(post("/api/desktop/device", { device: DEVICE }))).json()) as DeviceAuthStartResponse;
+    expect((await approvePOST(post("/api/desktop/device/approve", { userCode: s.userCode, approve: true }))).status).toBe(200);
+    const full = await redeemPOST(post("/api/desktop/device/token", { deviceCode: s.deviceCode }));
+    expect(full.status).toBe(409);
+    expect(await full.json()).toMatchObject({ code: "device_limit" });
+  });
+
+  it("the approval page names what is granted", () => {
+    const base = { code: "BCDF-2346", invalidInput: false, unavailable: false, account: { email: "dev@neo.local", name: "Dev User" } };
+    const monitoring = renderToStaticMarkup(
+      createElement(DesktopAuthorizeView, {
+        ...base,
+        request: { clientName: "Neo extension", expiresAt: new Date().toISOString(), status: "pending", device: DEVICE, householdName: "Dev household" },
+      }),
+    );
+    expect(monitoring).toContain("report scam warnings from this device to <strong>Dev household</strong>. It cannot read your checks or chats.");
+    expect(monitoring).toContain("Chrome on Grandma&#x27;s laptop");
+    expect(monitoring).toContain("Chrome browser extension");
+    expect(monitoring).not.toContain("Full access");
+
+    const full = renderToStaticMarkup(
+      createElement(DesktopAuthorizeView, {
+        ...base,
+        request: { clientName: "NeoShield on laptop", expiresAt: new Date().toISOString(), status: "pending", device: null, householdName: null },
+      }),
+    );
+    expect(full).toContain("Full access to your Neo account.");
+    expect(full).not.toContain("report scam warnings");
   });
 });

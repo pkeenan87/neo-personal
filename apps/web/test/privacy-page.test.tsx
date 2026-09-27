@@ -24,6 +24,13 @@ describe("privacy policy page", () => {
     }
   });
 
+  it("explains what protected devices send and who is told", () => {
+    render(<PrivacyPage />);
+    expect(screen.getByText("Protected devices.")).toBeInTheDocument();
+    expect(screen.getByText(/checks in regularly with its app version and the time/)).toBeInTheDocument();
+    expect(screen.getByText(/removing one tells the owner/)).toBeInTheDocument();
+  });
+
   it("falls back to the default contact address", () => {
     vi.stubEnv("NEO_CONTACT_EMAIL", "");
     render(<PrivacyPage />);

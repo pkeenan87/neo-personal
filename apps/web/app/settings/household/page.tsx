@@ -22,7 +22,7 @@ export default async function HouseholdSettingsPage() {
     <>
       {env().DEV_AUTH_BYPASS ? <DevBypassBanner /> : null}
       <AppShell active="settings">
-        <HouseholdSettingsView initial={{ ...summary, invites }} currentUserId={session.userId} initialThreshold={threshold} />
+        <HouseholdSettingsView initial={{ ...summary, invites, devices: [], enrollmentCodes: [] }} currentUserId={session.userId} initialThreshold={threshold} />
       </AppShell>
     </>
   );

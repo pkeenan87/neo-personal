@@ -6,10 +6,11 @@
 import type { Metadata } from "next";
 import { normalizeUserCode } from "@neo/db";
 import { AppShell } from "@/components/AppShell";
-import { DesktopAuthorizeView } from "@/components/DesktopAuthorize";
+import { DesktopAuthorizeView, type DesktopAuthorizeRequest } from "@/components/DesktopAuthorize";
 import { DevBypassBanner } from "@/components/DevBypassBanner";
 import { env } from "@/lib/env";
 import { lookupDeviceAuth } from "@/lib/server/desktop-auth";
+import { household } from "@/lib/server/verdict-data";
 import { requireSession } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Authorize a device" };
@@ -21,12 +22,22 @@ export default async function DesktopAuthorizePage({ searchParams }: { searchPar
   const code = typed ? normalizeUserCode(typed) : null;
   const session = await requireSession(code ? `/desktop/authorize?code=${encodeURIComponent(code)}` : "/desktop/authorize");
 
-  let request: { clientName: string; expiresAt: string; status: "pending" | "approved" | "denied" } | null = null;
+  let request: DesktopAuthorizeRequest | null = null;
   let unavailable = false;
   if (code) {
     try {
       const r = await lookupDeviceAuth(code);
-      if (r) request = { clientName: r.clientName, expiresAt: r.expiresAt.toISOString(), status: r.status };
+      if (r) {
+        // A monitoring request names the household it will report to.
+        const householdName = r.device ? await household(session).then((h) => h.name, () => "your household") : null;
+        request = {
+          clientName: r.clientName,
+          expiresAt: r.expiresAt.toISOString(),
+          status: r.status,
+          device: r.device ? { kind: r.device.kind, platform: r.device.platform, name: r.device.name, clientVersion: r.device.clientVersion } : null,
+          householdName,
+        };
+      }
     } catch {
       unavailable = true;
     }
