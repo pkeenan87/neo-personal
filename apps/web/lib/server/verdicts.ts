@@ -9,6 +9,7 @@ import { hashPii, logger, type MessageParam } from "@neo/core";
 import { saveVerdict as dbSaveVerdict, type VerdictSource } from "@neo/db";
 import type { Verdict } from "@neo/verdict";
 import { splitVerdictSegments } from "@/lib/verdict-fence";
+import { alertForVerdict } from "./alerts";
 import { getDb } from "./db";
 import { saveMemoryVerdict } from "./memory-state";
 
@@ -51,13 +52,16 @@ export interface SaveVerdictInput {
 
 /**
  * Store a verdict: @neo/db `saveVerdict` with a database, else the shared
- * in-memory rows (lib/server/memory-state.ts). Throws on failure; chat callers
- * use `saveChatVerdict`, which never throws.
+ * in-memory rows (lib/server/memory-state.ts), then raise an owner alert when a
+ * member's check is malicious or suspicious. Throws on a failed save; chat
+ * callers use `saveChatVerdict`, which never throws.
  */
 export async function saveVerdict(input: SaveVerdictInput): Promise<{ id: string }> {
   const db = getDb();
-  if (!db) return saveMemoryVerdict(input);
-  return dbSaveVerdict(db, input);
+  const saved = db ? await dbSaveVerdict(db, input) : saveMemoryVerdict(input);
+  // A member's malicious or suspicious check alerts the owner (_specs/owner-alerts.md). Never throws.
+  await alertForVerdict({ tenantId: input.tenantId, userId: input.userId, verdictId: saved.id, verdict: input.verdict, source: input.source });
+  return saved;
 }
 
 /** Store a chat verdict. Never throws: the user already has their answer. */

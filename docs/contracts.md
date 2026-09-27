@@ -465,3 +465,33 @@ Wire types: `apps/web/lib/household-types.ts`. JSON errors `{ error, code }`. Ev
 - `POST /api/invites/[secret]/accept { confirmLeave: true }` (browser session) → 200 `{ tenantId, householdName }`; 400 `confirm_required`, 403 `email_mismatch`, 404 `not_found`, 409 `already_member` | `owns_household_with_members` | `already_in_household`; 429 (10 per 10 min per user). Emails the owner.
 - Pages: `/settings/household`, `/invite/[secret]` (`Referrer-Policy: no-referrer`).
 - Audit events written by the web app: `household.invite_created`, `household.invite_revoked`, `household.invite_resent` (emails hashed with `hashPii`).
+
+## @neo/db (spec `_specs/owner-alerts.md`)
+
+Migration `0008_alerts`: new `alerts` (`kind` `member_verdict|member_joined|member_left`, `severity` `low|medium|high|critical`, `title` ≤ 140, `body` ≤ 1000, `subject_user_id` / `acknowledged_by` → users `set null`, `verdict_id` → verdicts `set null`, `device_id` uuid without FK, `dedupe_key` unique per tenant, `email_status` `pending|sent|skipped|failed`, `emailed_at`) with the `tenant_isolation` RLS policy and in `tenantTables`; `memberships.alert_email_threshold` (`medium|high|critical|off`, default `high`); security-definer `purge_old_alerts() → integer` (acknowledged > 90 days, any > 180 days; `EXECUTE` granted to `app_user`).
+
+```ts
+createAlert(db, { tenantId, subjectUserId, kind, severity, title, body, dedupeKey, verdictId?, deviceId?, now? }) → AlertRow | null;  // null = deduplicated; text clipped
+getAlert(db, tenantId, id) → AlertRow | undefined;
+listAlerts(db, tenantId, { subjectUserId?, status?: "open" | "all", cursor?, limit? }) → { items: AlertListItem[], nextCursor? };  // + subjectName, acknowledgedByName; InvalidCursorError
+countOpenAlerts(db, tenantId, { subjectUserId?, severities? }) → number;
+acknowledgeAlert(db, tenantId, id, userId, now?) → AlertRow | undefined;  // idempotent
+acknowledgeAllAlerts(db, tenantId, userId, now?) → number;
+markAlertEmail(db, tenantId, id, status, at?);  countAlertEmailsSince(db, tenantId, since) → number;
+listAlertOwners(db, tenantId) → { userId, email, name, threshold }[];
+getAlertEmailThreshold(db, tenantId, userId);  setAlertEmailThreshold(db, tenantId, userId, threshold) → threshold | undefined;
+purgeOldAlerts(db) → number;
+```
+
+### HTTP contract: alerts (`_specs/owner-alerts.md`)
+
+Wire types: `apps/web/lib/alert-types.ts`. JSON errors `{ error, code }`; 503 `storage_unavailable` on store failure.
+
+- `GET /api/alerts?status=open|all&cursor&limit` → `{ items: AlertItem[], nextCursor: string | null, openCount }`; owners see the household, members only alerts about themselves. 400 `bad_request` for a bad status, limit or cursor.
+- `POST /api/alerts/[id]/acknowledge` (owner, browser session) → `{ alert }`; 404 `not_found`; 403 `forbidden` for members.
+- `POST /api/alerts/acknowledge-all` (owner, browser session) → `{ acknowledged }`.
+- `GET /api/settings/alerts` (owner) → `{ threshold }`; `POST { threshold }` (owner, browser session) → `{ threshold }`; 400 `bad_request`; 403 `forbidden` for members.
+- Inngest event `neo/alert.created { alertId, tenantId }` → function `alert-created` (inline in `MOCK_MODE` without `INNGEST_EVENT_KEY`). Emails each owner at or above their threshold, at most 20 per household per UTC day, then one `alert-cap:<tenantId>:<date>` notice; Resend idempotency key `alert:<alertId>:<ownerUserId>`.
+- `lib/server/verdicts.ts` `saveVerdict` raises `member_verdict` alerts for members' `malicious` (high) and `suspicious` (medium) verdicts, dedupe `verdict:<id>`. Household accept raises `member_joined` (high); leave and remove raise `member_left` (low); dedupe `<kind>:<userId>:<UTC hour>`. The direct "joined" email is removed.
+- The daily retention job also calls `purgeOldAlerts`.
+- Audit events: `alert.acknowledged`, `alert.acknowledged_all`, `settings.alert_threshold_changed`.

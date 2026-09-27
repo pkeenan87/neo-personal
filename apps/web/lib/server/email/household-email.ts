@@ -1,6 +1,6 @@
 /**
- * Household emails (_specs/household-invites.md): the invite, "X joined your
- * household" to the owner, and "you were removed" to a member. Household and
+ * Household emails (_specs/household-invites.md): the invite and "you were
+ * removed" to a member. "X joined" is an owner alert (_specs/owner-alerts.md). Household and
  * person names are user-chosen, so they are cleaned and HTML-escaped like the
  * verdict email; the only link is our own URL.
  */
@@ -53,21 +53,6 @@ export function renderInviteEmail(input: { inviterName: string | null; household
     subject,
     html: layout(subject, paragraphs, { href: input.url, label: `Join ${household}` }),
     text: [...paragraphs, "", `Join: ${safeUrl(input.url)}`, "", FOOTER].join("\n"),
-  };
-}
-
-export function renderMemberJoinedEmail(input: { memberName: string | null; householdName: string; url: string }): RenderedEmail {
-  const member = name(input.memberName, "A new member");
-  const household = name(input.householdName, "your household");
-  const subject = `${member} joined ${household}`;
-  const paragraphs = [
-    `${member} accepted your invite and is now a member of ${household}.`,
-    "If you did not expect this, remove them under Settings → Household.",
-  ];
-  return {
-    subject,
-    html: layout(subject, paragraphs, { href: input.url, label: "Open household settings" }),
-    text: [...paragraphs, "", safeUrl(input.url), "", FOOTER].join("\n"),
   };
 }
 

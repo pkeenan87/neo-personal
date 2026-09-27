@@ -1,9 +1,11 @@
 /** Production wiring for the inbound jobs (tests build their own deps). */
 import { runTriage } from "@neo/core";
+import { purgeOldAlerts } from "@neo/db";
 import { analyzeEmail, EMAIL_ANALYSIS_GUIDANCE } from "@neo/tools";
 import { inboundEnv } from "@/lib/env";
 import { sharedUrlCache } from "../agent-run";
 import { recordAudit } from "../audit";
+import { getDb } from "../db";
 import { getMailer, getReceivedMailClient } from "../email/resend";
 import { checkCaps, noteCapHit, recordUsage } from "../usage";
 import type { ExpireDeps } from "./artifacts-expire-job";
@@ -36,5 +38,11 @@ export function createEmailJobDeps(): EmailJobDeps {
 
 export function createExpireDeps(): ExpireDeps {
   const repo = inboundRepo();
-  return { artifacts: repo.artifacts, purgeOldInbound: repo.purgeOld };
+  const db = getDb();
+  return {
+    artifacts: repo.artifacts,
+    purgeOldInbound: repo.purgeOld,
+    // Without a database, in-memory alerts are bounded and die with the process.
+    purgeOldAlerts: async () => (db ? purgeOldAlerts(db) : 0),
+  };
 }

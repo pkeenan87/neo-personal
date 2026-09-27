@@ -21,7 +21,10 @@ export type AuditEventType =
   | "inbound.gmail_forwarding_confirmation"
   | "household.invite_created"
   | "household.invite_revoked"
-  | "household.invite_resent";
+  | "household.invite_resent"
+  | "alert.acknowledged"
+  | "alert.acknowledged_all"
+  | "settings.alert_threshold_changed";
 
 export interface MemoryAuditEvent {
   tenantId: string;
