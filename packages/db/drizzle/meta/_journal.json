@@ -36,6 +36,20 @@
       "when": 1790445967339,
       "tag": "0004_model_routing",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790466300000,
+      "tag": "0005_desktop_tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790466569389,
+      "tag": "0006_desktop_auth",
+      "breakpoints": true
     }
   ]
 }

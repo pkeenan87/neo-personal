@@ -3,19 +3,22 @@
  * takes `tenantId` from here and never from the request (_specs/tenant-auth.md).
  *
  *  - Normal path: Auth.js `auth()` (database session) → `{ userId, tenantId, role }`.
+ *  - Desktop tokens: `Authorization: Bearer neo_dt_…` → same shape (Omarchy plugin).
  *  - DEV_AUTH_BYPASS (only when not production/preview, see lib/env.ts): a fixed
  *    dev identity. With a database, the dev user and its household are created
  *    on first use; without one, a fixed in-memory dev tenant is used so
  *    MOCK_MODE runs with zero infrastructure.
  */
 import { hashPii, logger } from "@neo/core";
-import { createTenantForUser, users, type Db } from "@neo/db";
+import { createTenantForUser, isDesktopTokenFormat, users, type Db } from "@neo/db";
 import { eq } from "drizzle-orm";
 import type { Session } from "next-auth";
+import { headers } from "next/headers";
 import { redirect, unstable_rethrow } from "next/navigation";
-import { devAuthBypassRefused, env } from "./env";
-import { jsonError } from "./server/http";
+import { resolveBearerDesktopToken } from "./server/desktop-tokens";
 import { getDb } from "./server/db";
+import { jsonError } from "./server/http";
+import { devAuthBypassRefused, env } from "./env";
 
 export type MembershipRole = "owner" | "member";
 
@@ -25,6 +28,8 @@ export interface NeoSession {
   role: MembershipRole;
   email: string;
   name: string;
+  /** Present when the session came from a desktop personal access token. */
+  desktopTokenId?: string;
 }
 
 /** Identity used by DEV_AUTH_BYPASS when there is no database. */
@@ -61,6 +66,35 @@ async function devSession(): Promise<NeoSession> {
   return { ...(await g.__neoDevIdentity.ids), ...base };
 }
 
+async function sessionFromDesktopBearer(): Promise<NeoSession | null> {
+  let authz: string | null = null;
+  try {
+    authz = (await headers()).get("authorization");
+  } catch {
+    return null;
+  }
+  if (!authz?.toLowerCase().startsWith("bearer ")) return null;
+  const token = authz.slice(7).trim();
+  if (!isDesktopTokenFormat(token)) return null;
+  try {
+    const resolved = await resolveBearerDesktopToken(token);
+    if (!resolved) return null;
+    return {
+      userId: resolved.userId,
+      tenantId: resolved.tenantId,
+      role: resolved.role,
+      email: "",
+      name: "desktop",
+      desktopTokenId: resolved.id,
+    };
+  } catch (err) {
+    logger.error("Desktop token lookup failed", "auth", {
+      errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300),
+    });
+    return null;
+  }
+}
+
 export async function getSession(): Promise<NeoSession | null> {
   const e = env();
   if (e.DEV_AUTH_BYPASS) return devSession();
@@ -68,6 +102,9 @@ export async function getSession(): Promise<NeoSession | null> {
     g.__neoBypassRefusedLogged = true;
     logger.error("DEV_AUTH_BYPASS is set on a production/preview deployment and is ignored", "auth");
   }
+
+  const fromToken = await sessionFromDesktopBearer();
+  if (fromToken) return fromToken;
 
   let s: Session | null;
   try {
@@ -94,11 +131,19 @@ export async function getSession(): Promise<NeoSession | null> {
   };
 }
 
-/** For server components/pages: returns the session or redirects to the landing page. */
-export async function requireSession(): Promise<NeoSession> {
+/**
+ * For server components/pages: returns the session or redirects to the landing
+ * page. `returnTo` (a same-origin path) brings the user back after sign-in.
+ */
+export async function requireSession(returnTo?: string): Promise<NeoSession> {
   const session = await getSession();
-  if (!session) redirect("/?signin=required");
+  if (!session) redirect(returnTo ? `/?signin=required&next=${encodeURIComponent(returnTo)}` : "/?signin=required");
   return session;
+}
+
+/** True for a cookie (Auth.js or dev-bypass) session, false for a desktop token. */
+export function isBrowserSession(session: NeoSession): boolean {
+  return !session.desktopTokenId;
 }
 
 /** For API routes: the session, or a 401 JSON response to return as is. */
@@ -106,4 +151,17 @@ export async function requireApiSession(): Promise<{ session: NeoSession; respon
   const session = await getSession();
   if (!session) return { response: jsonError(401, "Sign in to continue.", "unauthenticated") };
   return { session };
+}
+
+/**
+ * For API routes that manage credentials: a browser session only. A desktop
+ * token must never mint or approve other tokens (403 `browser_session_required`).
+ */
+export async function requireBrowserApiSession(): Promise<{ session: NeoSession; response?: undefined } | { session?: undefined; response: Response }> {
+  const r = await requireApiSession();
+  if (!r.session) return r;
+  if (!isBrowserSession(r.session)) {
+    return { response: jsonError(403, "Sign in from a browser to do this.", "browser_session_required") };
+  }
+  return r;
 }

@@ -5,6 +5,7 @@ import { NeoMark } from "@/components/NeoMark";
 import { SignInPanel } from "@/components/SignInPanel";
 import { DevBypassBanner } from "@/components/DevBypassBanner";
 import { env } from "@/lib/env";
+import { safeCallbackPath } from "@/lib/safe-redirect";
 import { getSession } from "@/lib/session";
 import styles from "./landing.module.css";
 
@@ -35,11 +36,13 @@ const FEATURES = [
 export default async function LandingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ signin?: string; error?: string }>;
+  searchParams: Promise<{ signin?: string; error?: string; next?: string }>;
 }) {
   const [session, params] = await Promise.all([getSession(), searchParams]);
-  // Signed-in users land on their dashboard.
-  if (session) redirect("/dashboard");
+  // Where to go once signed in: a same-origin path from ?next= (requireSession's
+  // return-to, e.g. /desktop/authorize?code=…), else the dashboard.
+  const next = safeCallbackPath(params.next, "/dashboard");
+  if (session) redirect(next);
   const e = env();
   const notice =
     params.signin === "required"
@@ -125,7 +128,7 @@ export default async function LandingPage({
           <div className={styles.signIn}>
             <h3>Welcome to Neo</h3>
             <p>Sign in to check something suspicious.</p>
-            <SignInPanel providers={e.AUTH_PROVIDERS} />
+            <SignInPanel providers={e.AUTH_PROVIDERS} callbackUrl={next} />
           </div>
         </section>
       </main>
