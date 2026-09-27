@@ -127,5 +127,25 @@ export {
   type HouseholdInvitePublic,
   type InvitePreview,
 } from "./household.js";
+export {
+  ALERT_BODY_MAX,
+  ALERT_TITLE_MAX,
+  acknowledgeAlert,
+  acknowledgeAllAlerts,
+  countAlertEmailsSince,
+  countOpenAlerts,
+  createAlert,
+  getAlert,
+  getAlertEmailThreshold,
+  listAlertOwners,
+  listAlerts,
+  markAlertEmail,
+  purgeOldAlerts,
+  setAlertEmailThreshold,
+  type AlertListItem,
+  type AlertOwner,
+  type AlertRow,
+  type CreateAlertInput,
+} from "./alerts.js";
 // runMigrations lives in the "@neo/db/migrate" subpath so app bundles never see the migrations folder.
 export type { ConversationStore, MessageParam } from "@neo/core";
