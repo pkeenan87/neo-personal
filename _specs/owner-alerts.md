@@ -16,6 +16,9 @@ will feed. Until those exist, alerts come from what Neo already knows:
 Alerts land in an owner feed on the dashboard and, from a severity threshold the owner picks, in an email. Email is the
 only delivery channel until push ships with the mobile app. Alert text is built from templates, not by a model.
 
+Joining is `high` so the owner is emailed about every new member at the default threshold. Members see the
+alerts about themselves (read-only), so nothing the owner is told about a member is hidden from that member.
+
 The owner's own checks never create alerts: they already saw the result. A one-person household therefore never
 gets alerts, which is correct.
 
@@ -42,7 +45,7 @@ cleaned and truncated like the verdict email):
 |---|---|---|---|
 | `member_verdict` | A member's verdict is `malicious` | `high` | `<name> checked something malicious` |
 | `member_verdict` | A member's verdict is `suspicious` | `medium` | `<name> checked something suspicious` |
-| `member_joined` | Invite accepted | `medium` | `<name> joined your household` |
+| `member_joined` | Invite accepted | `high` | `<name> joined your household` |
 | `member_left` | Member left or was removed | `low` | `<name> left your household` / `You removed <name>` |
 
 `member_verdict` bodies carry the subject type ("email", "text message", "link"), the verdict headline and, for
@@ -138,7 +141,8 @@ checked message itself.
       creates a `medium` alert and only emails when the threshold is `medium`.
 - [ ] A member's malicious forwarded email alerts the owner the same way; the owner's own checks never alert.
 - [ ] Re-saving a verdict does not create a second alert or email.
-- [ ] Joining sends the owner exactly one email (the old direct email is gone); leaving and removal appear in the feed.
+- [ ] Joining emails the owner at the default threshold, exactly once (the old direct email is gone); leaving and
+      removal appear in the feed only.
 - [ ] The 21st alert email in a UTC day is skipped and one "more than usual" email is sent.
 - [ ] Owners see all alerts and can acknowledge them; members see only their own and cannot acknowledge;
       desktop tokens cannot acknowledge or change the threshold.
