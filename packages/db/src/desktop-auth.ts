@@ -5,12 +5,15 @@
  *   decide  → approve / deny by user code     signed-in browser
  *   redeem  → desktop token, once             client polling with the device code
  */
-import { createHash, randomBytes, randomInt } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { and, eq, lt } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { createDesktopToken, type DesktopTokenPublic } from "./desktop-tokens.js";
+import { enrollSelfDevice, normalizeDeviceInput, type DeviceInput, type DevicePublic } from "./devices.js";
 import { desktopAuthRequests, type DesktopAuthStatus } from "./schema/desktop-auth.js";
+import { MONITORING_SCOPES, type TokenScope } from "./schema/desktop-tokens.js";
 import type { MembershipRole } from "./schema/tenants.js";
+import { groupCode, randomGroupedCode } from "./user-codes.js";
 
 export const DESKTOP_AUTH_TTL_MS = 10 * 60 * 1000;
 /** Seconds a client should wait between redemption attempts. */
@@ -18,8 +21,7 @@ export const DESKTOP_AUTH_POLL_INTERVAL_S = 5;
 export const DEVICE_CODE_PREFIX = "neo_dc_";
 export const MAX_DESKTOP_CLIENT_NAME = 64;
 
-/** No vowels or look-alikes (0/O, 1/I/L, 5/S, U/V) so codes can be read out and typed. */
-const USER_CODE_ALPHABET = "BCDFGHJKMNPQRTWXYZ2346789";
+/** Alphabet in user-codes.ts (no vowels or look-alikes). */
 const USER_CODE_LENGTH = 8;
 
 export interface DesktopAuthRequestPublic {
@@ -27,6 +29,8 @@ export interface DesktopAuthRequestPublic {
   clientName: string;
   status: DesktopAuthStatus;
   expiresAt: Date;
+  /** Set for monitoring requests (a device token); null for a full token. */
+  device: DeviceInput | null;
 }
 
 export interface DesktopAuthApprover {
@@ -45,19 +49,28 @@ export type DesktopAuthRedemption =
   | { status: "expired" }
   | { status: "not_found" }
   | { status: "token_limit" }
-  | { status: "approved"; token: string; record: DesktopTokenPublic; email: string; name: string; clientName: string };
+  | { status: "device_limit" }
+  | {
+      status: "approved";
+      token: string;
+      record: DesktopTokenPublic;
+      email: string;
+      name: string;
+      clientName: string;
+      scopes: TokenScope[];
+      /** The enrolled device, for monitoring requests; null for a full token. */
+      device: DevicePublic | null;
+    };
 
 export function generateUserCode(): string {
-  let raw = "";
-  for (let i = 0; i < USER_CODE_LENGTH; i++) raw += USER_CODE_ALPHABET[randomInt(USER_CODE_ALPHABET.length)];
-  return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+  return randomGroupedCode(USER_CODE_LENGTH);
 }
 
 /** Uppercase, drop separators and whitespace, re-insert the dash; null when it cannot be a user code. */
 export function normalizeUserCode(input: string): string | null {
   const raw = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
   if (raw.length !== USER_CODE_LENGTH) return null;
-  return `${raw.slice(0, 4)}-${raw.slice(4)}`;
+  return groupCode(raw);
 }
 
 export function mintDeviceCode(): string {
@@ -80,20 +93,36 @@ export function normalizeClientName(name: string): string | null {
   return cleaned.slice(0, MAX_DESKTOP_CLIENT_NAME);
 }
 
-function toPublic(r: { id: string; clientName: string; status: DesktopAuthStatus; expiresAt: Date }): DesktopAuthRequestPublic {
-  return { id: r.id, clientName: r.clientName, status: r.status, expiresAt: r.expiresAt };
+type RequestRow = typeof desktopAuthRequests.$inferSelect;
+
+function deviceOf(r: RequestRow): DeviceInput | null {
+  if (!r.deviceKind || !r.devicePlatform || !r.deviceName || !r.deviceClientVersion) return null;
+  return { kind: r.deviceKind, platform: r.devicePlatform, name: r.deviceName, clientVersion: r.deviceClientVersion };
+}
+
+function toPublic(r: RequestRow): DesktopAuthRequestPublic {
+  return { id: r.id, clientName: r.clientName, status: r.status, expiresAt: r.expiresAt, device: deviceOf(r) };
 }
 
 async function purgeExpired(db: Db, now: Date): Promise<void> {
   await db.delete(desktopAuthRequests).where(lt(desktopAuthRequests.expiresAt, now));
 }
 
+/**
+ * Start a device authorization. With `device`, the request is a monitoring request:
+ * redemption enrolls the device and mints a monitoring token instead of a full one.
+ */
 export async function createDesktopAuthRequest(
   db: Db,
-  input: { clientName: string; now?: Date },
-): Promise<{ id: string; userCode: string; deviceCode: string; expiresAt: Date } | { error: "bad_name" }> {
+  input: { clientName: string; device?: DeviceInput; now?: Date },
+): Promise<{ id: string; userCode: string; deviceCode: string; expiresAt: Date } | { error: "bad_name" | "invalid_device" }> {
   const clientName = normalizeClientName(input.clientName);
   if (!clientName) return { error: "bad_name" };
+  let device: DeviceInput | null = null;
+  if (input.device !== undefined) {
+    device = normalizeDeviceInput(input.device);
+    if (!device) return { error: "invalid_device" };
+  }
   const now = input.now ?? new Date();
   await purgeExpired(db, now);
   const expiresAt = new Date(now.getTime() + DESKTOP_AUTH_TTL_MS);
@@ -103,7 +132,15 @@ export async function createDesktopAuthRequest(
     const deviceCode = mintDeviceCode();
     const rows = await db
       .insert(desktopAuthRequests)
-      .values({ userCode, deviceCodeHash: hashDeviceCode(deviceCode), clientName, expiresAt })
+      .values({
+        userCode,
+        deviceCodeHash: hashDeviceCode(deviceCode),
+        clientName,
+        expiresAt,
+        ...(device
+          ? { deviceKind: device.kind, devicePlatform: device.platform, deviceName: device.name, deviceClientVersion: device.clientVersion }
+          : {}),
+      })
       .onConflictDoNothing({ target: desktopAuthRequests.userCode })
       .returning({ id: desktopAuthRequests.id });
     const row = rows[0];
@@ -157,7 +194,9 @@ export async function decideDesktopAuthRequest(
 /**
  * Redeem a device code. An approved request mints the desktop token (named after
  * the client) and the row is deleted, so the token is delivered exactly once.
- * Denied and expired rows are also deleted on first report.
+ * A monitoring request (with a device) enrolls the device (`self`, enrolled by the
+ * approver) and mints a monitoring token instead. Denied and expired rows are also
+ * deleted on first report.
  */
 export async function redeemDesktopAuthRequest(db: Db, deviceCode: string, now = new Date()): Promise<DesktopAuthRedemption> {
   if (!isDeviceCodeFormat(deviceCode)) return { status: "not_found" };
@@ -176,6 +215,21 @@ export async function redeemDesktopAuthRequest(db: Db, deviceCode: string, now =
   // Claim the row first so two concurrent polls cannot both mint a token.
   const claimed = await db.delete(desktopAuthRequests).where(eq(desktopAuthRequests.id, row.id)).returning({ id: desktopAuthRequests.id });
   if (claimed.length === 0) return { status: "not_found" };
+  const device = deviceOf(row);
+  if (device) {
+    const enrolled = await enrollSelfDevice(db, { tenantId: row.tenantId, userId: row.userId, role: row.role, device, now });
+    if ("error" in enrolled) return { status: enrolled.error === "device_limit" ? "device_limit" : "not_found" };
+    return {
+      status: "approved",
+      token: enrolled.token,
+      record: enrolled.record,
+      email: row.userEmail ?? "",
+      name: row.userName ?? "",
+      clientName: row.clientName,
+      scopes: [...MONITORING_SCOPES],
+      device: enrolled.device,
+    };
+  }
   const minted = await createDesktopToken(db, { userId: row.userId, tenantId: row.tenantId, role: row.role, name: row.clientName });
   if ("error" in minted) return { status: "token_limit" };
   return {
@@ -185,5 +239,7 @@ export async function redeemDesktopAuthRequest(db: Db, deviceCode: string, now =
     email: row.userEmail ?? "",
     name: row.userName ?? "",
     clientName: row.clientName,
+    scopes: ["full"],
+    device: null,
   };
 }

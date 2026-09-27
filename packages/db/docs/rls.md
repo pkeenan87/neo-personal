@@ -27,8 +27,8 @@ Extra policies:
 
 ## Security-definer functions (pre-tenant lookups)
 
-Five operations must run before (or across) tenants, as the app role. Rather than widening a
-table policy, migrations `0003_phase1`, `0007_household_invites` and `0008_alerts` add `SECURITY DEFINER` SQL functions. They run as
+Eight operations must run before (or across) tenants, as the app role. Rather than widening a
+table policy, migrations `0003_phase1`, `0007_household_invites`, `0008_alerts` and `0009_devices` add `SECURITY DEFINER` SQL functions. They run as
 their owner (the migration role, which owns the tables and so is not subject to RLS),
 return only ids, and pin `search_path = pg_catalog, public`:
 
@@ -38,6 +38,9 @@ return only ids, and pin `search_path = pg_catalog, public`:
 | `list_expired_artifacts(max_rows integer)` | `(id uuid, tenant_id uuid)` of artifacts with `expires_at <= now()`, oldest first, at most 1000 | `ArtifactStore.listExpired()` in the retention job |
 | `lookup_household_invite(token_hash text)` (migration `0007`) | `(id uuid, tenant_id uuid)` of a **pending** household invite (not accepted, not revoked, `expires_at > now()`) with that secret hash, at most one row | `previewHouseholdInvite()` / `acceptHouseholdInvite()` on the invite page |
 | `purge_old_alerts()` (migration `0008`) | `integer`: deletes `alerts` acknowledged more than 90 days ago and any older than 180 days, across tenants, and returns the count | `purgeOldAlerts()` in the retention job |
+| `lookup_device_enrollment_code(code_hash text)` (migration `0009`) | `(id uuid, tenant_id uuid)` of a **pending** device enrollment code (not redeemed, not revoked, `expires_at > now()`) with that hash, at most one row | `previewEnrollmentCode()` / `redeemEnrollmentCode()` on the unauthenticated enroll routes |
+| `list_stale_devices(before timestamptz)` (migration `0009`) | `(id uuid, tenant_id uuid)` of active devices never offline-alerted whose `coalesce(last_seen_at, created_at) < before`, oldest first, at most 1000 | `listStaleDevices()` in the `devices-offline` job |
+| `purge_old_devices()` (migration `0009`) | `integer`: deletes devices revoked more than 90 days ago and enrollment codes redeemed, revoked or expired more than 30 days ago, across tenants, and returns the count | `purgeOldDevices()` in the retention job |
 | `purge_old_inbound_messages(older_than_days integer)` | `integer`: deletes `inbound_messages` rows with status `rejected` or `failed` received more than `older_than_days` (at least 1, default 90) days ago, across tenants, and returns the count | `inbound.purgeOld()` in the retention job |
 
 Everything after the lookup is tenant-scoped as usual (the caller passes the returned
@@ -63,9 +66,12 @@ back to the inviting household to insert the membership. `app.user_id` is set as
   GRANT EXECUTE ON FUNCTION public.purge_old_inbound_messages(integer) TO app_user;
   GRANT EXECUTE ON FUNCTION public.lookup_household_invite(text) TO app_user;
   GRANT EXECUTE ON FUNCTION public.purge_old_alerts() TO app_user;
+  GRANT EXECUTE ON FUNCTION public.lookup_device_enrollment_code(text) TO app_user;
+  GRANT EXECUTE ON FUNCTION public.list_stale_devices(timestamptz) TO app_user;
+  GRANT EXECUTE ON FUNCTION public.purge_old_devices() TO app_user;
   ```
 
-Verify with `select proname, proacl from pg_proc where proname in ('resolve_inbound_address', 'list_expired_artifacts', 'purge_old_inbound_messages', 'lookup_household_invite', 'purge_old_alerts');`
+Verify with `select proname, proacl from pg_proc where proname in ('resolve_inbound_address', 'list_expired_artifacts', 'purge_old_inbound_messages', 'lookup_household_invite', 'purge_old_alerts', 'lookup_device_enrollment_code', 'list_stale_devices', 'purge_old_devices');`
 (expect `app_user=X/...` and no entry starting with `=`). `test/inbound.test.ts` and
 `test/artifact-store.test.ts` exercise the functions under `SET ROLE app_user`.
 
