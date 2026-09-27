@@ -2,7 +2,7 @@
 
 Things only you can do: accounts, credentials, and decisions. Everything is ordered so each block unblocks the next. Local env values go in `apps/web/.env.local` (gitignored). Production values go in Vercel project settings. Never put a real value in `.env.example`.
 
-Status as of 2026-09-26: Phases 0, 1 and 2 and the desktop sign-in are live at https://www.neoshield.dev with the Google consent screen published, the domain, forwarding, AI Gateway routing and the privacy policy in place. Still open: a magic-link sign-in test (3), the optional Neon preview branches (4), a legal read of the privacy policy (5), the social preview image (6), usage-cap numbers after a week of real costs (8) and the Vercel support ticket about premium models (10).
+Status as of 2026-09-26: Phases 0, 1 and 2 and the desktop sign-in are live at https://www.neoshield.dev with the Google consent screen published, the domain, forwarding, AI Gateway routing and the privacy policy in place. Still open: the social preview image and the old-repo note (6), usage-cap numbers after a week of real costs (8) and the Vercel support ticket about premium models (10). Deferred: Neon preview branches (4), the legal read of the privacy policy (5), the work-repo follow-ups (7).
 
 ## 1. Right now (free, unblocks local testing)
 
@@ -37,7 +37,7 @@ Status as of 2026-09-26: Phases 0, 1 and 2 and the desktop sign-in are live at h
   ```
 - [x] **Google OAuth** (done 2026-09-25 in project `neo-personal-509701`: consent screen in Testing, web client with production and localhost redirect URIs, you as test user). Original notes: Authorized redirect URI for local dev: `http://localhost:3000/api/auth/callback/google`. Add the production and preview URLs later. Set `AUTH_GOOGLE_ID` and `AUTH_GOOGLE_SECRET`. Configure the OAuth consent screen (app name Neo, your support email, privacy policy URL once the site exists). Publishing status can stay "Testing" with your own account as a test user until launch.
 - [x] **Resend** account for magic links: installed via the Vercel Marketplace 2026-09-26, sending verified on `neoshield.dev`. The integration's `MESSAGING_RESEND_API_KEY` / `MESSAGING_RESEND_EMAIL_DOMAIN` are picked up automatically; `EMAIL_FROM` defaults to `Neo <neo@neoshield.dev>` (set it explicitly to change the mailbox name).
-- [ ] Sign in with a magic link on https://www.neoshield.dev (provider is registered as of 2026-09-26). Confirm the email arrives and lands in the same household as your Google sign-in (same address → same user).
+- [x] Sign in with a magic link on https://www.neoshield.dev (provider is registered as of 2026-09-26). Confirm the email arrives and lands in the same household as your Google sign-in (same address → same user). (confirmed working 2026-09-26)
 
 ## 4. Vercel deployment
 
@@ -45,7 +45,7 @@ Status as of 2026-09-26: Phases 0, 1 and 2 and the desktop sign-in are live at h
 - [x] Add environment variables for Production and Preview: `ANTHROPIC_API_KEY`, `AUTH_SECRET`, `AUTH_URL` (production URL), `AUTH_TRUST_HOST=true`, `DATABASE_URL`, `AUTH_GOOGLE_ID`, `AUTH_GOOGLE_SECRET`, `AUTH_RESEND_KEY`, `EMAIL_FROM`, `GOOGLE_SAFE_BROWSING_API_KEY`, `VIRUSTOTAL_API_KEY`, `VIRUSTOTAL_SUBMIT=false`, `MOCK_MODE=false`, `DEV_AUTH_BYPASS=false`, `USAGE_CAP_MONTHLY_CHECKS`, `USAGE_CAP_DAILY_TOKENS`.
 - [x] Vercel production URL is in the Google OAuth redirect URIs.
 - [x] Deployed; `/api/health` returns `mock: false`. Signed in with Google and ran the first production URL check on 2026-09-25: conversation, usage event, and verdict row all persisted under RLS.
-- [ ] Optional: Neon branch per preview deployment via the Vercel Neon integration, so previews do not touch production data.
+- [ ] Deferred: Neon branch per preview deployment via the Vercel Neon integration, so previews do not touch production data. Revisit once previews carry real traffic.
 - [x] Enable the Vercel GitHub integration so PRs get preview deployments.
 
 ## 5. Domain and public identity
@@ -55,7 +55,7 @@ Status as of 2026-09-26: Phases 0, 1 and 2 and the desktop sign-in are live at h
 
 - [x] Register the domain for Neo: `neoshield.dev`, bought through Vercel 2026-09-26, Vercel DNS. Canonical host is `https://www.neoshield.dev` (apex redirects).
 - [x] Point it at Vercel and set `AUTH_URL` to it (`https://www.neoshield.dev`, 2026-09-26). Google OAuth client has the `www` origin and callback.
-- [x] Privacy policy page at https://www.neoshield.dev/privacy (2026-09-26). Contact address is `NEO_CONTACT_EMAIL` (default `privacy@neoshield.dev`), delivered to your HEY mailbox as an alias since 2026-09-26. [ ] Have a lawyer or a careful reader review the text before wide launch.
+- [x] Privacy policy page at https://www.neoshield.dev/privacy (2026-09-26). Contact address is `NEO_CONTACT_EMAIL` (default `privacy@neoshield.dev`), delivered to your HEY mailbox as an alias since 2026-09-26. [ ] Deferred until launch: have a lawyer or a careful reader review the text.
 - [x] Update `SECURITY.md` and `CODE_OF_CONDUCT.md` with a role address on the domain. (2026-09-26: both use `privacy@neoshield.dev`, the existing HEY alias)
 
 ## 6. GitHub housekeeping
@@ -63,7 +63,7 @@ Status as of 2026-09-26: Phases 0, 1 and 2 and the desktop sign-in are live at h
 - [x] Confirm you are happy with the main branch ruleset (PRs required, zero approvals, "All checks passed" required, admins can bypass). (verified 2026-09-26 via the API: ruleset `main` active, PR required with 0 approvals and thread resolution, squash/merge only, `All checks passed` required and strict, no deletion or force-push, Admin role bypasses)
 - [x] Add a repo description, topics (`security`, `phishing`, `claude`, `nextjs`), and a social preview image. (2026-09-26: description kept, homepage set to https://www.neoshield.dev, topics `security phishing claude nextjs anthropic vercel`. [ ] Social preview image: GitHub has no API for it; upload one at Settings → General → Social preview, 1280×640)
 - [ ] Decide whether to archive or add a README note to the old public `pkeenan87/Neo` snapshot so people do not confuse the two. Suggested: do both. Prepend a note to its README ("Archived snapshot; Neo continues at pkeenan87/neo-personal, live at neoshield.dev"), set the description to match, then Settings → General → Archive this repository. (Left for you: writing to that repository needs your own hands.)
-- [x] Watch the first Dependabot PRs and merge them once CI passes. (2026-09-26: #13 minor-and-patch group and #3 jest-dom 7 merged after rebase; #4 TypeScript 7 fails CI and stays open until the toolchain supports it)
+- [x] Watch the first Dependabot PRs and merge them once CI passes. (2026-09-26: #13 minor-and-patch group and #3 jest-dom 7 merged after rebase; #4 TypeScript 7 fails CI because typescript-eslint does not support TS 7.0; Dependabot told to ignore the 7.x major on 2026-09-26, so TypeScript stays on 6.x until the toolchain catches up)
 
 ## 7. Work repo follow-ups
 
