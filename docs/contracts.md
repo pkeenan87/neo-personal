@@ -487,7 +487,7 @@ purgeOldAlerts(db) → number;
 
 Wire types: `apps/web/lib/alert-types.ts`. JSON errors `{ error, code }`; 503 `storage_unavailable` on store failure.
 
-- `GET /api/alerts?status=open|all&cursor&limit` → `{ items: AlertItem[], nextCursor: string | null, openCount }`; owners see the household, members only alerts about themselves. 400 `bad_request` for a bad status, limit or cursor.
+- `GET /api/alerts?status=open|all&cursor&limit` → `{ items: AlertItem[], nextCursor: string | null, openCount, urgentCount }`; owners see the household, members only alerts about themselves. 400 `bad_request` for a bad status, limit or cursor.
 - `POST /api/alerts/[id]/acknowledge` (owner, browser session) → `{ alert }`; 404 `not_found`; 403 `forbidden` for members.
 - `POST /api/alerts/acknowledge-all` (owner, browser session) → `{ acknowledged }`.
 - `GET /api/settings/alerts` (owner) → `{ threshold }`; `POST { threshold }` (owner, browser session) → `{ threshold }`; 400 `bad_request`; 403 `forbidden` for members.

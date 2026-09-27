@@ -25,6 +25,8 @@ export interface AlertListResponse {
   nextCursor: string | null;
   /** Open alerts visible to the caller (all of them, not just this page). */
   openCount: number;
+  /** Open high or critical alerts visible to the caller (the nav dot). */
+  urgentCount: number;
 }
 
 /** GET|POST /api/settings/alerts */

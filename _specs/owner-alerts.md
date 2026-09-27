@@ -48,8 +48,9 @@ cleaned and truncated like the verdict email):
 | `member_joined` | Invite accepted | `high` | `<name> joined your household` |
 | `member_left` | Member left or was removed | `low` | `<name> left your household` / `You removed <name>` |
 
-`member_verdict` bodies carry the subject type ("email", "text message", "link"), the verdict headline and, for
-inbound mail, the forwarded subject. The headline was written by a model that read attacker content, so it is
+`member_verdict` bodies carry the subject type ("email", "text message", "link"), whether the member asked in chat
+or forwarded it, and the verdict headline. The forwarded subject line is left out: it is attacker-written and adds
+nothing the headline does not say. The headline was written by a model that read attacker content, so it is
 treated as untrusted text: cleaned, truncated to 200 characters, escaped in HTML, never linked.
 `likely_safe` and `insufficient_evidence` verdicts create no alert.
 
@@ -87,7 +88,7 @@ Settings → Household for membership alerts, and a footer line saying how to ch
 
 API (wire types in `apps/web/lib/alert-types.ts`; JSON errors `{ error, code }`):
 
-- `GET /api/alerts?status=open|all&cursor&limit` → `{ items: AlertItem[], nextCursor, openCount }`. Owners see every
+- `GET /api/alerts?status=open|all&cursor&limit` → `{ items: AlertItem[], nextCursor, openCount, urgentCount }` (`urgentCount` = open high or critical, for the nav dot). Desktop tokens may read. Owners see every
   alert in the household; members see only alerts whose `subject_user_id` is themselves. `AlertItem` =
   `{ id, kind, severity, title, body, subjectUserId, subjectName, verdictId, createdAt, acknowledgedAt,
   acknowledgedByName }`. Newest first, keyset cursor like `/api/verdicts`, `limit` 1..50 (default 20).

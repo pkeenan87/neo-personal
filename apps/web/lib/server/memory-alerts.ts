@@ -75,8 +75,12 @@ export function memoryListAlerts(
   opts: { subjectUserId?: string; status?: "open" | "all"; cursor?: string; limit?: number },
 ): { items: AlertListItem[]; nextCursor?: string } {
   const limit = Math.max(1, Math.min(Math.floor(opts.limit ?? 20) || 20, 50));
-  const start = opts.cursor ? Number(Buffer.from(opts.cursor, "base64url").toString("utf8")) : 0;
-  if (!Number.isInteger(start) || start < 0) throw new Error("invalid cursor");
+  let start = 0;
+  if (opts.cursor) {
+    const raw = /^[A-Za-z0-9_-]+$/.test(opts.cursor) ? Buffer.from(opts.cursor, "base64url").toString("utf8") : "";
+    if (!/^\d+$/.test(raw)) throw new Error("invalid cursor");
+    start = Number(raw);
+  }
   const all = visible(tenantId, opts);
   const page = all.slice(start, start + limit).map((r) => ({
     ...r,

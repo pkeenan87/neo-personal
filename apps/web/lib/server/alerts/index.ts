@@ -258,7 +258,7 @@ export async function listAlertsForSession(
     throw err;
   }
   const openCount = db ? await countOpenAlerts(db, session.tenantId, scope) : memoryCountOpenAlerts(session.tenantId, scope);
-  return { items: page.items.map(toItem), nextCursor: page.nextCursor ?? null, openCount };
+  return { items: page.items.map(toItem), nextCursor: page.nextCursor ?? null, openCount, urgentCount: await urgentAlertCount(session) };
 }
 
 /** Open high/critical alerts visible to the session (the nav dot). Zero on storage errors. */
