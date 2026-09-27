@@ -15,3 +15,5 @@ coverage/
 
 # Local output of apps/web/scripts/injection-eval.ts
 apps/web/injection-eval*.json
+.vercel
+.env*

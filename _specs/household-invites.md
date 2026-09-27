@@ -155,7 +155,7 @@ one-person household.
 - [x] Limits: 10 members + pending, 20 invites per day, accept and preview rate limits return 429 with `Retry-After`.
 - [x] Desktop tokens get 403 on every mutating household route.
 - [x] Migration 0007 applies on PGlite; RLS test covers `household_invites`; the flow runs as `app_user`.
-- [ ] Migration 0007 applied on Neon (production).
+- [x] Migration 0007 applied on Neon (production), 2026-09-27.
 - [x] Emails render in MOCK_MODE (`memorySentEmails()`).
 - [ ] Invite email delivered by Resend in production.
 
