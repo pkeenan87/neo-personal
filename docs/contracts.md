@@ -495,3 +495,88 @@ Wire types: `apps/web/lib/alert-types.ts`. JSON errors `{ error, code }`; 503 `s
 - `lib/server/verdicts.ts` `saveVerdict` raises `member_verdict` alerts for members' `malicious` (high) and `suspicious` (medium) verdicts, dedupe `verdict:<id>`. Household accept raises `member_joined` (high); leave and remove raise `member_left` (low); dedupe `<kind>:<userId>:<UTC hour>`. The direct "joined" email is removed.
 - The daily retention job also calls `purgeOldAlerts`.
 - Audit events: `alert.acknowledged`, `alert.acknowledged_all`, `settings.alert_threshold_changed`.
+
+## @neo/db (spec `_specs/device-enrollment.md`)
+
+Migration `0009_devices`:
+- New `devices` (`kind` `browser_extension|desktop_agent`, `platform` `chrome|edge|firefox|windows|macos|linux`, `name` 1–64, `client_version` ≤ 32, `enrollment` `code|self`, `user_id` → users cascade, `enrolled_by` / `revoked_by` → users set null, `last_seen_at`, `offline_alerted_at`, `revoked_at`) and `device_enrollment_codes` (`user_id`, unique `code_hash`, `created_by`, `expires_at` 24 h, `redeemed_at`, `device_id` → devices set null, `revoked_at`), both with `tenant_isolation` RLS and in `tenantTables`.
+- `desktop_tokens.scopes text[] not null default '{full}'` (checked against `TOKEN_SCOPES`) and `desktop_tokens.device_id` → devices cascade; check: `device_id is null` ⇔ `'full' = any(scopes)`.
+- `desktop_auth_requests` gains nullable `device_kind`, `device_platform`, `device_name`, `device_client_version`.
+- `alerts.kind` check adds `device_enrolled|device_offline|device_removed`; `alerts.device_id` becomes an FK to devices (set null).
+- Security-definer functions (`EXECUTE` granted to `app_user` only): `lookup_device_enrollment_code(code_hash text) → (id, tenant_id)` for pending codes; `list_stale_devices(before timestamptz) → (id, tenant_id)` (active, never offline-alerted, `coalesce(last_seen_at, created_at) < before`); `purge_old_devices() → integer` (devices revoked > 90 days, codes redeemed/revoked/expired > 30 days).
+
+```ts
+TOKEN_SCOPES = ["full", "device", "signals:write", "url:check"] as const;  type TokenScope;
+MONITORING_SCOPES = ["device", "signals:write", "url:check"] as const;
+DEVICE_KINDS; DEVICE_PLATFORMS; type DeviceKind; type DevicePlatform;
+MAX_DEVICES_PER_HOUSEHOLD = 20; MAX_PENDING_ENROLLMENT_CODES = 10;
+ENROLLMENT_CODE_TTL_MS;   // 24 h
+DEVICE_OFFLINE_AFTER_MS;  // 48 h
+mintEnrollmentCode() → "XXXX-XXXX-XXXX";  normalizeEnrollmentCode(input) → string | null;  hashEnrollmentCode(code);
+normalizeDeviceName(s) → string | null;
+interface DeviceInput { kind: DeviceKind; platform: DevicePlatform; name: string; clientVersion: string }
+interface DevicePublic { id, tenantId, userId, memberName: string | null, kind, platform, name, clientVersion, enrollment: "code" | "self",
+                         enrolledBy: string | null, enrolledByName: string | null, createdAt, lastSeenAt: Date | null, offlineAlertedAt: Date | null, revokedAt: Date | null }
+interface EnrollmentCodePublic { id, userId, memberName: string | null, createdBy: string | null, createdAt, expiresAt }
+
+createEnrollmentCode(db, { tenantId, userId, createdBy, now? }) → { code, record: EnrollmentCodePublic } | { error: "not_member" | "code_limit" | "device_limit" };
+listPendingEnrollmentCodes(db, tenantId, now?) → EnrollmentCodePublic[];              // newest first
+revokeEnrollmentCode(db, tenantId, id, now?) → boolean;                                 // true also when already revoked; false for unknown
+previewEnrollmentCode(db, { code, now? }) → { householdName, memberName, ownerName, expiresAt } | null;
+redeemEnrollmentCode(db, { code, device: DeviceInput, now? })
+  → { status: "enrolled", token, tokenId, device: DevicePublic, householdName, memberName, createdBy }
+  | { status: "not_found" | "device_limit" | "invalid" };   // one tx: lock code FOR UPDATE, re-check pending + membership, insert device, mint MONITORING_SCOPES token, mark redeemed
+enrollSelfDevice(db, { tenantId, userId, role, device: DeviceInput, now? })
+  → { token, tokenId, device: DevicePublic } | { error: "device_limit" | "invalid" };
+listDevices(db, tenantId, { userId? }) → DevicePublic[];      // active only, newest first
+getDevice(db, tenantId, id) → DevicePublic | undefined;       // includes revoked
+renameDevice(db, tenantId, id, name) → DevicePublic | "invalid" | undefined;
+revokeDevice(db, { tenantId, deviceId, revokedBy: string | null, now? }) → { device: DevicePublic, alreadyRevoked: boolean } | undefined;  // revokes its tokens
+recordHeartbeat(db, { tenantId, deviceId, clientVersion?, now? }) → DevicePublic | undefined;  // sets last_seen_at, clears offline_alerted_at; undefined if revoked
+listStaleDevices(db, before) → { id, tenantId }[];
+markDeviceOfflineAlerted(db, tenantId, deviceId, at) → DevicePublic | undefined;   // only if still active, stale and not alerted
+purgeOldDevices(db) → number;
+```
+
+Changed:
+- `ResolvedDesktopToken` gains `scopes: TokenScope[]` and `deviceId: string | null`. `resolveDesktopToken` returns null when the token's device is revoked.
+- `listDesktopTokens` and the 10-per-user cap in `createDesktopToken` count only `full` tokens.
+- `createDesktopAuthRequest(db, { clientName, device?: DeviceInput })`. `redeemDesktopAuthRequest` mints a monitoring token through `enrollSelfDevice` when the request carries a device, and adds `device: DevicePublic` to the approved result (`device_limit` is a new status). `DesktopAuthRequestPublic` gains `device: DeviceInput | null`.
+- `removeHouseholdMember` / `leaveHousehold` also revoke the member's devices and pending enrollment codes in the household.
+
+### Session scopes (apps/web)
+
+- `NeoSession` gains `scopes: TokenScope[]` (browser sessions: `["full"]`) and `deviceId?`.
+- `getSession(opts?: { scope?: TokenScope })`: a desktop token resolves only if it holds `opts.scope ?? "full"`. `requireSession` and existing routes are therefore closed to monitoring tokens.
+- `requireApiSession(opts?)` / `requireBrowserApiSession()`: 403 `insufficient_scope` (not 401) for a valid token without the scope.
+
+### HTTP contract: devices (`_specs/device-enrollment.md`)
+
+Wire types in `apps/web/lib/household-types.ts`:
+- `DeviceItem = { id, userId, memberName, kind, platform, name, clientVersion, enrollment, enrolledByName, createdAt, lastSeenAt, status: "active" | "offline" | "never_seen" }`
+- `EnrollmentCodeItem = { id, userId, memberName, createdAt, expiresAt }`
+
+JSON errors `{ error, code }`.
+
+- **Household view:** `GET /api/household` adds `devices: DeviceItem[]` (owner: all; member: their own) and `enrollmentCodes: EnrollmentCodeItem[]` (owner only).
+- **Enrollment codes (owner, browser session):**
+  - `POST /api/household/members/[userId]/enrollment-codes` → 201 `{ id, code, expiresAt, memberName }`; 404 `not_found`; 409 `code_limit` | `device_limit`.
+  - `DELETE /api/household/enrollment-codes/[id]` → 204.
+- **Enrollment (no auth; shared 10 per hour per IP):**
+  - `POST /api/devices/enroll/preview { code }` → `{ householdName, memberName, ownerName, expiresAt }`; 404 `not_found`.
+  - `POST /api/devices/enroll { code, kind, platform, name, clientVersion }` → 201 `{ token, tokenId, device, householdName, memberName }`; 404 `not_found`; 409 `device_limit`; 400 `invalid`.
+- **Device self-service (scope `device`):**
+  - `POST /api/devices/heartbeat { clientVersion? }` → `{ device, householdName, memberName, heartbeatSeconds: 3600 }`; 12 per hour per device.
+  - `DELETE /api/devices/self` → 204.
+- **Device management (browser session):**
+  - `PATCH /api/household/devices/[id] { name }` (owner) → `{ device }`.
+  - `DELETE /api/household/devices/[id]` (owner, or the protected member) → 204; 403 `forbidden`; 404 `not_found`.
+- **Device sign-in:** `POST /api/desktop/device` accepts `device?: { kind, platform, name, clientVersion }`. The token response adds `device` and `scopes`; `/desktop/authorize` names what is granted.
+- **Alerts:**
+  - `device_enrolled` (low, self-enrollment by a non-owner, dedupe `device_enrolled:<deviceId>`).
+  - `device_removed` (high, removal by the member or the device, dedupe `device_removed:<deviceId>`).
+  - `device_offline` (medium, dedupe `device_offline:<deviceId>:<epoch of last seen>`).
+  - Devices protecting an owner never alert; owners' own actions never alert.
+- **Offline job:** Inngest cron `devices-offline` (hourly) runs `runOfflineDeviceSweep()`. The daily retention job also calls `purgeOldDevices`.
+- **Member email:** enrollment by code emails the member, with idempotency key `device-enrolled:<deviceId>`.
+- **Audit events:** `device.enrollment_code_created`, `device.enrollment_code_revoked`, `device.enrolled`, `device.renamed`, `device.revoked` (`by: "owner" | "member" | "device"`).
