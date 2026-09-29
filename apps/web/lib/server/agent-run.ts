@@ -22,7 +22,8 @@ import {
   type ToolRegistry,
 } from "@neo/core";
 import type { ArtifactMeta } from "@neo/db";
-import { createAnalyzeEmailTool, createAnalyzeSmsTool, createCheckUrlTool, createInMemoryCache } from "@neo/tools";
+import { PostgresReputationCache } from "@neo/db";
+import { createAnalyzeEmailTool, createAnalyzeSmsTool, createCheckUrlTool, createInMemoryCache, type ReputationCache } from "@neo/tools";
 import { parseAttachmentNote } from "@/lib/attachments";
 import { env } from "@/lib/env";
 import { playbookMarker, type PlaybookId } from "@/lib/playbooks";
@@ -30,6 +31,7 @@ import type { NeoSession } from "@/lib/session";
 import { getArtifactStore } from "./artifacts";
 import { recordAudit } from "./audit";
 import { getConversationStore } from "./conversation-store";
+import { getDb } from "./db";
 import { NDJSON_HEADERS } from "./http";
 import { createMockAnthropicClient, mockReportPhishTool } from "./mock-model";
 import { routeTurn } from "./router";
@@ -38,11 +40,22 @@ import { NEO_SYSTEM_PROMPT } from "./system-prompt";
 import { recordUsage } from "./usage";
 import { extractVerdict, saveChatVerdict } from "./verdicts";
 
-const g = globalThis as typeof globalThis & { __neoUrlCache?: ReturnType<typeof createInMemoryCache> };
+const g = globalThis as typeof globalThis & { __neoUrlCache?: ReputationCache; __neoUrlCacheDbBacked?: boolean };
 
-/** The process-wide URL reputation cache shared by chat tools and the inbound job. */
-export function sharedUrlCache(): ReturnType<typeof createInMemoryCache> {
-  g.__neoUrlCache ??= createInMemoryCache();
+/**
+ * The process-wide URL reputation cache shared by chat tools, the inbound job and signal
+ * escalations (_specs/signals.md "Shared reputation cache"). `PostgresReputationCache`
+ * (`reputation_cache`, 24h TTL, no tenant) when a database is configured, so households share
+ * lookups; the in-memory twin otherwise (MOCK_MODE / tests). Switches twin↔database if the
+ * database becomes available after the first call (tests toggling DATABASE_URL).
+ */
+export function sharedUrlCache(): ReputationCache {
+  const db = getDb();
+  const dbBacked = Boolean(db);
+  if (!g.__neoUrlCache || g.__neoUrlCacheDbBacked !== dbBacked) {
+    g.__neoUrlCache = db ? new PostgresReputationCache(db) : createInMemoryCache();
+    g.__neoUrlCacheDbBacked = dbBacked;
+  }
   return g.__neoUrlCache;
 }
 

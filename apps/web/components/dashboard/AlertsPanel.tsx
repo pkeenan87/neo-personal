@@ -8,12 +8,18 @@ import type { AlertItem, AlertListResponse, AlertSeverityName } from "@/lib/aler
 
 const SHOWN = 5;
 
+// Colors match the indicator-severity chips elsewhere (VerdictDetail's SEVERITY_CHIP): red is reserved
+// for critical so it reads as more urgent than high, which was sharing the same red before signals
+// introduced critical device alerts (_specs/signals.md: "critical finally has a source").
 const SEVERITY: Record<AlertSeverityName, { label: string; dot: string }> = {
   critical: { label: "Critical", dot: "bg-red-600 dark:bg-red-400" },
-  high: { label: "High", dot: "bg-red-600 dark:bg-red-400" },
+  high: { label: "High", dot: "bg-orange-500 dark:bg-orange-400" },
   medium: { label: "Medium", dot: "bg-amber-500 dark:bg-amber-400" },
   low: { label: "Low", dot: "bg-slate-400 dark:bg-slate-500" },
 };
+
+const CRITICAL_CHIP =
+  "bg-red-100 text-red-800 ring-1 ring-inset ring-red-600/20 dark:bg-red-900/60 dark:text-red-200 dark:ring-red-400/30";
 
 /**
  * Open owner alerts (_specs/owner-alerts.md). Owners see the household's and can mark
@@ -85,7 +91,15 @@ export function AlertsPanel({ initial, isOwner }: { initial: AlertListResponse; 
               <span className={`mt-1.5 inline-block size-2.5 shrink-0 rounded-full ${sev.dot}`} aria-hidden="true" />
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-medium">
-                  <span className="sr-only">{sev.label}: </span>
+                  {a.severity === "critical" ? (
+                    <span
+                      className={`mr-1.5 inline-block rounded-full px-1.5 py-0.5 align-middle text-[10px] font-semibold tracking-wide uppercase ${CRITICAL_CHIP}`}
+                    >
+                      {sev.label}
+                    </span>
+                  ) : (
+                    <span className="sr-only">{sev.label}: </span>
+                  )}
                   {a.title}
                 </p>
                 <p className="mt-0.5 line-clamp-2 text-sm text-muted">{a.body}</p>

@@ -52,6 +52,7 @@ import {
 } from "../memory-alerts";
 import { memoryListMembers } from "../memory-state";
 import {
+  type AlertText,
   deviceEnrolledAlertText,
   deviceLabel,
   deviceOfflineAlertText,
@@ -232,6 +233,76 @@ export async function alertDeviceOffline(device: DevicePublic): Promise<boolean>
     dedupeKey: `device_offline:${device.id}:${since.getTime()}`,
   });
   return row !== null;
+}
+
+// ─── Device signals (_specs/signals.md) ─────────────────────────────
+
+/** Alert kinds a signal event can raise directly (everything but the membership/device-lifecycle kinds). */
+export type SignalAlertKind = "scam_page" | "dangerous_site" | "remote_access" | "unwanted_software" | "permission_grant";
+
+/**
+ * Raise a device-signal alert. Dedupe `<kind>:<deviceId>:<subject>:<UTC hour>`, so the same
+ * tool/domain/app on the same device alerts at most once an hour. Owners' own devices alert
+ * like everyone else's (decided 2026-09-29, _specs/signals.md): no `alertableMember` gate here.
+ */
+export async function alertSignal(input: {
+  tenantId: string;
+  userId: string;
+  deviceId: string;
+  kind: SignalAlertKind;
+  /** The domain, toolId or app name the event is about (device_signals.subject). */
+  subject: string;
+  verdictId?: string | null;
+  text: AlertText;
+  now?: Date;
+}): Promise<AlertRow | null> {
+  return raiseAlert({
+    tenantId: input.tenantId,
+    subjectUserId: input.userId,
+    deviceId: input.deviceId,
+    kind: input.kind,
+    severity: input.text.severity,
+    title: input.text.title,
+    body: input.text.body,
+    ...(input.verdictId ? { verdictId: input.verdictId } : {}),
+    dedupeKey: `${input.kind}:${input.deviceId}:${input.subject}:${hourBucket(input.now)}`,
+  });
+}
+
+/** `warning_bypassed`: dedupe `bypass:<relatesTo>` (one bump alert per dismissed warning). */
+export async function alertSignalBypass(input: {
+  tenantId: string;
+  userId: string;
+  deviceId: string;
+  kind: SignalAlertKind;
+  relatesTo: string;
+  verdictId?: string | null;
+  text: AlertText;
+}): Promise<AlertRow | null> {
+  return raiseAlert({
+    tenantId: input.tenantId,
+    subjectUserId: input.userId,
+    deviceId: input.deviceId,
+    kind: input.kind,
+    severity: input.text.severity,
+    title: input.text.title,
+    body: input.text.body,
+    ...(input.verdictId ? { verdictId: input.verdictId } : {}),
+    dedupeKey: `bypass:${input.relatesTo}`,
+  });
+}
+
+/** `scam_in_progress`: dedupe `scam_in_progress:<userId>:<30-minute bucket>`. */
+export async function alertScamInProgress(input: { tenantId: string; userId: string; bucket: string; text: AlertText }): Promise<AlertRow | null> {
+  return raiseAlert({
+    tenantId: input.tenantId,
+    subjectUserId: input.userId,
+    kind: "scam_in_progress",
+    severity: input.text.severity,
+    title: input.text.title,
+    body: input.text.body,
+    dedupeKey: `scam_in_progress:${input.userId}:${input.bucket}`,
+  });
 }
 
 // ─── Delivery ──────────────────────────────────────────────────────

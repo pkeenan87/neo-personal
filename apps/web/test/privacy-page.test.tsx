@@ -31,6 +31,16 @@ describe("privacy policy page", () => {
     expect(screen.getByText(/removing one tells the owner/)).toBeInTheDocument();
   });
 
+  it("explains device signals: what they contain, retention, and expected tools (_specs/signals.md)", () => {
+    render(<PrivacyPage />);
+    expect(screen.getByText(/domain of a page that looked like a scam \(never the/)).toBeInTheDocument();
+    expect(screen.getByText(/remote peer ID during a remote-access session/)).toBeInTheDocument();
+    expect(screen.getByText(/screen-recording or accessibility permission grants/)).toBeInTheDocument();
+    expect(screen.getByText("Signal records")).toBeInTheDocument();
+    expect(screen.getByText(/a protected device reports are kept for 30 days\./)).toBeInTheDocument();
+    expect(screen.getByText(/mark a remote-access tool as expected on a device/)).toBeInTheDocument();
+  });
+
   it("falls back to the default contact address", () => {
     vi.stubEnv("NEO_CONTACT_EMAIL", "");
     render(<PrivacyPage />);

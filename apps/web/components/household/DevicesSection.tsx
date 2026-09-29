@@ -1,14 +1,50 @@
 "use client";
 
-import { Check, KeyRound, Monitor, Pencil, Plus, Puzzle, ShieldCheck, Trash2, TriangleAlert, X } from "lucide-react";
+import { Check, ChevronDown, KeyRound, Monitor, Pencil, Plus, Puzzle, ShieldCheck, Trash2, TriangleAlert, X } from "lucide-react";
 import { useState } from "react";
 import type { HouseholdSummary } from "@/lib/dashboard-types";
-import type { CreateEnrollmentCodeResponse, DeviceItem, DevicePlatform, EnrollmentCodeItem } from "@/lib/household-types";
+import type {
+  CreateEnrollmentCodeResponse,
+  DeviceItem,
+  DevicePlatform,
+  EnrollmentCodeItem,
+  ExpectedToolItem,
+} from "@/lib/household-types";
+import type { SetExpectedToolsResponse } from "@/lib/signal-types";
 import { CopyButton } from "../CopyButton";
 import { useToast } from "../toast-context";
 
+export type { ExpectedToolItem };
+
 /** Device names are 1–64 characters (_specs/device-enrollment.md). */
 export const DEVICE_NAME_MAX = 64;
+
+/**
+ * `{ id, name }` from `@neo/tools` `REMOTE_ACCESS_TOOLS`. `@neo/tools` pulls in `node:crypto`
+ * and other Node-only modules at import time (`packages/tools/src/lists.ts`, re-exported from
+ * the package root), so it isn't safe to import directly in this client component. The owning
+ * server page must import `REMOTE_ACCESS_TOOLS` itself and pass `{ id, name }` down.
+ */
+export interface RemoteAccessToolOption {
+  id: string;
+  name: string;
+}
+
+const PEER_ID_MAX = 64;
+const PEER_ID_RE = /^[A-Za-z0-9 _.@-]+$/;
+const MAX_EXPECTED_TOOLS = 10;
+const MAX_PEER_IDS = 10;
+
+function expectedTools(d: DeviceItem): ExpectedToolItem[] {
+  return d.expectedTools ?? [];
+}
+
+/** Remounts the editor whenever the server's saved set changes, so local drafts resync for free. */
+function expectedToolsKey(d: DeviceItem): string {
+  return expectedTools(d)
+    .map((t) => `${t.toolId}:${t.peerIds.join(",")}`)
+    .join("|");
+}
 
 const PLATFORM_LABEL: Record<DevicePlatform, string> = {
   chrome: "Chrome",
@@ -76,6 +112,7 @@ export function DevicesSection({
   setBusy,
   refresh,
   onRemove,
+  remoteAccessTools = [],
 }: {
   devices: DeviceItem[];
   enrollmentCodes: EnrollmentCodeItem[];
@@ -87,6 +124,8 @@ export function DevicesSection({
   refresh: () => Promise<void>;
   /** Opens the parent's confirmation dialog; the parent sends the DELETE. */
   onRemove: (device: DeviceItem) => void;
+  /** `@neo/tools` `REMOTE_ACCESS_TOOLS`, passed by the server page as `{ id, name }` (not client-safe to import). */
+  remoteAccessTools?: RemoteAccessToolOption[];
 }) {
   const { toast } = useToast();
   const [revealed, setRevealed] = useState<Revealed | null>(null);
@@ -182,87 +221,100 @@ export function DevicesSection({
     const status = statusLine(d);
     const isEditing = editing?.id === d.id;
     return (
-      <li key={d.id} className="flex items-center gap-3 py-3">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-muted" title={kindLabel}>
-          <Icon className="size-4" aria-hidden="true" />
-        </span>
-        {isEditing ? (
-          <form
-            className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void rename();
-            }}
-          >
-            <label htmlFor={`device-name-${d.id}`} className="sr-only">
-              Device name
-            </label>
-            <input
-              id={`device-name-${d.id}`}
-              value={editing.name}
-              onChange={(e) => setEditing({ id: d.id, name: e.target.value })}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") setEditing(null);
+      <li key={d.id} className="py-3">
+        <div className="flex items-center gap-3">
+          <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-muted" title={kindLabel}>
+            <Icon className="size-4" aria-hidden="true" />
+          </span>
+          {isEditing ? (
+            <form
+              className="flex min-w-0 flex-1 flex-wrap items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                void rename();
               }}
-              maxLength={DEVICE_NAME_MAX}
-              autoComplete="off"
-              autoFocus
-              className="min-h-11 min-w-0 flex-1 basis-40 rounded-xl border border-border bg-bg px-3 text-sm"
-            />
-            <div className="flex shrink-0 gap-1">
-              <button
-                type="submit"
-                disabled={busy || !editing.name.trim()}
-                aria-label="Save name"
-                className="flex size-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-50"
-              >
-                <Check className="size-4" aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setEditing(null)}
-                aria-label="Cancel renaming"
-                className="flex size-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-50"
-              >
-                <X className="size-4" aria-hidden="true" />
-              </button>
-            </div>
-          </form>
-        ) : (
-          <>
-            <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium">{d.name}</div>
-              <div className="truncate text-xs text-muted">{kindLabel}</div>
-              <div
-                className={`flex min-w-0 items-center gap-1 text-xs ${status.warn ? "text-amber-700 dark:text-amber-300" : "text-muted"}`}
-              >
-                {status.warn ? <TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" /> : null}
-                <span className="truncate">{status.text}</span>
+            >
+              <label htmlFor={`device-name-${d.id}`} className="sr-only">
+                Device name
+              </label>
+              <input
+                id={`device-name-${d.id}`}
+                value={editing.name}
+                onChange={(e) => setEditing({ id: d.id, name: e.target.value })}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setEditing(null);
+                }}
+                maxLength={DEVICE_NAME_MAX}
+                autoComplete="off"
+                autoFocus
+                className="min-h-11 min-w-0 flex-1 basis-40 rounded-xl border border-border bg-bg px-3 text-sm"
+              />
+              <div className="flex shrink-0 gap-1">
+                <button
+                  type="submit"
+                  disabled={busy || !editing.name.trim()}
+                  aria-label="Save name"
+                  className="flex size-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-50"
+                >
+                  <Check className="size-4" aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setEditing(null)}
+                  aria-label="Cancel renaming"
+                  className="flex size-11 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-50"
+                >
+                  <X className="size-4" aria-hidden="true" />
+                </button>
               </div>
-            </div>
-            {isOwner ? (
+            </form>
+          ) : (
+            <>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{d.name}</div>
+                <div className="truncate text-xs text-muted">{kindLabel}</div>
+                <div
+                  className={`flex min-w-0 items-center gap-1 text-xs ${status.warn ? "text-amber-700 dark:text-amber-300" : "text-muted"}`}
+                >
+                  {status.warn ? <TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" /> : null}
+                  <span className="truncate">{status.text}</span>
+                </div>
+              </div>
+              {isOwner ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => setEditing({ id: d.id, name: d.name })}
+                  aria-label={`Rename ${d.name}`}
+                  className="flex size-11 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-50"
+                >
+                  <Pencil className="size-4" aria-hidden="true" />
+                </button>
+              ) : null}
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => setEditing({ id: d.id, name: d.name })}
-                aria-label={`Rename ${d.name}`}
+                onClick={() => onRemove(d)}
+                aria-label={`Remove ${d.name}`}
                 className="flex size-11 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-50"
               >
-                <Pencil className="size-4" aria-hidden="true" />
+                <Trash2 className="size-4" aria-hidden="true" />
               </button>
-            ) : null}
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => onRemove(d)}
-              aria-label={`Remove ${d.name}`}
-              className="flex size-11 shrink-0 items-center justify-center rounded-xl text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-50"
-            >
-              <Trash2 className="size-4" aria-hidden="true" />
-            </button>
-          </>
-        )}
+            </>
+          )}
+        </div>
+        {d.kind === "desktop_agent" ? (
+          <ExpectedToolsSection
+            key={`${d.id}:${expectedToolsKey(d)}`}
+            device={d}
+            isOwner={isOwner}
+            toolList={remoteAccessTools}
+            busy={busy}
+            setBusy={setBusy}
+            refresh={refresh}
+          />
+        ) : null}
       </li>
     );
   }
@@ -306,8 +358,9 @@ export function DevicesSection({
           Your devices
         </h2>
         <p className="mb-2 text-xs text-muted">
-          These devices report scam warnings about you to {owner ? memberLabel(owner) : "the household owner"}. They send only a
-          check-in with their app version and time.
+          These devices report scam warnings about you to {owner ? memberLabel(owner) : "the household owner"}. Besides a regular
+          check-in, they report only specific signals — a scam page&apos;s domain, a remote-access tool, a remote session, or a
+          permission grant — never everything they see.
         </p>
         <ul className="divide-y divide-border">{devices.map(deviceRow)}</ul>
       </section>
@@ -390,5 +443,315 @@ export function DevicesSection({
         })}
       </div>
     </section>
+  );
+}
+
+// ─── Expected remote-access tools (_specs/signals.md) ──────────────────────
+
+function ExpectedToolsSection({
+  device,
+  isOwner,
+  toolList,
+  busy,
+  setBusy,
+  refresh,
+}: {
+  device: DeviceItem;
+  isOwner: boolean;
+  toolList: RemoteAccessToolOption[];
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+  refresh: () => Promise<void>;
+}) {
+  const saved = expectedTools(device);
+  if (!isOwner && saved.length === 0) return null;
+  return isOwner ? (
+    <OwnerExpectedTools device={device} saved={saved} toolList={toolList} busy={busy} setBusy={setBusy} refresh={refresh} />
+  ) : (
+    <MemberExpectedTools device={device} saved={saved} />
+  );
+}
+
+function disclosureSummary(count: number): string {
+  return `Expected remote-access tools${count > 0 ? ` (${count})` : ""}`;
+}
+
+function MemberExpectedTools({ device, saved }: { device: DeviceItem; saved: ExpectedToolItem[] }) {
+  return (
+    <details className="mt-2 rounded-xl border border-border">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1 rounded-xl px-3 text-xs font-medium text-muted hover:bg-surface-2 hover:text-fg [&::-webkit-details-marker]:hidden">
+        <ChevronDown className="size-3.5 shrink-0" aria-hidden="true" />
+        {disclosureSummary(saved.length)}
+      </summary>
+      <div className="space-y-2 border-t border-border px-3 py-3">
+        <p className="text-xs text-muted">
+          Your household owner marked these as expected. Neo still tells you when an unknown person connects.
+        </p>
+        <ul className="space-y-1.5" aria-label={`Expected remote-access tools for ${device.name}`}>
+          {saved.map((t) => (
+            <li key={t.toolId} className="text-sm">
+              <span className="font-medium">{t.name}</span>
+              {t.peerIds.length > 0 ? <span className="text-xs text-muted"> · {t.peerIds.join(", ")}</span> : null}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </details>
+  );
+}
+
+function OwnerExpectedTools({
+  device,
+  saved,
+  toolList,
+  busy,
+  setBusy,
+  refresh,
+}: {
+  device: DeviceItem;
+  saved: ExpectedToolItem[];
+  toolList: RemoteAccessToolOption[];
+  busy: boolean;
+  setBusy: (busy: boolean) => void;
+  refresh: () => Promise<void>;
+}) {
+  const { toast } = useToast();
+  const [draft, setDraft] = useState<ExpectedToolItem[]>(saved);
+  const [addToolId, setAddToolId] = useState("");
+  const [peerInputs, setPeerInputs] = useState<Record<string, string>>({});
+  const [peerErrors, setPeerErrors] = useState<Record<string, string>>({});
+
+  const dirty = JSON.stringify(draft) !== JSON.stringify(saved);
+  const available = toolList.filter((t) => !draft.some((d) => d.toolId === t.id));
+  const memberLabelText = device.memberName || "this member";
+
+  function addTool() {
+    const tool = toolList.find((t) => t.id === addToolId);
+    if (!tool || draft.length >= MAX_EXPECTED_TOOLS) return;
+    setDraft((prev) => [...prev, { toolId: tool.id, name: tool.name, peerIds: [] }]);
+    setAddToolId("");
+  }
+
+  function removeTool(toolId: string) {
+    setDraft((prev) => prev.filter((t) => t.toolId !== toolId));
+    setPeerInputs((prev) => ({ ...prev, [toolId]: "" }));
+    setPeerErrors((prev) => ({ ...prev, [toolId]: "" }));
+  }
+
+  function addPeerId(toolId: string, toolName: string) {
+    const raw = (peerInputs[toolId] ?? "").trim();
+    if (!raw) return;
+    if (raw.length > PEER_ID_MAX || !PEER_ID_RE.test(raw)) {
+      setPeerErrors((prev) => ({
+        ...prev,
+        [toolId]: `A peer ID is up to ${PEER_ID_MAX} characters: letters, numbers, spaces, or _ . @ -`,
+      }));
+      return;
+    }
+    let atLimit = false;
+    setDraft((prev) =>
+      prev.map((t) => {
+        if (t.toolId !== toolId) return t;
+        if (t.peerIds.includes(raw)) return t;
+        if (t.peerIds.length >= MAX_PEER_IDS) {
+          atLimit = true;
+          return t;
+        }
+        return { ...t, peerIds: [...t.peerIds, raw] };
+      }),
+    );
+    if (atLimit) {
+      setPeerErrors((prev) => ({ ...prev, [toolId]: `${toolName} already has ${MAX_PEER_IDS} peer IDs.` }));
+      return;
+    }
+    setPeerInputs((prev) => ({ ...prev, [toolId]: "" }));
+    setPeerErrors((prev) => ({ ...prev, [toolId]: "" }));
+  }
+
+  function removePeerId(toolId: string, peerId: string) {
+    setDraft((prev) => prev.map((t) => (t.toolId === toolId ? { ...t, peerIds: t.peerIds.filter((p) => p !== peerId) } : t)));
+  }
+
+  async function save() {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/household/devices/${encodeURIComponent(device.id)}/expected-tools`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ tools: draft.map((t) => ({ toolId: t.toolId, peerIds: t.peerIds })) }),
+      });
+      if (res.status === 404) {
+        await refresh();
+        throw new Error("That device was already removed.");
+      }
+      if (res.status === 403) throw new Error("You can only manage tools for devices in your household.");
+      if (!res.ok) {
+        const body = await readError(res);
+        throw new Error(
+          body.code === "unknown_tool"
+            ? "One of those tools isn't available anymore. Remove it and try again."
+            : body.error || "Could not save expected tools.",
+        );
+      }
+      const body = (await res.json()) as SetExpectedToolsResponse;
+      setDraft(body.tools);
+      toast({ intent: "success", title: "Expected tools updated" });
+      await refresh();
+    } catch (err) {
+      toast({ intent: "error", title: err instanceof Error ? err.message : "Could not save expected tools." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <details className="mt-2 rounded-xl border border-border">
+      <summary className="flex min-h-11 cursor-pointer list-none items-center gap-1 rounded-xl px-3 text-xs font-medium text-muted hover:bg-surface-2 hover:text-fg [&::-webkit-details-marker]:hidden">
+        <ChevronDown className="size-3.5 shrink-0" aria-hidden="true" />
+        {disclosureSummary(saved.length)}
+      </summary>
+      <div className="space-y-3 border-t border-border px-3 py-3">
+        <p className="text-xs text-muted">
+          Add the tools you use to help {memberLabelText}, with your own ID, so your sessions don&apos;t alert. Neo still tells
+          you when an unknown person connects.
+        </p>
+
+        {draft.length === 0 ? (
+          <p className="text-xs text-muted">No tools marked as expected.</p>
+        ) : (
+          <ul className="space-y-2">
+            {draft.map((t) => (
+              <li key={t.toolId} className="rounded-lg border border-border p-2">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-medium">{t.name}</span>
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => removeTool(t.toolId)}
+                    aria-label={`Remove ${t.name} from expected tools`}
+                    className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-50"
+                  >
+                    <X className="size-3.5" aria-hidden="true" />
+                  </button>
+                </div>
+                {t.peerIds.length > 0 ? (
+                  <ul className="mt-1.5 flex flex-wrap gap-1.5" aria-label={`Peer IDs for ${t.name}`}>
+                    {t.peerIds.map((p) => (
+                      <li key={p} className="flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-xs">
+                        {p}
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => removePeerId(t.toolId, p)}
+                          aria-label={`Remove peer ID ${p} for ${t.name}`}
+                          className="text-muted hover:text-fg disabled:opacity-50"
+                        >
+                          <X className="size-3" aria-hidden="true" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {t.peerIds.length < MAX_PEER_IDS ? (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    <label htmlFor={`peer-${device.id}-${t.toolId}`} className="sr-only">
+                      Peer ID for {t.name}
+                    </label>
+                    <input
+                      id={`peer-${device.id}-${t.toolId}`}
+                      value={peerInputs[t.toolId] ?? ""}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setPeerInputs((prev) => ({ ...prev, [t.toolId]: value }));
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addPeerId(t.toolId, t.name);
+                        }
+                      }}
+                      placeholder="Your peer or session ID"
+                      maxLength={PEER_ID_MAX}
+                      autoComplete="off"
+                      className="min-h-9 min-w-0 flex-1 basis-32 rounded-lg border border-border bg-bg px-2 text-xs"
+                    />
+                    <button
+                      type="button"
+                      disabled={busy || !(peerInputs[t.toolId] ?? "").trim()}
+                      onClick={() => addPeerId(t.toolId, t.name)}
+                      className="min-h-9 shrink-0 rounded-lg border border-border px-2 text-xs font-medium hover:bg-surface-2 disabled:opacity-50"
+                    >
+                      Add ID
+                    </button>
+                  </div>
+                ) : null}
+                {peerErrors[t.toolId] ? (
+                  <p role="alert" className="mt-1 text-xs text-red-700 dark:text-red-300">
+                    {peerErrors[t.toolId]}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        {draft.length < MAX_EXPECTED_TOOLS && available.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <label htmlFor={`add-tool-${device.id}`} className="sr-only">
+              Add an expected tool
+            </label>
+            <select
+              id={`add-tool-${device.id}`}
+              value={addToolId}
+              onChange={(e) => setAddToolId(e.target.value)}
+              disabled={busy}
+              className="min-h-9 min-w-0 flex-1 basis-40 rounded-lg border border-border bg-bg px-2 text-xs disabled:opacity-50"
+            >
+              <option value="">Add a tool…</option>
+              {available.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              disabled={busy || !addToolId}
+              onClick={addTool}
+              className="min-h-9 shrink-0 rounded-lg border border-border px-2 text-xs font-medium hover:bg-surface-2 disabled:opacity-50"
+            >
+              Add
+            </button>
+          </div>
+        ) : draft.length < MAX_EXPECTED_TOOLS && toolList.length === 0 ? (
+          <p className="text-xs text-muted">The tool list isn&apos;t available right now.</p>
+        ) : null}
+
+        <div className="flex items-center gap-2 border-t border-border pt-2">
+          <button
+            type="button"
+            disabled={busy || !dirty}
+            onClick={() => void save()}
+            className="min-h-9 rounded-lg bg-accent px-3 text-xs font-semibold text-accent-fg disabled:opacity-50"
+          >
+            Save
+          </button>
+          {dirty ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setDraft(saved);
+                setPeerErrors({});
+              }}
+              className="min-h-9 rounded-lg px-3 text-xs text-muted hover:bg-surface-2 hover:text-fg disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </details>
   );
 }

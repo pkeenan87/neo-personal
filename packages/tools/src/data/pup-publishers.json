@@ -1,0 +1,29 @@
+{
+  "$comment": "Conservative seed of well-documented PUP/adware and browser-hijacker publishers, each with a short reason. Publisher names as they typically appear in Windows 'Programs and Features' / code-signing subject fields. No hashes: none are known with certainty. Extend cautiously; a wrong entry here is a false-positive on a real vendor.",
+  "publishers": [
+    {
+      "publisher": "Mindspark Interactive Network",
+      "reason": "Publishes a long history of bundled browser toolbars and search hijackers (e.g. Ask Toolbar-era products) widely flagged as PUP by antivirus engines."
+    },
+    {
+      "publisher": "APN, LLC",
+      "reason": "Ask Partner Network; historically the distribution arm behind the Ask Toolbar bundled with third-party installers and flagged as a browser hijacker."
+    },
+    {
+      "publisher": "Systweak Software",
+      "reason": "Publishes registry cleaner, driver-updater and 'PC optimizer' titles frequently flagged as PUP for scareware-style upselling."
+    },
+    {
+      "publisher": "Superfish, Inc.",
+      "reason": "Adware company behind the Superfish visual-search software that injected ads and installed a trusted root certificate; widely flagged as adware/PUP."
+    },
+    {
+      "publisher": "Conduit Ltd",
+      "reason": "Toolbar and 'SearchProtect' browser-hijacker platform bundled with many free downloads; widely flagged as PUP."
+    },
+    {
+      "publisher": "Wajam Internet Technologies",
+      "reason": "Ad-injection browser extension/adware bundled with free software installers; widely flagged as adware."
+    }
+  ]
+}

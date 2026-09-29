@@ -8,6 +8,8 @@ import {
   conversations,
   alerts,
   deviceEnrollmentCodes,
+  deviceExpectedTools,
+  deviceSignals,
   devices,
   householdInvites,
   inboundAddresses,
@@ -33,6 +35,8 @@ export const tenantTables = {
   alerts,
   devices,
   deviceEnrollmentCodes,
+  deviceSignals,
+  deviceExpectedTools,
 } as const;
 
 /** Any table with a `tenantId` column. */

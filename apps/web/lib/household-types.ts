@@ -1,4 +1,6 @@
 /** Wire types for the household routes (_specs/household-invites.md). */
+import type { ExpectedToolItem } from "./signal-types";
+export type { ExpectedToolItem };
 
 export type HouseholdInviteKind = "email" | "link";
 
@@ -77,6 +79,8 @@ export interface DeviceItem {
   lastSeenAt: string | null;
   /** `offline` after 48 h without a heartbeat; `never_seen` before the first one. */
   status: "active" | "offline" | "never_seen";
+  /** Remote-access tools the owner has marked expected on this device (_specs/signals.md). */
+  expectedTools: ExpectedToolItem[];
 }
 
 export interface EnrollmentCodeItem {
@@ -118,4 +122,6 @@ export interface HeartbeatResponse {
   householdName: string;
   memberName: string | null;
   heartbeatSeconds: number;
+  /** Detection-lists content version (_specs/signals.md); refetch GET /api/signals/lists when it changed. */
+  listsVersion: string;
 }

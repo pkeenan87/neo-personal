@@ -8,6 +8,7 @@ import { recordAudit } from "../audit";
 import { getDb } from "../db";
 import { purgeOldDevices } from "../devices";
 import { getMailer, getReceivedMailClient } from "../email/resend";
+import { purgeExpiredReputationCache, purgeOldDeviceSignals } from "../signals/store";
 import { checkCaps, noteCapHit, recordUsage } from "../usage";
 import type { ExpireDeps } from "./artifacts-expire-job";
 import type { EmailJobDeps } from "./email-received-job";
@@ -46,5 +47,7 @@ export function createExpireDeps(): ExpireDeps {
     // Without a database, in-memory alerts are bounded and die with the process.
     purgeOldAlerts: async () => (db ? purgeOldAlerts(db) : 0),
     purgeOldDevices,
+    purgeOldDeviceSignals,
+    purgeExpiredReputationCache,
   };
 }

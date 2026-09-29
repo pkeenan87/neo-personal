@@ -60,7 +60,11 @@ export async function saveVerdict(input: SaveVerdictInput): Promise<{ id: string
   const db = getDb();
   const saved = db ? await dbSaveVerdict(db, input) : saveMemoryVerdict(input);
   // A member's malicious or suspicious check alerts the owner (_specs/owner-alerts.md). Never throws.
-  await alertForVerdict({ tenantId: input.tenantId, userId: input.userId, verdictId: saved.id, verdict: input.verdict, source: input.source });
+  // Device signals raise their own alert (lib/server/signals/rules.ts), so skip here to avoid a
+  // second alert for the same event.
+  if (input.source !== "device") {
+    await alertForVerdict({ tenantId: input.tenantId, userId: input.userId, verdictId: saved.id, verdict: input.verdict, source: input.source });
+  }
   return saved;
 }
 

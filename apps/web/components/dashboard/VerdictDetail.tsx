@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Download, FileWarning, Mail, MessageSquare, RotateCw, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, FileWarning, Mail, MessageSquare, MonitorSmartphone, RotateCw, Sparkles, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useState, useSyncExternalStore } from "react";
@@ -10,6 +10,14 @@ import { useToast } from "@/components/toast-context";
 import { defang, VerdictCard } from "@/components/VerdictCard";
 import { artifactUrl as artifactHref } from "@/lib/attachments";
 import type { VerdictDetailResponse } from "@/lib/dashboard-types";
+import { SubjectBadge } from "./subject-types";
+
+/**
+ * `lib/dashboard-types.ts` doesn't carry a device name on a verdict yet (_specs/signals.md
+ * only specifies `source: "device"`). Structural until the server adds one; falls back to
+ * "a protected device" when absent.
+ */
+type VerdictDetailWithDevice = VerdictDetailResponse & { deviceName?: string | null };
 
 const SEVERITY_CHIP: Record<Severity, string> = {
   critical: "bg-red-100 text-red-800 dark:bg-red-900/60 dark:text-red-200",
@@ -148,6 +156,10 @@ export function VerdictDetail({ detail }: { detail: VerdictDetailResponse }) {
       </div>
 
       <Section title="Where this came from">
+        <SubjectBadge
+          type={detail.subjectType}
+          className="mb-2 w-fit rounded-full bg-surface-2 px-2 py-0.5 text-xs font-medium text-muted"
+        />
         <Origin detail={detail} />
       </Section>
 
@@ -277,6 +289,16 @@ export function VerdictDetail({ detail }: { detail: VerdictDetailResponse }) {
 }
 
 function Origin({ detail }: { detail: VerdictDetailResponse }) {
+  if (detail.source === "device") {
+    const deviceName = (detail as VerdictDetailWithDevice).deviceName;
+    return (
+      <p className="flex items-center gap-2 text-sm" suppressHydrationWarning>
+        <MonitorSmartphone className="size-4 text-muted" aria-hidden="true" />
+        {deviceName ? `From ${deviceName}` : "From a protected device"}, checked on {formatDate(detail.createdAt)}
+        {detail.memberName ? ` · ${detail.memberName}` : ""}
+      </p>
+    );
+  }
   if (detail.source === "inbound") {
     const by = detail.inbound?.forwardedBy ?? detail.memberName;
     const when = detail.inbound?.receivedAt ?? detail.createdAt;

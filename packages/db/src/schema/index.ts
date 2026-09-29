@@ -11,3 +11,4 @@ export * from "./desktop-tokens.js";
 export * from "./desktop-auth.js";
 export * from "./household-invites.js";
 export * from "./alerts.js";
+export * from "./signals.js";

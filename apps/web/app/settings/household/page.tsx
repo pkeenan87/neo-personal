@@ -1,3 +1,4 @@
+import { REMOTE_ACCESS_TOOLS } from "@neo/tools";
 import type { Metadata } from "next";
 import { AppShell } from "@/components/AppShell";
 import { DevBypassBanner } from "@/components/DevBypassBanner";
@@ -24,7 +25,13 @@ export default async function HouseholdSettingsPage() {
     <>
       {env().DEV_AUTH_BYPASS ? <DevBypassBanner /> : null}
       <AppShell active="settings">
-        <HouseholdSettingsView initial={{ ...summary, invites, ...devices }} currentUserId={session.userId} initialThreshold={threshold} />
+        <HouseholdSettingsView
+          initial={{ ...summary, invites, ...devices }}
+          currentUserId={session.userId}
+          initialThreshold={threshold}
+          // @neo/tools loads node:crypto, so the client gets the tool names from here.
+          remoteAccessTools={REMOTE_ACCESS_TOOLS.map((t) => ({ id: t.id, name: t.name }))}
+        />
       </AppShell>
     </>
   );

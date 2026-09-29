@@ -170,6 +170,10 @@ GRANT EXECUTE ON FUNCTION public.purge_old_alerts() TO app_user;
 GRANT EXECUTE ON FUNCTION public.lookup_device_enrollment_code(text) TO app_user;
 GRANT EXECUTE ON FUNCTION public.list_stale_devices(timestamptz) TO app_user;
 GRANT EXECUTE ON FUNCTION public.purge_old_devices() TO app_user;
+-- Migration 0010 (device signal and reputation cache retention).
+GRANT EXECUTE ON FUNCTION public.purge_old_device_signals() TO app_user;
+GRANT EXECUTE ON FUNCTION public.purge_expired_reputation_cache() TO app_user;
+GRANT SELECT, INSERT, UPDATE, DELETE ON reputation_cache TO app_user;  -- tenant-less table
 ```
 
 (`packages/db/sql/create-app-user.sql` is the same script with a verification query.) Run migrations as the owner. Run the app as `app_user`. You can confirm isolation with:

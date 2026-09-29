@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HouseholdSettingsView } from "@/components/HouseholdSettings";
+import type { RemoteAccessToolOption } from "@/components/household/DevicesSection";
 import { Toaster } from "@/components/Toaster";
 import { ToastProvider } from "@/components/toast-context";
 import type { HouseholdResponse } from "@/lib/dashboard-types";
@@ -23,9 +24,15 @@ function device(over: Partial<DeviceItem> = {}): DeviceItem {
     createdAt: new Date(Date.now() - 72 * HOUR).toISOString(),
     lastSeenAt: new Date(Date.now() - 3 * HOUR).toISOString(),
     status: "active",
+    expectedTools: [],
     ...over,
   };
 }
+
+const TOOLS: RemoteAccessToolOption[] = [
+  { id: "anydesk", name: "AnyDesk" },
+  { id: "teamviewer", name: "TeamViewer" },
+];
 
 const CHROME = device({ id: "d-chrome" });
 const PC = device({
@@ -60,10 +67,10 @@ const CODE: EnrollmentCodeItem = {
   expiresAt: new Date(Date.now() + 24 * HOUR).toISOString(),
 };
 
-function renderView(home: HouseholdResponse, currentUserId = "u-owner") {
+function renderView(home: HouseholdResponse, currentUserId = "u-owner", remoteAccessTools: RemoteAccessToolOption[] = TOOLS) {
   return render(
     <ToastProvider>
-      <HouseholdSettingsView initial={home} currentUserId={currentUserId} />
+      <HouseholdSettingsView initial={home} currentUserId={currentUserId} remoteAccessTools={remoteAccessTools} />
       <Toaster />
     </ToastProvider>,
   );
@@ -196,5 +203,67 @@ describe("HouseholdSettingsView devices (member)", () => {
     renderView({ ...MEMBER_HOME, devices: [] }, "u-kid");
     expect(screen.queryByText("Your devices")).toBeNull();
     expect(screen.queryByText(/coming soon/)).toBeNull();
+  });
+});
+
+describe("HouseholdSettingsView expected remote-access tools (_specs/signals.md)", () => {
+  it("lets the owner add a tool with a peer ID and saves the full set via PUT", async () => {
+    let home = HOME;
+    const fetchMock = stubApi(() => home, {
+      "PUT /api/household/devices/d-pc/expected-tools": () => {
+        home = {
+          ...HOME,
+          devices: HOME.devices.map((d) =>
+            d.id === "d-pc" ? { ...d, expectedTools: [{ toolId: "anydesk", name: "AnyDesk", peerIds: ["Pat-ID"] }] } : d,
+          ),
+        };
+        return Response.json({ tools: [{ toolId: "anydesk", name: "AnyDesk", peerIds: ["Pat-ID"] }] });
+      },
+    });
+    renderView(HOME);
+
+    await userEvent.click(screen.getByText("Expected remote-access tools"));
+    await userEvent.selectOptions(screen.getByLabelText("Add an expected tool"), "anydesk");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+    await userEvent.type(screen.getByLabelText("Peer ID for AnyDesk"), "Pat-ID");
+    await userEvent.click(screen.getByRole("button", { name: "Add ID" }));
+    await userEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/household/devices/d-pc/expected-tools",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ tools: [{ toolId: "anydesk", peerIds: ["Pat-ID"] }] }) }),
+    );
+    await vi.waitFor(() => expect(screen.getByText("Expected remote-access tools (1)")).toBeInTheDocument());
+  });
+
+  it("shows an inline error for an invalid peer ID and does not save it", async () => {
+    const fetchMock = stubApi(() => HOME);
+    renderView(HOME);
+    await userEvent.click(screen.getByText("Expected remote-access tools"));
+    await userEvent.selectOptions(screen.getByLabelText("Add an expected tool"), "anydesk");
+    await userEvent.click(screen.getByRole("button", { name: "Add" }));
+    await userEvent.type(screen.getByLabelText("Peer ID for AnyDesk"), "bad id!");
+    await userEvent.click(screen.getByRole("button", { name: "Add ID" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/letters, numbers/);
+    expect(fetchMock).not.toHaveBeenCalledWith("/api/household/devices/d-pc/expected-tools", expect.anything());
+  });
+
+  it("shows a member the owner's expected tools, read-only", () => {
+    const memberPc = device({
+      id: "d-pc",
+      kind: "desktop_agent",
+      platform: "windows",
+      name: "Living room PC",
+      expectedTools: [{ toolId: "anydesk", name: "AnyDesk", peerIds: ["Pat-ID"] }],
+    });
+    renderView({ ...HOME, role: "member", devices: [memberPc] }, "u-gran");
+
+    expect(screen.getByText("Expected remote-access tools (1)")).toBeInTheDocument();
+    expect(screen.getByText(/Your household owner marked these as expected\./)).toBeInTheDocument();
+    expect(screen.getByText("AnyDesk")).toBeInTheDocument();
+    expect(screen.getByText(/Pat-ID/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    expect(screen.queryByLabelText("Add an expected tool")).toBeNull();
   });
 });
