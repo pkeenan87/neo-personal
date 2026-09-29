@@ -6,13 +6,24 @@ import { conversations } from "./conversations.js";
 import { tenants } from "./tenants.js";
 
 // Mirrors the literal unions of @neo/verdict's Verdict type (docs/contracts.md).
-export const VERDICT_SUBJECT_TYPES = ["email", "sms", "url", "page", "signin_alert", "file", "conversation"] as const;
+export const VERDICT_SUBJECT_TYPES = [
+  "email",
+  "sms",
+  "url",
+  "page",
+  "signin_alert",
+  "file",
+  "conversation",
+  "software",
+  "remote_session",
+  "permission",
+] as const;
 export type VerdictSubjectType = (typeof VERDICT_SUBJECT_TYPES)[number];
 export const VERDICT_LABELS = ["malicious", "suspicious", "likely_safe", "insufficient_evidence"] as const;
 export type VerdictLabel = (typeof VERDICT_LABELS)[number];
 
-export const VERDICT_SOURCES = ["chat", "inbound", "api"] as const;
-/** Where a verdict came from: a chat turn, a forwarded email (inbound triage), or the API. */
+export const VERDICT_SOURCES = ["chat", "inbound", "api", "device"] as const;
+/** Where a verdict came from: a chat turn, a forwarded email (inbound triage), the API, or a device signal. */
 export type VerdictSource = (typeof VERDICT_SOURCES)[number];
 
 const inList = (values: readonly string[]) => sql.raw(values.map((v) => `'${v}'`).join(", "));

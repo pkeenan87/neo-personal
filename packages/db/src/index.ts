@@ -181,5 +181,23 @@ export {
   type AlertRow,
   type CreateAlertInput,
 } from "./alerts.js";
+export {
+  PostgresReputationCache,
+  SIGNAL_OUTCOMES,
+  countDeviceSignalsSince,
+  getDeviceSignal,
+  insertDeviceSignal,
+  listExpectedTools,
+  listRecentUserSignals,
+  purgeExpiredReputationCache,
+  purgeOldDeviceSignals,
+  setExpectedTools,
+  updateDeviceSignal,
+  type DeviceSignalRow,
+  type ExpectedToolRow,
+  type InsertDeviceSignalInput,
+  type SetExpectedToolsInput,
+  type UpdateDeviceSignalPatch,
+} from "./signals.js";
 // runMigrations lives in the "@neo/db/migrate" subpath so app bundles never see the migrations folder.
 export type { ConversationStore, MessageParam } from "@neo/core";

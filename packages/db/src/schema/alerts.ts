@@ -18,6 +18,12 @@ export const ALERT_KINDS = [
   "device_enrolled",
   "device_offline",
   "device_removed",
+  "scam_page",
+  "dangerous_site",
+  "remote_access",
+  "unwanted_software",
+  "permission_grant",
+  "scam_in_progress",
 ] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
@@ -55,7 +61,7 @@ export const alerts = pgTable(
     index("alerts_tenant_created_idx").on(t.tenantId, t.createdAt.desc()),
     check(
       "alerts_kind_check",
-      sql`${t.kind} in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed')`,
+      sql`${t.kind} in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress')`,
     ),
     check("alerts_severity_check", sql`${t.severity} in ('low', 'medium', 'high', 'critical')`),
     check("alerts_email_status_check", sql`${t.emailStatus} in ('pending', 'sent', 'skipped', 'failed')`),

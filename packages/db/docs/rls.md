@@ -18,6 +18,12 @@ Tenant isolation has two layers:
    so it is safe behind PgBouncer / the Neon `-pooler` endpoint in transaction mode.
    `NULLIF(..., '')` makes an unset setting match nothing instead of raising on `''::uuid`.
 
+   Migration `drizzle/0010_signals.sql` adds the same `tenant_isolation` policy to
+   `device_signals` and `device_expected_tools`. `reputation_cache` (also added in `0010`) is
+   **intentionally tenant-less and has no RLS**: it holds only public reputation facts about
+   domains and hashes (shared across households to save lookups), never who asked, so there is
+   no `tenant_id` to filter on.
+
 Extra policies:
 
 - `memberships.membership_self_read` (SELECT): rows where `user_id = app.user_id`, so
@@ -27,8 +33,9 @@ Extra policies:
 
 ## Security-definer functions (pre-tenant lookups)
 
-Eight operations must run before (or across) tenants, as the app role. Rather than widening a
-table policy, migrations `0003_phase1`, `0007_household_invites`, `0008_alerts` and `0009_devices` add `SECURITY DEFINER` SQL functions. They run as
+Ten operations must run before (or across) tenants, as the app role. Rather than widening a
+table policy, migrations `0003_phase1`, `0007_household_invites`, `0008_alerts`,
+`0009_devices` and `0010_signals` add `SECURITY DEFINER` SQL functions. They run as
 their owner (the migration role, which owns the tables and so is not subject to RLS),
 return only ids, and pin `search_path = pg_catalog, public`:
 
@@ -41,6 +48,8 @@ return only ids, and pin `search_path = pg_catalog, public`:
 | `lookup_device_enrollment_code(code_hash text)` (migration `0009`) | `(id uuid, tenant_id uuid)` of a **pending** device enrollment code (not redeemed, not revoked, `expires_at > now()`) with that hash, at most one row | `previewEnrollmentCode()` / `redeemEnrollmentCode()` on the unauthenticated enroll routes |
 | `list_stale_devices(before timestamptz)` (migration `0009`) | `(id uuid, tenant_id uuid)` of active devices never offline-alerted whose `coalesce(last_seen_at, created_at) < before`, oldest first, at most 1000 | `listStaleDevices()` in the `devices-offline` job |
 | `purge_old_devices()` (migration `0009`) | `integer`: deletes devices revoked more than 90 days ago and enrollment codes redeemed, revoked or expired more than 30 days ago, across tenants, and returns the count | `purgeOldDevices()` in the retention job |
+| `purge_old_device_signals()` (migration `0010`) | `integer`: deletes `device_signals` rows with `received_at` older than 30 days, across tenants, and returns the count | `purgeOldDeviceSignals()` in the retention job |
+| `purge_expired_reputation_cache()` (migration `0010`) | `integer`: deletes `reputation_cache` rows with `expires_at < now()` and returns the count | `purgeExpiredReputationCache()` in the retention job |
 | `purge_old_inbound_messages(older_than_days integer)` | `integer`: deletes `inbound_messages` rows with status `rejected` or `failed` received more than `older_than_days` (at least 1, default 90) days ago, across tenants, and returns the count | `inbound.purgeOld()` in the retention job |
 
 Everything after the lookup is tenant-scoped as usual (the caller passes the returned
@@ -69,9 +78,12 @@ back to the inviting household to insert the membership. `app.user_id` is set as
   GRANT EXECUTE ON FUNCTION public.lookup_device_enrollment_code(text) TO app_user;
   GRANT EXECUTE ON FUNCTION public.list_stale_devices(timestamptz) TO app_user;
   GRANT EXECUTE ON FUNCTION public.purge_old_devices() TO app_user;
+  GRANT EXECUTE ON FUNCTION public.purge_old_device_signals() TO app_user;
+  GRANT EXECUTE ON FUNCTION public.purge_expired_reputation_cache() TO app_user;
+  GRANT SELECT, INSERT, UPDATE, DELETE ON reputation_cache TO app_user;
   ```
 
-Verify with `select proname, proacl from pg_proc where proname in ('resolve_inbound_address', 'list_expired_artifacts', 'purge_old_inbound_messages', 'lookup_household_invite', 'purge_old_alerts', 'lookup_device_enrollment_code', 'list_stale_devices', 'purge_old_devices');`
+Verify with `select proname, proacl from pg_proc where proname in ('resolve_inbound_address', 'list_expired_artifacts', 'purge_old_inbound_messages', 'lookup_household_invite', 'purge_old_alerts', 'lookup_device_enrollment_code', 'list_stale_devices', 'purge_old_devices', 'purge_old_device_signals', 'purge_expired_reputation_cache');`
 (expect `app_user=X/...` and no entry starting with `=`). `test/inbound.test.ts` and
 `test/artifact-store.test.ts` exercise the functions under `SET ROLE app_user`.
 

@@ -85,7 +85,7 @@ Storage: table `device_signals` (migration `0010_signals`, RLS `tenant_isolation
   - Outcome: `severity` (null until evaluated), `outcome` (`pending` | `alerted` | `recorded` | `dismissed`),
     `verdict_id` (set null), `alert_id` (set null).
   - Times: `observed_at`, `received_at`.
-- Unique `(device_id, client_event_id)`. Index `(tenant_id, device_id, observed_at desc)` for correlation.
+- Unique `(device_id, client_event_id)`. Indexes `(tenant_id, user_id, observed_at desc)` for correlation and `(tenant_id, device_id, received_at desc)` for per-device limits.
 - Retention: rows older than 30 days are deleted by the daily retention job (`purge_old_device_signals()`).
   Verdicts and alerts follow their own retention.
 
