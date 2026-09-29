@@ -8,7 +8,7 @@ import type { CreateInviteResponse } from "@/lib/household-types";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { relativeTime } from "./ConversationSidebar";
 import { CopyButton } from "./CopyButton";
-import { DevicesSection } from "./household/DevicesSection";
+import { DevicesSection, type RemoteAccessToolOption } from "./household/DevicesSection";
 import { useToast } from "./toast-context";
 
 type Pending =
@@ -39,11 +39,18 @@ export function HouseholdSettingsView({
   initial,
   currentUserId,
   initialThreshold = "high",
+  remoteAccessTools = [],
 }: {
   initial: HouseholdResponse;
   currentUserId: string;
   /** The owner's alert email threshold (_specs/owner-alerts.md). */
   initialThreshold?: AlertThreshold;
+  /**
+   * `@neo/tools` `REMOTE_ACCESS_TOOLS` as `{ id, name }`, for the expected-tools editor
+   * (_specs/signals.md). The page must pass this — `@neo/tools` is not client-safe to import
+   * here (it pulls in `node:crypto`; see `components/household/DevicesSection.tsx`).
+   */
+  remoteAccessTools?: RemoteAccessToolOption[];
 }) {
   const { toast } = useToast();
   const [home, setHome] = useState(initial);
@@ -254,6 +261,7 @@ export function HouseholdSettingsView({
         setBusy={setBusy}
         refresh={refresh}
         onRemove={(d) => setPending({ kind: "device", deviceId: d.id, label: d.name, memberName: d.memberName })}
+        remoteAccessTools={remoteAccessTools}
       />
 
       {isOwner ? (

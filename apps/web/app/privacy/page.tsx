@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 /** Bump when the policy text changes materially. */
-export const PRIVACY_POLICY_UPDATED = "2026-09-27";
+export const PRIVACY_POLICY_UPDATED = "2026-09-29";
 
 const REPO_URL = "https://github.com/pkeenan87/neo-personal";
 
@@ -50,7 +50,11 @@ function sections(email: string): Section[] {
           <li>
             <strong>Protected devices.</strong> When the household owner adds a browser or computer to protect a member,
             Neo keeps its name, kind, and platform, and the device checks in regularly with its app version and the time.
-            In this release a device sends nothing else.
+            An enrolled device also reports specific signals: the domain of a page that looked like a scam (never the
+            full address, path, or page content), the names of remote-access tools and flagged programs, a remote
+            peer ID during a remote-access session, and screen-recording or accessibility permission grants. Signal
+            records are kept for 30 days. The household owner can mark a tool as expected on a device, such as one
+            they use to help another member, so their own sessions with it don&apos;t raise an alert.
           </li>
           <li>
             <strong>Technical records.</strong> Our hosting provider keeps standard request logs (IP address, browser,
@@ -69,11 +73,12 @@ function sections(email: string): Section[] {
             Only to do what you asked: analyze the thing you submitted, show you the result, keep your history so you can
             come back to it, email you the result of a forwarded message, and enforce the free usage limits. In a
             household, each member sees their own checks and the household owner sees everyone&apos;s. Chats are private
-            to the person who had them. When a member&apos;s check comes back malicious or suspicious, or someone joins or
-            leaves, the owner gets an alert on the dashboard and, depending on their settings, by email. Alerts contain
-            Neo&apos;s one-line summary of the check, never the checked message itself, and the member can see the alerts
-            about them. When a device is added to protect a member, the member gets an email saying so, and they can see
-            and remove their devices in Settings → Household; removing one tells the owner.
+            to the person who had them. When a member&apos;s check comes back malicious or suspicious, a protected device
+            reports a scam page, a remote-access tool, or a permission grant, or someone joins or leaves, the owner gets
+            an alert on the dashboard and, depending on their settings, by email. Alerts contain Neo&apos;s one-line
+            summary of the check, never the checked message itself, and the member can see the alerts about them. When a
+            device is added to protect a member, the member gets an email saying so, and they can see and remove their
+            devices in Settings → Household; removing one tells the owner.
           </p>
           <p className="mt-3">
             Neo does not sell or rent your data, does not show ads, does not build advertising profiles, and does not use
@@ -144,6 +149,9 @@ function sections(email: string): Section[] {
             <strong>Removed devices</strong> are deleted 90 days after removal.
           </li>
           <li>
+            <strong>Signal records</strong> a protected device reports are kept for 30 days.
+          </li>
+          <li>
             <strong>Your account</strong> is kept until you ask us to delete it.
           </li>
           <li>
@@ -182,6 +190,7 @@ function sections(email: string): Section[] {
             everything in it, after you confirm.
           </li>
           <li>See and remove the devices that protect you from Settings → Household.</li>
+          <li>As a household owner, mark a remote-access tool as expected on a device so your own sessions with it don&apos;t alert.</li>
           <li>
             Ask for a copy of your data or for your account and household to be deleted by emailing{" "}
             <a href={`mailto:${email}`} className="text-accent hover:text-accent-hover">

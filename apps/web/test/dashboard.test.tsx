@@ -19,7 +19,18 @@ function summary(patch: Partial<VerdictSummaryResponse> = {}): VerdictSummaryRes
     sinceDays: 30,
     total: 0,
     byLabel: { malicious: 0, suspicious: 0, likely_safe: 0, insufficient_evidence: 0 },
-    bySubjectType: { email: 0, sms: 0, url: 0, page: 0, signin_alert: 0, file: 0, conversation: 0 },
+    bySubjectType: {
+      email: 0,
+      sms: 0,
+      url: 0,
+      page: 0,
+      signin_alert: 0,
+      file: 0,
+      conversation: 0,
+      software: 0,
+      remote_session: 0,
+      permission: 0,
+    },
     topIndicators: [],
     topDomains: [],
     perDay: [],
@@ -33,6 +44,7 @@ function item(
   headline: string,
   userId = "u-max",
   createdAt = new Date().toISOString(),
+  patch: Partial<VerdictListItem> = {},
 ): VerdictListItem {
   return {
     id,
@@ -42,6 +54,7 @@ function item(
     headline,
     source: "chat",
     createdAt,
+    ...patch,
     userId,
     conversationId: null,
     artifactId: null,
@@ -130,6 +143,29 @@ describe("Dashboard", () => {
     await waitFor(() => expect(within(screen.getByRole("list", { name: "Recent activity" })).getAllByRole("listitem")).toHaveLength(3));
     expect(calls).toContain("/api/verdicts?limit=10&cursor=c1");
     expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+  });
+
+  it("labels the new signal subject types and flags a device-sourced check (_specs/signals.md)", async () => {
+    data.lists = {
+      malicious: [
+        item("v1", "malicious", "AnyDesk was installed", "u-max", new Date().toISOString(), {
+          subjectType: "software",
+          source: "device",
+        }),
+      ],
+      suspicious: [
+        item("v2", "suspicious", "Someone connected remotely", "u-max", new Date(Date.now() - 1000).toISOString(), {
+          subjectType: "remote_session",
+        }),
+      ],
+      all: [item("v3", "suspicious", "Screen recording granted", "u-max", new Date().toISOString(), { subjectType: "permission" })],
+    };
+    render(<Dashboard household={OWNER_HOUSEHOLD} forwardingUsed={false} />);
+    await screen.findAllByTestId("stat-tile");
+    expect(screen.getByText(/Program/)).toBeInTheDocument();
+    expect(screen.getByText(/Remote session/)).toBeInTheDocument();
+    expect(screen.getByText(/Permission/)).toBeInTheDocument();
+    expect(screen.getByText(/from a device/)).toBeInTheDocument();
   });
 
   it("refetches for the chosen range and member", async () => {

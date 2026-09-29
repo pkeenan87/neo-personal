@@ -19,6 +19,7 @@ import { VERDICT_LABELS } from "@/lib/verdict-fence";
 import type { AlertListResponse } from "@/lib/alert-types";
 import { AlertsPanel } from "./AlertsPanel";
 import { BarList, LABEL_BG, PerDayChart } from "./charts";
+import { SUBJECT_ICON, SUBJECT_LABEL } from "./subject-types";
 
 export interface DashboardProps {
   household: HouseholdSummary;
@@ -50,16 +51,6 @@ function qs(params: Record<string, string | number | undefined>): string {
   const s = p.toString();
   return s ? `?${s}` : "";
 }
-
-const SUBJECT_LABEL: Record<string, string> = {
-  email: "Email",
-  sms: "Text message",
-  url: "Link",
-  page: "Web page",
-  signin_alert: "Sign-in alert",
-  file: "File",
-  conversation: "Conversation",
-};
 
 function humanize(category: string): string {
   const s = category.replace(/[_-]+/g, " ").trim();
@@ -339,22 +330,29 @@ function VerdictList({
 }) {
   return (
     <ul className="-mx-2 divide-y divide-border" aria-label={label}>
-      {items.map((v) => (
-        <li key={v.id}>
-          <Link href={`/verdicts/${v.id}`} className="flex min-h-12 items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
-            <span className={`inline-block size-2.5 shrink-0 rounded-full ${LABEL_BG[v.verdict]}`} aria-hidden="true" />
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-sm font-medium">{v.headline}</span>
-              <span className="block text-xs text-muted" suppressHydrationWarning>
-                {VERDICT_LABELS[v.verdict]} · {SUBJECT_LABEL[v.subjectType] ?? v.subjectType}
-                {v.source === "inbound" ? " · forwarded" : ""}
-                {memberName ? ` · ${memberName(v.userId)}` : ""} · {relativeTime(v.createdAt)}
+      {items.map((v) => {
+        const SubjectIcon = SUBJECT_ICON[v.subjectType];
+        return (
+          <li key={v.id}>
+            <Link href={`/verdicts/${v.id}`} className="flex min-h-12 items-center gap-3 rounded-lg px-2 py-2 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">
+              <span className={`inline-block size-2.5 shrink-0 rounded-full ${LABEL_BG[v.verdict]}`} aria-hidden="true" />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium">{v.headline}</span>
+                <span className="flex items-center gap-1 truncate text-xs text-muted" suppressHydrationWarning>
+                  <SubjectIcon className="size-3 shrink-0" aria-hidden="true" />
+                  <span className="truncate">
+                    {VERDICT_LABELS[v.verdict]} · {SUBJECT_LABEL[v.subjectType] ?? v.subjectType}
+                    {v.source === "inbound" ? " · forwarded" : ""}
+                    {v.source === "device" ? " · from a device" : ""}
+                    {memberName ? ` · ${memberName(v.userId)}` : ""} · {relativeTime(v.createdAt)}
+                  </span>
+                </span>
               </span>
-            </span>
-            <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden="true" />
-          </Link>
-        </li>
-      ))}
+              <ChevronRight className="size-4 shrink-0 text-muted" aria-hidden="true" />
+            </Link>
+          </li>
+        );
+      })}
     </ul>
   );
 }

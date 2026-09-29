@@ -120,6 +120,22 @@ describe("VerdictDetail", () => {
     expect(screen.getByRole("region", { name: "Where this came from" })).toHaveTextContent(/conversation that has since been deleted/);
   });
 
+  it("shows a subject-type badge and describes a device origin, named or anonymous (_specs/signals.md)", () => {
+    const { unmount } = show(detail({ subjectType: "remote_session", conversation: null, conversationId: null }));
+    expect(screen.getByRole("region", { name: "Where this came from" })).toHaveTextContent("Remote session");
+    unmount();
+
+    // `deviceName` isn't in VerdictDetailResponse yet (see components/dashboard/VerdictDetail.tsx); this shows the
+    // component picks it up once the server adds it, and falls back gracefully until then.
+    const withDeviceName = { ...detail({ source: "device", conversation: null, conversationId: null }), deviceName: "Grandma's laptop" };
+    const { unmount: unmount2 } = show(withDeviceName);
+    expect(screen.getByRole("region", { name: "Where this came from" })).toHaveTextContent(/From Grandma's laptop, checked on/);
+    unmount2();
+
+    show(detail({ source: "device", conversation: null, conversationId: null }));
+    expect(screen.getByRole("region", { name: "Where this came from" })).toHaveTextContent(/From a protected device, checked on/);
+  });
+
   it("deletes after confirmation and returns to the dashboard", async () => {
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);

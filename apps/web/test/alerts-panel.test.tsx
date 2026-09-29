@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AlertsPanel } from "@/components/dashboard/AlertsPanel";
@@ -58,6 +58,23 @@ describe("AlertsPanel", () => {
     expect(screen.getByRole("region", { name: "Alerts about you" })).toBeInTheDocument();
     expect(screen.getByText("The household owner was told about these.")).toBeInTheDocument();
     expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("gives a critical scam_in_progress alert a distinct, visible critical badge (_specs/signals.md)", () => {
+    const critical = alert({
+      kind: "scam_in_progress",
+      severity: "critical",
+      title: "Kid may be on a scam call right now",
+      body: "Kid opened a fake Microsoft support page, then AnyDesk was installed on Kid's laptop.",
+    });
+    const high = alert({ id: "a-high", severity: "high", title: "Kid checked something malicious" });
+    render(<AlertsPanel initial={response([critical, high])} isOwner />);
+
+    // Critical gets a visible "Critical" badge; other severities stay screen-reader-only text.
+    const criticalItem = screen.getByText(critical.title).closest("li")!;
+    expect(within(criticalItem).getByText("Critical")).not.toHaveClass("sr-only");
+    const highItem = screen.getByText(high.title).closest("li")!;
+    expect(within(highItem).getByText("High:")).toHaveClass("sr-only");
   });
 
   it("keeps the alert and shows an error when acknowledging fails", async () => {

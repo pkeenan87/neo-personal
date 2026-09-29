@@ -29,7 +29,7 @@ import {
   type MembershipRole,
   type RedeemEnrollmentCodeResult,
 } from "@neo/db";
-import type { DeviceItem, EnrollmentCodeItem } from "@/lib/household-types";
+import type { DeviceItem, EnrollmentCodeItem, ExpectedToolItem } from "@/lib/household-types";
 import { getDb } from "./db";
 import {
   memoryCreateEnrollmentCode,
@@ -63,7 +63,7 @@ export function deviceStatus(d: Pick<DevicePublic, "createdAt" | "lastSeenAt">, 
   return d.lastSeenAt ? "active" : "never_seen";
 }
 
-export function toDeviceItem(d: DevicePublic, now = new Date()): DeviceItem {
+export function toDeviceItem(d: DevicePublic, now = new Date(), expectedTools: ExpectedToolItem[] = []): DeviceItem {
   return {
     id: d.id,
     userId: d.userId,
@@ -77,6 +77,7 @@ export function toDeviceItem(d: DevicePublic, now = new Date()): DeviceItem {
     createdAt: d.createdAt.toISOString(),
     lastSeenAt: d.lastSeenAt ? d.lastSeenAt.toISOString() : null,
     status: deviceStatus(d, now),
+    expectedTools,
   };
 }
 

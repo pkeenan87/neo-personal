@@ -1,6 +1,18 @@
 /** Wire types for the alert routes (_specs/owner-alerts.md). Dates are ISO-8601. */
 
-export type AlertKindName = "member_verdict" | "member_joined" | "member_left" | "device_enrolled" | "device_offline" | "device_removed";
+export type AlertKindName =
+  | "member_verdict"
+  | "member_joined"
+  | "member_left"
+  | "device_enrolled"
+  | "device_offline"
+  | "device_removed"
+  | "scam_page"
+  | "dangerous_site"
+  | "remote_access"
+  | "unwanted_software"
+  | "permission_grant"
+  | "scam_in_progress";
 export type AlertSeverityName = "low" | "medium" | "high" | "critical";
 export type AlertThreshold = "medium" | "high" | "critical" | "off";
 export const ALERT_THRESHOLD_VALUES: readonly AlertThreshold[] = ["medium", "high", "critical", "off"];

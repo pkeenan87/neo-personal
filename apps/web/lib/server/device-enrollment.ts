@@ -7,6 +7,7 @@
  */
 import { hashPii, logger } from "@neo/core";
 import { DEVICE_OFFLINE_AFTER_MS, normalizeDeviceInput, type DevicePublic } from "@neo/db";
+import { detectionLists } from "@neo/tools";
 import type {
   CreateEnrollmentCodeResponse,
   DeviceItem,
@@ -38,6 +39,7 @@ import { renderDeviceEnrolledEmail } from "./email/household-email";
 import { getMailer } from "./email/resend";
 import type { Outcome } from "./household";
 import { takeRateSlot } from "./rate-limit";
+import { expectedToolsByDevice } from "./signals/expected-tools";
 import { household } from "./verdict-data";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -70,12 +72,16 @@ const DEVICE_LIMIT = fail(409, "device_limit", "This household already has the m
 /** Owners see every active device and pending code; members only their own devices. */
 export async function householdDevices(session: NeoSession): Promise<{ devices: DeviceItem[]; enrollmentCodes: EnrollmentCodeItem[] }> {
   const owner = session.role === "owner";
-  const [devices, codes] = await Promise.all([
+  const [devices, codes, expectedTools] = await Promise.all([
     listDevices(session.tenantId, owner ? {} : { userId: session.userId }),
     owner ? listPendingEnrollmentCodes(session.tenantId) : Promise.resolve([]),
+    expectedToolsByDevice(session.tenantId),
   ]);
   const now = new Date();
-  return { devices: devices.map((d) => toDeviceItem(d, now)), enrollmentCodes: codes.map(toEnrollmentCodeItem) };
+  return {
+    devices: devices.map((d) => toDeviceItem(d, now, expectedTools.get(d.id) ?? [])),
+    enrollmentCodes: codes.map(toEnrollmentCodeItem),
+  };
 }
 
 // ─── Enrollment codes (owner) ──────────────────────────────────────
@@ -234,6 +240,7 @@ export async function heartbeat(session: NeoSession, deviceId: string, body: Rec
       householdName: (await household(session)).name,
       memberName: device.memberName,
       heartbeatSeconds: HEARTBEAT_SECONDS,
+      listsVersion: detectionLists().version,
     },
   };
 }

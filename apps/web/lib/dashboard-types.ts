@@ -6,10 +6,10 @@
 import type { DeviceItem, EnrollmentCodeItem, HouseholdInviteItem } from "./household-types";
 import type { SubjectType, Verdict, VerdictLabel } from "@neo/verdict";
 
-export type VerdictSourceName = "chat" | "inbound" | "api";
+export type VerdictSourceName = "chat" | "inbound" | "api" | "device";
 export type SinceDays = 7 | 30 | 90;
 export const SINCE_DAYS: readonly SinceDays[] = [7, 30, 90];
-export const VERDICT_SOURCES: readonly VerdictSourceName[] = ["chat", "inbound", "api"];
+export const VERDICT_SOURCES: readonly VerdictSourceName[] = ["chat", "inbound", "api", "device"];
 
 /** GET /api/verdicts item. */
 export interface VerdictListItem {

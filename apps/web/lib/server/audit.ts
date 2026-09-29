@@ -29,7 +29,9 @@ export type AuditEventType =
   | "device.enrollment_code_revoked"
   | "device.enrolled"
   | "device.renamed"
-  | "device.revoked";
+  | "device.revoked"
+  | "device.expected_tools_changed"
+  | "signals.flood";
 
 export interface MemoryAuditEvent {
   tenantId: string;

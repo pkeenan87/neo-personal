@@ -9,7 +9,9 @@ import { readdirSync } from "node:fs";
 import path from "node:path";
 import type { Session } from "next-auth";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { memoryCreateDesktopToken } from "@/lib/server/memory-desktop-tokens";
+import { POST as signalsPOST } from "@/app/api/signals/route";
+import { GET as signalsListsGET } from "@/app/api/signals/lists/route";
+import { memoryCreateDesktopToken, memoryInsertDeviceToken } from "@/lib/server/memory-desktop-tokens";
 import {
   memoryCreateEnrollmentCode,
   memoryListPendingEnrollmentCodes,
@@ -18,10 +20,11 @@ import {
   resetMemoryDevices,
 } from "@/lib/server/memory-devices";
 import { memoryRemoveMember } from "@/lib/server/memory-household";
+import { resetMemorySignals } from "@/lib/server/memory-signals";
 import { setMemoryMembers } from "@/lib/server/memory-state";
 import { resetRateLimits } from "@/lib/server/rate-limit";
 import { DEV_SESSION_IDS, getSession, requireApiSession, requireBrowserApiSession, requireSession } from "@/lib/session";
-import { resetMemoryState, stubBaseEnv } from "./helpers/routes";
+import { post, resetMemoryState, stubBaseEnv } from "./helpers/routes";
 
 const hdrs = vi.hoisted(() => ({ current: new Headers() }));
 vi.mock("next/headers", () => ({
@@ -38,6 +41,13 @@ const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"] as const;
  * Routes that take no session, or a device-scoped one: sign-in, webhooks, health, the
  * device-authorization start/poll, and everything under api/devices/ (enrollment is
  * unauthenticated; heartbeat and self-unenroll need scope `device`).
+ *
+ * `signals` and `signals/lists` are also excluded from the generic walk below: unlike every
+ * other route, they do NOT use the default `full` scope, so a monitoring token (which holds
+ * `signals:write` and `device`) is expected to succeed there, not get 403, and a full-scope
+ * token/browser session is expected to get 403, not succeed. That is the opposite of what the
+ * two generic tests below assert for every other route, so `signals` gets its own explicit
+ * assertions instead (describe("device signal routes") below).
  */
 const UNAUTHENTICATED = [
   /^auth\//,
@@ -47,6 +57,7 @@ const UNAUTHENTICATED = [
   /^desktop\/device$/,
   /^desktop\/device\/token$/,
   /^devices(\/|$)/,
+  /^signals(\/|$)/,
 ];
 
 function routeDirs(dir: string, prefix = ""): string[] {
@@ -112,6 +123,7 @@ beforeEach(() => {
   vi.stubEnv("DEV_AUTH_BYPASS", "false");
   resetMemoryState();
   resetMemoryDevices();
+  resetMemorySignals();
   resetRateLimits();
   (globalThis as { __neoDesktopTokens?: unknown }).__neoDesktopTokens = undefined;
   hdrs.current = new Headers();
@@ -236,6 +248,64 @@ describe("a full token", () => {
       if (res.status === 401 || body.code === "insufficient_scope") failures.push(`${c.method} /api/${c.route} → ${res.status} ${body.code ?? ""}`);
     }
     expect(failures).toEqual([]);
+  });
+});
+
+describe("device signal routes", () => {
+  // _specs/signals.md: /api/signals needs scope `signals:write` (not the default `full`), so a
+  // monitoring token succeeds there and a full-scope token or browser session gets 403 — the
+  // opposite of every other route (see the UNAUTHENTICATED comment above).
+  it("a monitoring token (signals:write + device) is not refused on POST /api/signals or GET /api/signals/lists", async () => {
+    const { token } = enrollMonitoringDevice();
+    bearer(token);
+    const postRes = await signalsPOST(post("/api/signals", { events: [] }));
+    expect(postRes.status).not.toBe(403);
+    bearer(token);
+    const listsRes = await signalsListsGET(new Request("http://localhost/api/signals/lists"));
+    expect(listsRes.status).not.toBe(403);
+    expect(listsRes.status).not.toBe(401);
+  });
+
+  it("a device token without signals:write gets 403 insufficient_scope on POST /api/signals", async () => {
+    const { deviceId } = enrollMonitoringDevice();
+    const minted = memoryInsertDeviceToken({
+      userId: DEV_SESSION_IDS.userId,
+      tenantId: DEV_SESSION_IDS.tenantId,
+      role: "owner",
+      name: "Browser extension (device only)",
+      deviceId,
+      scopes: ["device"],
+    });
+    bearer(minted.token);
+    const res = await signalsPOST(post("/api/signals", { events: [] }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "insufficient_scope" });
+  });
+
+  it("a full-scope token gets 403 insufficient_scope on POST /api/signals and GET /api/signals/lists", async () => {
+    const minted = memoryCreateDesktopToken({ userId: DEV_SESSION_IDS.userId, tenantId: DEV_SESSION_IDS.tenantId, role: "owner", name: "Omarchy bar" });
+    if ("error" in minted) throw new Error(minted.error);
+    bearer(minted.token);
+    const postRes = await signalsPOST(post("/api/signals", { events: [] }));
+    expect(postRes.status).toBe(403);
+    expect(await postRes.json()).toMatchObject({ code: "insufficient_scope" });
+    bearer(minted.token);
+    const listsRes = await signalsListsGET(new Request("http://localhost/api/signals/lists"));
+    expect(listsRes.status).toBe(403);
+    expect(await listsRes.json()).toMatchObject({ code: "insufficient_scope" });
+  });
+
+  it("a browser session gets 403 insufficient_scope on POST /api/signals (no deviceId)", async () => {
+    authState.session = {
+      userId: DEV_SESSION_IDS.userId,
+      tenantId: DEV_SESSION_IDS.tenantId,
+      role: "owner",
+      user: { email: "pat@example.test", name: "Pat" },
+      expires: "2099-01-01T00:00:00Z",
+    };
+    const res = await signalsPOST(post("/api/signals", { events: [] }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "insufficient_scope" });
   });
 });
 

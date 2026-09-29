@@ -4,6 +4,7 @@
  * content, so every interpolated string is cleaned and truncated here and
  * escaped again by whatever renders it.
  */
+import type { SignalSeverity } from "@neo/db";
 import type { Verdict } from "@neo/verdict";
 import { cleanText, truncate } from "../email/verdict-email";
 
@@ -24,6 +25,12 @@ const SUBJECT_LABELS: Record<Verdict["subject_type"], string> = {
   signin_alert: "a sign-in alert",
   file: "a file",
   conversation: "a conversation",
+  // Device-signal subject types (_specs/signals.md). Not reached today: alertForVerdict is
+  // skipped for source "device" (the signal rules raise the device alert themselves), but the
+  // map must stay total so it typechecks against Verdict["subject_type"].
+  software: "program",
+  remote_session: "remote session",
+  permission: "permission",
 };
 
 export function displayName(name: string | null | undefined, email?: string | null): string {
@@ -105,5 +112,112 @@ export function deviceOfflineAlertText(memberName: string, deviceName: string, l
     severity: "medium",
     title: `${deviceName} (${memberName}) has not checked in for 2 days`,
     body: `Neo on ${deviceName} ${when}. The device may be switched off or away, or Neo may have been removed from it. Check in with ${memberName} if this is unexpected.`,
+  };
+}
+
+// ─── Device signals (_specs/signals.md) ────────────────────────────
+//
+// Every string interpolated below is device-supplied (tool/program/app names, domains, peer
+// ids) or model-free but still user-influenced (member/device names): all are cleaned and
+// truncated by the caller (deviceLabel/displayName) or by the helpers here. Domains are always
+// shown defanged and are never turned into links.
+
+const TOOL_NAME_MAX = 64;
+const DOMAIN_LABEL_MAX = 253;
+
+/** `paypa1.test` → `paypa1[.]test`: never a clickable link, never rendered as a real URL. */
+export function defangDomain(domain: string | null | undefined): string {
+  return truncate(cleanText(domain ?? ""), DOMAIN_LABEL_MAX).replace(/\./g, "[.]");
+}
+
+function toolLabel(name: string | null | undefined): string {
+  return truncate(cleanText(name ?? ""), TOOL_NAME_MAX) || "a remote-access tool";
+}
+
+export function scamPageAlertText(memberName: string, deviceName: string): AlertText {
+  return {
+    severity: "high",
+    title: `${memberName} opened a page with signs of a tech-support scam`,
+    body: `Neo saw ${memberName} on ${deviceName} on a page that behaved like a tech-support scam (a fake warning that traps the page and pushes a phone number to call). If ${memberName} already called that number, tell them to hang up and not follow any instructions or install anything.`,
+  };
+}
+
+export function dangerousSiteAlertText(memberName: string, deviceName: string, domain: string, brand: string | null): AlertText {
+  const what = brand ? `a fake ${truncate(cleanText(brand), 64)} login page` : "a page flagged as dangerous";
+  return {
+    severity: "high",
+    title: `${memberName} opened ${what}`,
+    body: `Neo saw ${memberName} on ${deviceName} open ${defangDomain(domain)}, ${brand ? "which looks like it is imitating " + truncate(cleanText(brand), 64) : "which is flagged as dangerous"}. Tell ${memberName} not to enter any passwords or personal information there.`,
+  };
+}
+
+export function remoteAccessInstallAlertText(deviceName: string, tool: string, offVendorDomain: string | null): AlertText {
+  const t = toolLabel(tool);
+  return offVendorDomain
+    ? {
+        severity: "medium",
+        title: `${deviceName}: ${t} was downloaded from an unfamiliar site`,
+        body: `${t} was downloaded on ${deviceName} from ${defangDomain(offVendorDomain)}, not its official site. If nobody in your household did this on purpose, treat the device as compromised.`,
+      }
+    : {
+        severity: "high",
+        title: `${deviceName}: ${t} was installed`,
+        body: `${t}, a remote-access tool, was installed on ${deviceName}. If someone you don't know asked for this, hang up and don't let them connect. Under Settings → Household you can mark a tool as expected if this was intentional.`,
+      };
+}
+
+export function remoteAccessSessionAlertText(deviceName: string, tool: string, peerId: string | null, severity: SignalSeverity): AlertText {
+  const t = toolLabel(tool);
+  const peer = peerId ? ` (ID ${truncate(cleanText(peerId), 64)})` : "";
+  const title = `Someone connected to ${deviceName} with ${t}${peer}`;
+  const body =
+    severity === "low"
+      ? `A remote-access session started on ${deviceName} with ${t}${peer}, from a peer ID you've marked expected. No action needed unless this is unexpected.`
+      : `A remote-access session started on ${deviceName} with ${t}${peer}. If you don't recognize this, disconnect it now and check in with whoever uses this device.`;
+  return { severity, title, body };
+}
+
+export function unwantedSoftwareAlertText(deviceName: string, program: string, confirmed: boolean): AlertText {
+  const p = truncate(cleanText(program), TOOL_NAME_MAX) || "A program";
+  return {
+    severity: confirmed ? "high" : "medium",
+    title: `${deviceName}: ${p} is a known unwanted program`,
+    body: confirmed
+      ? `${p} on ${deviceName} matched malware signatures when checked. Uninstall it if nobody remembers installing it.`
+      : `${p} on ${deviceName} is on Neo's list of unwanted-software publishers. Uninstall it if nobody remembers installing it.`,
+  };
+}
+
+export function permissionGrantAlertText(deviceName: string, app: string, service: string, isRemoteTool: boolean): AlertText {
+  const a = truncate(cleanText(app), TOOL_NAME_MAX) || "An app";
+  const s = service.replace(/_/g, " ");
+  return {
+    severity: isRemoteTool ? "critical" : "medium",
+    title: `${deviceName}: ${a} was granted ${s} access`,
+    body: isRemoteTool
+      ? `${a}, a remote-access tool, was granted ${s} access on ${deviceName}. If you don't recognize this, revoke the permission and disconnect the device from the internet until you're sure.`
+      : `${a} was granted ${s} access on ${deviceName}. If you don't recognize this app, revoke the permission under system settings.`,
+  };
+}
+
+export function warningBypassedAlertText(memberName: string, deviceName: string): AlertText {
+  return {
+    severity: "high",
+    title: `${memberName} dismissed a warning on ${deviceName}`,
+    body: `Neo warned ${memberName} on ${deviceName} and the warning was dismissed or bypassed. Check in with ${memberName} about what happened next.`,
+  };
+}
+
+/** One line per correlated event, in order, e.g. "2:14 PM — a fake Microsoft support page". */
+function eventLine(at: Date, label: string): string {
+  const time = at.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" });
+  return `${time} UTC — ${label}`;
+}
+
+export function scamInProgressAlertText(memberName: string, events: { at: Date; label: string }[]): AlertText {
+  return {
+    severity: "critical",
+    title: `${memberName} may be on a scam call right now`,
+    body: [`Neo saw a scam warning and a remote-access event close together for ${memberName}:`, ...events.map((e) => eventLine(e.at, e.label))].join("\n"),
   };
 }
