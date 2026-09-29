@@ -29,10 +29,10 @@ as a web wrapper. This plan keeps both and adds monitoring to each.
   This is both the ethical line and what Chrome Web Store and AMO review require for `<all_urls>`.
 - **Warn the person at the keyboard first; alert the owner on high severity.** The member gets a warning page or a
   native notification immediately. The owner gets `high` and `critical` alerts, plus device-offline alerts.
-- **Detection is deterministic; the model explains.** Lists, hashes, publishers and heuristics decide. A model
-  (Haiku, via the existing routing) writes the plain-language alert and is only asked to *judge* on escalations
-  from the extension (step 5). Every client-supplied string is attacker-controlled and enters a model only through
-  `wrapToolResult`.
+- **Detection is deterministic and fails open.** Lists, hashes, publishers, heuristics and reputation lookups
+  decide; alert text comes from templates. Ambiguous signals raise nothing (decided 2026-09-29: stop the
+  no-brainers without becoming annoying), so no model judges pages. Every client-supplied string is
+  attacker-controlled; if a model is ever added, that text enters it only through `wrapToolResult`.
 - **Local first in the browser.** No per-page server call. The extension checks locally (Safe Browsing hash
   prefixes, top-domain skip list, punycode/lookalike checks) and sends only the **registrable domain** of pages
   that trip a heuristic; never paths or query strings, which carry session tokens. Server verdicts are cached by

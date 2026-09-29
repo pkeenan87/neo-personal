@@ -17,8 +17,10 @@ detection so the browser extension (step 5) and the desktop agent (steps 6–7) 
 - **`GET /api/signals/lists`**: the detection lists (remote-access tools, unwanted-software publishers, scam-page
   phrases, domains never to flag). Served with an ETag, so detection improves on deploy without a store release.
 
-No model is involved in this step. Alert and verdict text comes from templates. The model-judged escalation for
-ambiguous pages belongs to the extension spec.
+No model is involved. Alert and verdict text comes from templates. **Ambiguous signals fail open**: anything that
+is not a clear-cut hit (too few indicators, an unconfirmed reputation claim, an unknown program without a bad hash)
+is recorded and dismissed. It raises no verdict or alert, and the client shows no warning. The goal is to stop the
+no-brainers without becoming annoying.
 
 ## Functional requirements
 
@@ -246,15 +248,19 @@ concurrency 1 per tenant, 3 retries):
 - [ ] Owner-device signals appear in the feed but never email.
 - [ ] Migration 0010 applies on PGlite and Neon; the RLS test covers `device_signals` and `device_expected_tools`.
 
+## Resolved Questions
+
+- **Skip-domain source:** a curated list to start. Open-source threat-intel and ranking feeds (e.g. Tranco for the
+  skip list, public phishing and abuse feeds for block lists) are explored later, each checked for licence and size.
+- **Ambiguous pages fail open:** no model judgment on ambiguous pages. Only the clear-cut rules above warn or
+  alert; everything else is dismissed.
+- **Languages:** English phrases only for now. The list format keeps a `lang` field per phrase so others can be
+  added later.
+
 ## Open Questions
 
-- **Skip-domain source.** A curated list, or a slice of a public ranking such as Tranco (licence and size to
-  check). Start curated.
-- **Model judgment on ambiguous pages** (plan: Haiku, through `wrapToolResult`). Deferred to the extension spec,
-  which knows what the page escalation can include.
 - **Showing raw signals to the owner** (a per-device "recent activity" list). Deferred. Verdicts and alerts cover it
   for now, and fewer surfaces fit "signals, not surveillance".
-- **Non-English scam phrases.** English first; the list format allows a `lang` per phrase.
 
 ## Testing Guidelines
 
