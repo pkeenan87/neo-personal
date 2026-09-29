@@ -1,0 +1,209 @@
+{
+  "$comment": "Remote-access tool signatures used to detect installs and sessions (_specs/signals.md). installerPatterns are JavaScript regular expression sources matched case-insensitively against the downloaded filename (no flags stored; clients/servers apply the 'i' flag). windows.publishers are code-signing certificate subject (CN) names as best known; windows.serviceNames/processNames are Windows service and process names; macos.bundleIds are best-known application bundle identifiers. Fields left empty were not confirmed with enough confidence to ship rather than guessed at (see the implementation report). teamIds (Apple Developer Team IDs) are left empty throughout: they cannot be reliably recalled and a wrong one is worse than none. sessionHints are process or log markers the desktop agent looks for to infer an active remote-control session, not just an install.",
+  "tools": [
+    {
+      "id": "anydesk",
+      "name": "AnyDesk",
+      "vendorDomains": ["anydesk.com"],
+      "installerPatterns": ["^AnyDesk.*\\.exe$"],
+      "windows": {
+        "publishers": ["AnyDesk Software GmbH"],
+        "displayNamePatterns": ["^AnyDesk$"],
+        "serviceNames": ["AnyDesk"],
+        "processNames": ["AnyDesk.exe"]
+      },
+      "macos": {
+        "bundleIds": ["com.anydesk.anydesk"],
+        "teamIds": []
+      },
+      "sessionHints": ["AnyDesk.exe"]
+    },
+    {
+      "id": "teamviewer",
+      "name": "TeamViewer",
+      "vendorDomains": ["teamviewer.com"],
+      "installerPatterns": ["^TeamViewer.*\\.exe$"],
+      "windows": {
+        "publishers": ["TeamViewer Germany GmbH"],
+        "displayNamePatterns": ["^TeamViewer.*$"],
+        "serviceNames": ["TeamViewer"],
+        "processNames": ["TeamViewer.exe"]
+      },
+      "macos": {
+        "bundleIds": ["com.teamviewer.TeamViewer"],
+        "teamIds": []
+      },
+      "sessionHints": ["TeamViewer.exe"]
+    },
+    {
+      "id": "screenconnect",
+      "name": "ScreenConnect (ConnectWise Control)",
+      "vendorDomains": ["screenconnect.com", "connectwise.com"],
+      "installerPatterns": ["^(ScreenConnect|ConnectWiseControl)\\.ClientSetup.*\\.(exe|msi)$"],
+      "windows": {
+        "publishers": ["ConnectWise, LLC"],
+        "displayNamePatterns": ["^ScreenConnect Client.*$"],
+        "serviceNames": [],
+        "processNames": []
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": []
+    },
+    {
+      "id": "ultraviewer",
+      "name": "UltraViewer",
+      "vendorDomains": ["ultraviewer.net"],
+      "installerPatterns": ["^UltraViewer.*\\.exe$"],
+      "windows": {
+        "publishers": [],
+        "displayNamePatterns": ["^UltraViewer.*$"],
+        "serviceNames": [],
+        "processNames": ["UltraViewer_Desktop.exe"]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": ["UltraViewer_Desktop.exe"]
+    },
+    {
+      "id": "rustdesk",
+      "name": "RustDesk",
+      "vendorDomains": ["rustdesk.com"],
+      "installerPatterns": ["^rustdesk.*\\.exe$"],
+      "windows": {
+        "publishers": [],
+        "displayNamePatterns": ["^RustDesk$"],
+        "serviceNames": ["RustDesk"],
+        "processNames": ["rustdesk.exe"]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": ["rustdesk.exe"]
+    },
+    {
+      "id": "quick_assist",
+      "name": "Quick Assist",
+      "vendorDomains": [],
+      "installerPatterns": [],
+      "windows": {
+        "publishers": ["Microsoft Corporation"],
+        "displayNamePatterns": ["^Quick Assist$"],
+        "serviceNames": [],
+        "processNames": ["QuickAssist.exe"]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": ["QuickAssist.exe"]
+    },
+    {
+      "id": "splashtop",
+      "name": "Splashtop",
+      "vendorDomains": ["splashtop.com"],
+      "installerPatterns": ["^Splashtop.*\\.exe$"],
+      "windows": {
+        "publishers": ["Splashtop Inc."],
+        "displayNamePatterns": ["^Splashtop Streamer$"],
+        "serviceNames": ["SplashtopRemoteService"],
+        "processNames": ["SRServer.exe"]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": ["SRServer.exe"]
+    },
+    {
+      "id": "logmein",
+      "name": "LogMeIn",
+      "vendorDomains": ["logmein.com", "logmeinrescue.com"],
+      "installerPatterns": ["^LogMeIn.*\\.exe$"],
+      "windows": {
+        "publishers": ["LogMeIn, Inc."],
+        "displayNamePatterns": ["^LogMeIn.*$"],
+        "serviceNames": ["LogMeIn"],
+        "processNames": ["LogMeIn.exe"]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": ["LogMeIn.exe"]
+    },
+    {
+      "id": "atera",
+      "name": "Atera",
+      "vendorDomains": ["atera.com"],
+      "installerPatterns": ["^AteraAgent.*\\.(exe|msi)$"],
+      "windows": {
+        "publishers": ["Atera Networks Ltd"],
+        "displayNamePatterns": ["^Atera Agent$"],
+        "serviceNames": ["AteraAgent"],
+        "processNames": ["AteraAgent.exe"]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": ["AteraAgent.exe"]
+    },
+    {
+      "id": "netsupport",
+      "name": "NetSupport Manager",
+      "vendorDomains": ["netsupportsoftware.com"],
+      "installerPatterns": ["^NetSupport.*\\.exe$"],
+      "windows": {
+        "publishers": ["NetSupport Ltd"],
+        "displayNamePatterns": ["^NetSupport Manager$"],
+        "serviceNames": [],
+        "processNames": ["client32.exe"]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": ["client32.exe"]
+    },
+    {
+      "id": "supremo",
+      "name": "Supremo",
+      "vendorDomains": ["supremocontrol.com"],
+      "installerPatterns": ["^Supremo.*\\.exe$"],
+      "windows": {
+        "publishers": ["Nanosystems S.r.l."],
+        "displayNamePatterns": ["^Supremo$"],
+        "serviceNames": [],
+        "processNames": ["Supremo.exe"]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": ["Supremo.exe"]
+    },
+    {
+      "id": "aeroadmin",
+      "name": "AeroAdmin",
+      "vendorDomains": ["aeroadmin.com"],
+      "installerPatterns": ["^AeroAdmin.*\\.exe$"],
+      "windows": {
+        "publishers": [],
+        "displayNamePatterns": ["^AeroAdmin$"],
+        "serviceNames": [],
+        "processNames": ["AeroAdmin.exe"]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": ["AeroAdmin.exe"]
+    }
+  ]
+}

@@ -617,7 +617,8 @@ interface RemoteAccessTool { id; name; vendorDomains: string[]; installerPattern
   macos: { bundleIds: string[]; teamIds: string[] }; sessionHints: string[] }
 REMOTE_ACCESS_TOOLS: readonly RemoteAccessTool[];  findRemoteAccessTool(id) → RemoteAccessTool | undefined;
 PUP_PUBLISHERS: readonly { publisher?: string; sha256?: string; reason: string }[];
-SCAM_PAGE_PHRASES; SKIP_DOMAINS: readonly string[];
+SCAM_PAGE_PHRASES; SKIP_DOMAINS: readonly string[];   // suppresses only the lookalike-login heuristic
+USER_CONTENT_HOSTS: readonly string[];               // never in SKIP_DOMAINS (github.io, amazonaws.com, sharepoint.com, google.com, …)
 detectionLists() → { version: string; remoteAccessTools; pupPublishers; scamPagePhrases; skipDomains };  // version = sha256 of canonical JSON, first 16 hex chars
 ```
 

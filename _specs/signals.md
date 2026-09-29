@@ -176,8 +176,11 @@ concurrency 1 per tenant, 3 retries):
     Quick Assist, Splashtop, LogMeIn, Atera, NetSupport, Supremo, AeroAdmin.
   - `pup-publishers.json`: publisher names and SHA-256 hashes, each with a short reason.
   - `scam-page-phrases.json`: lowercase phrases for `support_phone_text` and `fake_scan`, in en first.
-  - `skip-domains.json`: registrable domains never flagged by the extension's local heuristics. Seeded from
-    `BRANDS` official domains plus a curated top list.
+  - `skip-domains.json`: registrable domains whose pages are all written by the domain owner. They suppress
+    **only** the lookalike-login heuristic; scam-page, dangerous-site and download detection apply on every
+    domain. Seeded from `BRANDS` official domains plus a curated top list, **minus** hosts that serve pages anyone
+    can publish (`USER_CONTENT_HOSTS`: `github.io`, `amazonaws.com`, `sharepoint.com`, `google.com`,
+    `wordpress.com`, …), where scam pages are commonly hosted.
 - **Endpoint:** `GET /api/signals/lists` (scope `device` + `deviceId`) →
   `{ version, remoteAccessTools, pupPublishers, scamPagePhrases, skipDomains }`.
   - `version` is a content hash; the `ETag` is `"<version>"`; `If-None-Match` gets 304.

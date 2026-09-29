@@ -37,6 +37,22 @@ export { analyzeSms, classifySmsSender, stripChrome, SMS_HEURISTIC_CODES, DEFAUL
 export { analyzeSmsTool, analyzeSmsDefinition, createAnalyzeSmsTool, AnalyzeSmsInputSchema, SMS_ANALYSIS_GUIDANCE, extractSmsIocs, type AnalyzeSmsInput } from "./sms/tool.js";
 export { parsePhone, extractPhoneNumbers } from "./phone.js";
 export { extractTextUrls, refang } from "./textUrls.js";
+
+// Signals (_specs/signals.md): detection lists
+export {
+  REMOTE_ACCESS_TOOLS,
+  PUP_PUBLISHERS,
+  SCAM_PAGE_PHRASES,
+  SKIP_DOMAINS,
+  USER_CONTENT_HOSTS,
+  findRemoteAccessTool,
+  detectionLists,
+  type RemoteAccessTool,
+  type PupPublisher,
+  type ScamPagePhrase,
+  type ScamPhraseKind,
+  type DetectionLists,
+} from "./lists.js";
 export type * from "./email/types.js";
 export type * from "./sms/types.js";
 

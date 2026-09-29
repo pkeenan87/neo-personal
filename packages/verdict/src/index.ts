@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const SUBJECT_TYPES = ["email", "sms", "url", "page", "signin_alert", "file", "conversation"] as const;
+export const SUBJECT_TYPES = ["email", "sms", "url", "page", "signin_alert", "file", "conversation", "software", "remote_session", "permission"] as const;
 export const VERDICTS = ["malicious", "suspicious", "likely_safe", "insufficient_evidence"] as const;
 export const SEVERITIES = ["low", "medium", "high", "critical"] as const;
 export const URGENCIES = ["now", "soon", "optional"] as const;
@@ -125,3 +125,5 @@ export function summarizeVerdict(v: Verdict): string {
   const headline = v.headline.replace(/\s+/g, " ").trim();
   return `[${LABELS[v.verdict]} ${pct}%] ${v.subject_type}: ${headline}${detail}`;
 }
+
+export * from "./signals.js";
