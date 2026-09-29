@@ -250,7 +250,7 @@ concurrency 1 per tenant, 3 retries):
 - [ ] `GET /api/signals/lists` returns 304 for a matching `If-None-Match`; the heartbeat carries `listsVersion`.
 - [ ] A full-scope token, a browser session and a token without `signals:write` all get 403 on `POST /api/signals`.
 - [ ] Signals from an owner's own device alert and email the owner like any member's.
-- [ ] Migration 0010 applies on PGlite and Neon; the RLS test covers `device_signals` and `device_expected_tools`.
+- [x] Migration 0010 applies on PGlite and Neon (production: applied 2026-09-29 before merge); the RLS test covers `device_signals` and `device_expected_tools`.
 
 ## Resolved Questions
 
