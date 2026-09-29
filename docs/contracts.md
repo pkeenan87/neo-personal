@@ -588,3 +588,99 @@ JSON errors `{ error, code }`.
 - **Server module:** `lib/server/device-enrollment.ts` holds the session-level operations (`Outcome<T>` like `lib/server/household.ts`): `householdDevices`, `createCode`, `revokeCode`, `previewEnrollment`, `enrollWithCode`, `renameHouseholdDevice`, `removeHouseholdDevice`, `heartbeat`, `unenrollSelf`; limits `DEVICE_ENROLL_LIMIT`, `HEARTBEAT_LIMIT`.
 - **Member email:** enrollment by code emails the member (`renderDeviceEnrolledEmail`, subject `A device is now protected by Neo`, link `<request origin>/settings/household`), with idempotency key `device-enrolled:<deviceId>`; not sent when the member created the code (an owner enrolling their own device).
 - **Audit events:** `device.enrollment_code_created`, `device.enrollment_code_revoked`, `device.enrolled`, `device.renamed`, `device.revoked` (`by: "owner" | "member" | "device"`).
+
+## @neo/verdict and @neo/tools (spec `_specs/signals.md`)
+
+`@neo/verdict`:
+- `SUBJECT_TYPES` adds `software`, `remote_session` and `permission`.
+- New `packages/verdict/src/signals.ts`, exported from the index:
+
+```ts
+SIGNAL_TYPES = ["page", "software", "remote_session", "permission"] as const;
+SIGNAL_DETECTORS = ["tech_support_scam", "lookalike_login", "dangerous_site", "remote_tool_download", "warning_bypassed",
+                    "remote_access_tool", "unwanted_software", "remote_access_session", "tcc_grant"] as const;
+TECH_SUPPORT_INDICATORS; LOOKALIKE_INDICATORS;           // the indicator code lists from the spec table
+MAX_SIGNAL_BATCH = 50;
+SignalEventSchema: z.ZodType<SignalEvent>;                // discriminated union on `detector`, every variant .strict()
+type SignalEvent;                                         // { id: uuid, type, detector, observedAt: ISO string, ...payload }
+parseSignalEvent(raw: unknown) → { ok: true, event: SignalEvent } | { ok: false, id: string | null, reason: "invalid" };
+```
+
+The schema checks shape only: `domain` is lowercase host characters with no `/ ? # : @` and 1–253 characters, and `sha256` is 64 lowercase hex characters. The server checks that `domain` is registrable, that `observedAt` is fresh, and that `toolId` exists.
+
+`@neo/tools`:
+- Data files in `src/data/`: `remote-access-tools.json`, `pup-publishers.json`, `scam-page-phrases.json` (`{ phrase, kind: "support_phone_text" | "fake_scan", lang: "en" }`) and `skip-domains.json`.
+
+```ts
+interface RemoteAccessTool { id; name; vendorDomains: string[]; installerPatterns: string[];
+  windows: { publishers: string[]; displayNamePatterns: string[]; serviceNames: string[]; processNames: string[] };
+  macos: { bundleIds: string[]; teamIds: string[] }; sessionHints: string[] }
+REMOTE_ACCESS_TOOLS: readonly RemoteAccessTool[];  findRemoteAccessTool(id) → RemoteAccessTool | undefined;
+PUP_PUBLISHERS: readonly { publisher?: string; sha256?: string; reason: string }[];
+SCAM_PAGE_PHRASES; SKIP_DOMAINS: readonly string[];
+detectionLists() → { version: string; remoteAccessTools; pupPublishers; scamPagePhrases; skipDomains };  // version = sha256 of canonical JSON, first 16 hex chars
+```
+
+## @neo/db (spec `_specs/signals.md`)
+
+Migration `0010_signals`:
+- **New tables:**
+  - `device_signals`: `id`, `tenant_id`, `device_id` (cascade), `user_id` (cascade), `client_event_id` uuid, `type`, `detector`, `subject` (≤ 253), `payload` jsonb, `severity` null | `low|medium|high|critical`, `outcome` `pending|alerted|recorded|dismissed`, `escalated` boolean default false, `verdict_id` (set null), `alert_id` (set null), `observed_at`, `received_at`.
+    - Unique `(device_id, client_event_id)`.
+    - Index `(tenant_id, user_id, observed_at desc)`.
+  - `device_expected_tools`: `tenant_id`, `device_id` (cascade), `tool_id`, `peer_ids text[]`, `created_by`, `created_at`, with primary key `(device_id, tool_id)`.
+  - Both get `tenant_isolation` RLS and are in `tenantTables`.
+  - `reputation_cache` (`key` text primary key, `value` jsonb, `expires_at`): no tenant and no RLS, with CRUD granted to `app_user`.
+- **Changed checks:**
+  - `verdicts.subject_type` adds `software|remote_session|permission`.
+  - `verdicts.source` adds `device`.
+  - `alerts.kind` adds `scam_page|dangerous_site|remote_access|unwanted_software|permission_grant|scam_in_progress`.
+- **Security-definer functions** (granted to `app_user`): `purge_old_device_signals() → integer` (older than 30 days by `received_at`) and `purge_expired_reputation_cache() → integer`.
+
+```ts
+SIGNAL_OUTCOMES; type DeviceSignalRow;
+insertDeviceSignal(db, { tenantId, deviceId, userId, clientEventId, type, detector, subject, payload, observedAt, escalated?, now? })
+  → { row: DeviceSignalRow; duplicate: boolean };          // on conflict (device_id, client_event_id) returns the existing row, duplicate true
+getDeviceSignal(db, tenantId, id) → DeviceSignalRow | undefined;
+updateDeviceSignal(db, tenantId, id, { severity?, outcome?, verdictId?, alertId? }) → DeviceSignalRow | undefined;
+listRecentUserSignals(db, tenantId, userId, { since, outcomes? }) → DeviceSignalRow[];   // oldest first, for correlation
+countDeviceSignalsSince(db, tenantId, deviceId, since, { escalatedOnly? }) → number;
+purgeOldDeviceSignals(db) → number;
+listExpectedTools(db, tenantId, { deviceId? }) → { deviceId, toolId, peerIds, createdBy, createdAt }[];
+setExpectedTools(db, { tenantId, deviceId, tools: { toolId, peerIds }[], createdBy }) → same shape[] | undefined;  // replaces the set; undefined when the device is unknown or revoked
+class PostgresReputationCache implements ReputationCache { constructor(db: Db) }   // structural: get(key), set(key, value, ttlSeconds)
+purgeExpiredReputationCache(db) → number;
+```
+
+### HTTP contract: signals (`_specs/signals.md`)
+
+Wire types in `apps/web/lib/signal-types.ts`:
+- `SignalResult = { id: string | null, status: "accepted" | "duplicate" | "rejected", reason?, severity?, verdictId?, pending? }`
+- `SignalIngestResponse = { results: SignalResult[] }`
+- `DetectionListsResponse`
+
+JSON errors `{ error, code }`.
+
+- **Ingest:** `POST /api/signals { events }` (scope `signals:write` + `deviceId`, else 403 `insufficient_scope`).
+  - 200 with per-event results.
+  - 400 `bad_request` when the body is not `{ events: array of 1..50 }`.
+  - 429 at 60 requests per hour per device.
+  - Rejection reasons: `invalid | stale | unknown_tool | rate_limited | relates_to_unknown`.
+  - 500 accepted events per device per UTC day; escalations at most 50 per device per day.
+- **Lists:** `GET /api/signals/lists` (scope `device` + `deviceId`) → `DetectionListsResponse`.
+  - `ETag: "<version>"`, 304 on a matching `If-None-Match`.
+  - `Cache-Control: private, max-age=3600`.
+- **Heartbeat:** the `POST /api/devices/heartbeat` response adds `listsVersion`.
+- **Expected tools:** `PUT /api/household/devices/[id]/expected-tools { tools: { toolId, peerIds }[] }` (owner, browser session) → `{ tools: { toolId, name, peerIds }[] }`.
+  - At most 10 tools, 10 peer IDs each, each ID at most 64 characters.
+  - 400 `unknown_tool` | `invalid`, 404 `not_found`, 403 `forbidden`.
+  - Audit `device.expected_tools_changed`.
+  - `DeviceItem` gains `expectedTools`.
+- **Escalation:** Inngest event `neo/signal.escalate { signalId, tenantId }` → function `signal-escalate` (concurrency 1 per tenant, 3 retries; inline in MOCK_MODE without `INNGEST_EVENT_KEY`).
+- **Verdicts:** saved with `source: "device"`. `saveVerdict` does not call `alertForVerdict` for `device`.
+- **Alerts:**
+  - Dedupe key `<kind>:<deviceId>:<subject>:<UTC hour>`, except `scam_in_progress:<userId>:<30-min bucket>` and `bypass:<relatesTo>`.
+  - Owners' own devices alert and email like members'.
+- **Shared reputation cache:** with a database, `PostgresReputationCache` backs the shared URL cache (chat and signals); in-memory otherwise.
+- **Retention:** the daily retention job calls `purgeOldDeviceSignals` and `purgeExpiredReputationCache`.
+- **Audit:** `device.expected_tools_changed`, `signals.flood`.
