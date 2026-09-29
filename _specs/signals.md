@@ -147,10 +147,11 @@ concurrency 1 per tenant, 3 retries):
     "Someone connected to Grandma's laptop with AnyDesk (ID 123 456 789)".
   - Every device-supplied string is attacker-controlled: cleaned, truncated, escaped in email, never linked.
     Domains are shown defanged (`paypa1[.]test`).
-- **Owners' devices** raise verdicts and alerts in the feed, but alerts about the owner's own devices are never
-  emailed. The owner is the one at the keyboard, and the device shows its own warning. This is a change from
-  step 3, where owner devices raised no alerts at all: here the feed entry is useful history, and email is
-  suppressed.
+- **Owners' devices alert like everyone else's** (decided 2026-09-29): their signals raise the same verdicts and
+  alerts, and email the owner at their threshold. A remote session on the owner's own laptop is as urgent as one on
+  grandma's, and the owner may not be at the keyboard. `alertForVerdict` still skips owners for chat and forwarded
+  checks, because the owner saw those results directly. Step 3's device lifecycle alerts (offline, removed) still
+  skip devices that protect an owner.
 - The existing email threshold, daily cap and delivery job apply unchanged. `critical` finally has a source.
 
 ### Expected tools (false positives: the owner helping a parent through AnyDesk)
@@ -245,7 +246,7 @@ concurrency 1 per tenant, 3 retries):
       day is dismissed.
 - [ ] `GET /api/signals/lists` returns 304 for a matching `If-None-Match`; the heartbeat carries `listsVersion`.
 - [ ] A full-scope token, a browser session and a token without `signals:write` all get 403 on `POST /api/signals`.
-- [ ] Owner-device signals appear in the feed but never email.
+- [ ] Signals from an owner's own device alert and email the owner like any member's.
 - [ ] Migration 0010 applies on PGlite and Neon; the RLS test covers `device_signals` and `device_expected_tools`.
 
 ## Resolved Questions
@@ -274,7 +275,7 @@ without going too heavy:
 - `apps/web/test/signal-rules.test.ts`: table-driven rules, correlation, expected tools, `warning_bypassed`.
 - `apps/web/test/signals.test.ts` (memory stores): the ingest route (auth and scope 403s, per-event results,
   duplicates, rate limits), escalations with mocked reputation deps and cache hits, alerts and emails including
-  owner-device suppression, the lists route with ETag/304, the heartbeat `listsVersion`, and the expected-tools
+  owner-device signals alerting and emailing, the lists route with ETag/304, the heartbeat `listsVersion`, and the expected-tools
   route by role.
 - `packages/tools/test/lists.test.ts`: every list file parses, ids are unique, regexes compile, and every
   `vendorDomains` entry is a registrable domain.
