@@ -221,6 +221,15 @@ export const BRANDS: Brand[] = ROWS.map(([name, domains, extra = [], ccTLDs = fa
  * characters (matches `/^[a-z0-9_-]{1,64}$/` from `@neo/verdict`'s `BrandSchema`).
  */
 export function brandId(name: string): string {
-  const collapsed = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-  return collapsed.slice(0, 64).replace(/-+$/g, "");
+  const collapsed = trimDashes(name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+  return trimDashes(collapsed.slice(0, 64));
+}
+
+/** Strips leading and trailing `-` without a backtracking regex (CodeQL js/polynomial-redos). */
+function trimDashes(s: string): string {
+  let start = 0;
+  let end = s.length;
+  while (start < end && s[start] === "-") start++;
+  while (end > start && s[end - 1] === "-") end--;
+  return s.slice(start, end);
 }
