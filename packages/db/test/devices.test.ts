@@ -26,6 +26,7 @@ import {
   listDevices,
   listPendingEnrollmentCodes,
   listStaleDevices,
+  lookupDeviceTenant,
   markDeviceOfflineAlerted,
   mintEnrollmentCode,
   normalizeDeviceName,
@@ -305,6 +306,16 @@ describe("devices (PGlite as app_user)", () => {
     expect(await renameDevice(t.db, tenantId, a.device.id, " Grandma's  Chrome ")).toMatchObject({ name: "Grandma's Chrome" });
     expect(await renameDevice(t.db, other.tenantId, a.device.id, "Hijack")).toBeUndefined();
     expect(await revokeDevice(t.db, { tenantId: other.tenantId, deviceId: a.device.id, revokedBy: other.ownerId })).toBeUndefined();
+  });
+
+  it("lookupDeviceTenant resolves only active devices, across tenants, by id alone", async () => {
+    const { ownerId, tenantId } = await household(t);
+    const r = await enrolled(t, tenantId, ownerId, ownerId);
+    expect(await lookupDeviceTenant(t.db, r.device.id)).toBe(tenantId);
+    expect(await lookupDeviceTenant(t.db, "00000000-0000-4000-8000-000000000000")).toBeUndefined();
+    expect(await lookupDeviceTenant(t.db, "not-a-uuid")).toBeUndefined();
+    await revokeDevice(t.db, { tenantId, deviceId: r.device.id, revokedBy: ownerId });
+    expect(await lookupDeviceTenant(t.db, r.device.id)).toBeUndefined();
   });
 
   it("heartbeats, marks offline once, re-arms on heartbeat, and lists stale devices", async () => {

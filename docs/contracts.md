@@ -685,3 +685,51 @@ JSON errors `{ error, code }`.
 - **Shared reputation cache:** with a database, `PostgresReputationCache` backs the shared URL cache (chat and signals); in-memory otherwise.
 - **Retention:** the daily retention job calls `purgeOldDeviceSignals` and `purgeExpiredReputationCache`.
 - **Audit:** `device.expected_tools_changed`, `signals.flood`.
+
+## @neo/verdict and @neo/tools (spec `_specs/browser-extension.md`)
+
+`@neo/verdict` (`src/signals.ts`):
+
+```ts
+TECH_SUPPORT_TEXT_INDICATORS = ["support_phone_text", "fake_scan"] as const;
+isTechSupportScamHit(indicators: readonly TechSupportIndicator[]) → boolean;  // ≥ 1 text indicator and ≥ 2 distinct indicators in total
+```
+
+The server rule for `tech_support_scam` uses it (amends `_specs/signals.md`: fullscreen + pointer lock alone is `recorded`).
+
+`@neo/tools`:
+- New subpath export `@neo/tools/browser` (`src/browser.ts`): no Node built-ins anywhere in its import graph (no `node:*`, no `undici`, no `@neo/core`), safe for a Vite browser build.
+
+```ts
+registrableDomain(host: string) → { registrable: string; subdomain: string; isIp: boolean } | null;  // tldts, lowercase, punycode input
+toUnicodeHost(host: string) → string;                                    // RFC 3492 decode of xn-- labels (in-repo, no dependency)
+detectLookalike(host: string, brands?: Brand[]) → Lookalike | null;      // same results as the Node entry
+skeleton(label: string) → string;
+extractPhoneNumbers(text, opts?) → string[];  parsePhone(raw, userCountry?) → ParsedPhone | undefined;
+normalizeForMatch(s: string) → string;
+brandId(name: string) → string;                                          // stable slug, matches /^[a-z0-9_-]{1,64}$/
+type Brand; type Lookalike; type ListBrand = { id: string; name: string; domains: string[]; keywords: string[] };
+type DetectionListsPayload;                                              // the JSON shape of detectionLists(), for clients
+```
+
+- The Node entry keeps exporting `detectLookalike`, `skeleton`, `normalizeUrl` with unchanged behaviour; the Node-only code (`node:url` `domainToUnicode`, `node:net` `isIP`) is replaced by the shared browser-safe helpers where results are identical.
+- `detectionLists()` adds `brands: ListBrand[]` (from `BRANDS`, `id = brandId(name)`, ids unique); `version` covers it.
+
+## apps/web (spec `_specs/browser-extension.md`)
+
+- **Signal status:** `GET /api/signals/status?ids=<uuid>,<uuid>` (scope `signals:write` + `deviceId`, else 403 `insufficient_scope`) → `{ results: { id, outcome: "pending" | "alerted" | "recorded" | "dismissed", severity?, verdictId?, alerted: boolean }[] }`.
+  - 1–50 ids, else 400 `bad_request`. Only this device's events; unknown ids omitted.
+  - 120 per hour per device (429 with `Retry-After`).
+- **On-demand check:** `POST /api/devices/check-url { url }` (scope `url:check` + `deviceId`) → `{ rating: "dangerous" | "suspicious" | "no_known_problems" | "unknown", domain, reasons: string[], checkedAt }`.
+  - `url` ≤ 2048 characters, `http`/`https` only, else 400 `invalid`.
+  - Runs `analyzeUrl` with the shared reputation cache; `classifyUrlAnalysis(analysis) → { rating, reasons }` in `lib/server/signals/classify.ts` is shared with the lookalike escalation.
+  - Not saved, no alert, not counted against monthly checks. 30 per hour and 200 per UTC day per device (429 with `Retry-After`). Logs the registrable domain only (`@neo/core`'s `SAFE_METADATA_FIELDS` gained `domain` for this).
+- **Lists:** `DetectionListsResponse` adds `brands`.
+- **Heartbeat:** the response adds `uninstallUrl` (`<origin>/uninstalled?d=<deviceId>&s=<sig>`; `sig` = base64url of HMAC-SHA256(key, deviceId), first 22 characters; key = HMAC-SHA256(`AUTH_SECRET`, `"neo-uninstall-v1"`), with a fixed dev key when `AUTH_SECRET` is unset and this is not a deployment (`isDeployedEnvironment`: `NODE_ENV=production` or `VERCEL_ENV` production/preview, the same test as `DEV_AUTH_BYPASS`). `AUTH_SECRET` unset on a deployment: no `uninstallUrl` is minted and `lib/server/uninstall.ts` verifies no signature as valid.
+- **Uninstall:** `POST /api/devices/uninstalled { d, s }` (no auth) → 204 always for a well-formed body (400 `bad_request` otherwise); a valid signature for an active device revokes it and its tokens and raises `device_removed` (`by: "device"`, template "… was uninstalled"); idempotent; 10 per hour per IP (429).
+  - Page `app/uninstalled/page.tsx` (public) posts once on load and shows the result copy. `vercel.json` adds `Referrer-Policy: no-referrer` for `/uninstalled`.
+- **Store links:** `NEXT_PUBLIC_CHROME_EXTENSION_URL`, `NEXT_PUBLIC_FIREFOX_EXTENSION_URL` (optional). Settings → Household → Add a device links to them; unset shows "coming soon" for that browser.
+
+## apps/extension (spec `_specs/browser-extension.md`)
+
+WXT MV3 package `@neo/extension`; scripts `dev`, `build` (chrome-mv3 and firefox-mv3), `zip`, `typecheck`, `lint`, `test`. Build-time `WXT_NEO_BASE_URL` (default `https://www.neoshield.dev`). Consumes only the HTTP contracts above and `@neo/verdict`, `@neo/tools/browser`.

@@ -25,6 +25,7 @@ import {
   listDevices,
   listPendingEnrollmentCodes,
   listStaleDevices,
+  lookupDeviceTenant,
   markDeviceOfflineAlerted,
   previewEnrollmentCode,
   recordHeartbeat,
@@ -40,6 +41,7 @@ import { getMailer } from "./email/resend";
 import type { Outcome } from "./household";
 import { takeRateSlot } from "./rate-limit";
 import { expectedToolsByDevice } from "./signals/expected-tools";
+import { uninstallUrl, verifyDeviceSignature } from "./uninstall";
 import { household } from "./verdict-data";
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -219,7 +221,12 @@ export async function removeHouseholdDevice(session: NeoSession, id: string): Pr
 
 // ─── Device self-service (scope `device`) ──────────────────────────
 
-export async function heartbeat(session: NeoSession, deviceId: string, body: Record<string, unknown> | null): Promise<Outcome<HeartbeatResponse>> {
+export async function heartbeat(
+  session: NeoSession,
+  deviceId: string,
+  body: Record<string, unknown> | null,
+  origin: string,
+): Promise<Outcome<HeartbeatResponse>> {
   const slot = takeRateSlot("device-heartbeat", deviceId, HEARTBEAT_LIMIT.limit, HEARTBEAT_LIMIT.windowMs);
   if (!slot.ok) return rateLimited(slot.retryAfterSeconds);
   const clientVersion = body?.clientVersion;
@@ -233,6 +240,7 @@ export async function heartbeat(session: NeoSession, deviceId: string, body: Rec
   });
   // Revoked since the token resolved.
   if (!device) return fail(401, "unauthenticated", "This device is no longer connected to a household.");
+  const url = uninstallUrl(origin, deviceId);
   return {
     ok: true,
     value: {
@@ -241,6 +249,7 @@ export async function heartbeat(session: NeoSession, deviceId: string, body: Rec
       memberName: device.memberName,
       heartbeatSeconds: HEARTBEAT_SECONDS,
       listsVersion: detectionLists().version,
+      ...(url ? { uninstallUrl: url } : {}),
     },
   };
 }
@@ -253,6 +262,31 @@ export async function unenrollSelf(session: NeoSession, deviceId: string): Promi
   await recordAudit(session.tenantId, session.userId, "device.revoked", { deviceId, by: "device" });
   await alertDeviceRemoved(r.device, "device");
   return { ok: true, value: null };
+}
+
+// ─── Uninstall report (no session; _specs/browser-extension.md "Uninstall") ────────
+
+/**
+ * `POST /api/devices/uninstalled { d, s }`: no session, only an HMAC signature only that
+ * device's own heartbeat response could have produced. A valid signature for a still-active
+ * device revokes it (and its tokens) and raises `device_removed` `by: "device"`, same as
+ * `unenrollSelf`. Anything else — a bad or missing signature, an unknown id, or a device
+ * already revoked — is a silent no-op: the caller never learns which. Never throws; storage
+ * failures are swallowed so the route can always answer 204 (a retry from the browser or from
+ * the person re-opening the link is harmless either way).
+ */
+export async function reportUninstalled(deviceId: string, sig: string): Promise<void> {
+  try {
+    if (!verifyDeviceSignature(deviceId, sig)) return;
+    const tenantId = await lookupDeviceTenant(deviceId);
+    if (!tenantId) return; // unknown id, or already revoked (nothing left to do)
+    const r = await revokeDevice({ tenantId, deviceId, revokedBy: null });
+    if (!r || r.alreadyRevoked) return;
+    await recordAudit(tenantId, r.device.userId, "device.revoked", { deviceId, by: "device" });
+    await alertDeviceRemoved(r.device, "device");
+  } catch (err) {
+    logger.error("Uninstall report failed", "devices", { errorMessage: errText(err) });
+  }
 }
 
 // ─── Offline sweep (Inngest `devices-offline`, hourly) ─────────────

@@ -89,6 +89,12 @@ export function memoryUpdateDeviceSignal(tenantId: string, id: string, patch: Me
   return row;
 }
 
+/** This device's rows among `clientEventIds` (status polling; _specs/browser-extension.md). Unknown ids omitted. */
+export function memoryListDeviceSignalsByClientIds(tenantId: string, deviceId: string, clientEventIds: readonly string[]): DeviceSignalRow[] {
+  const want = new Set(clientEventIds);
+  return [...state().signals.values()].filter((r) => r.tenantId === tenantId && r.deviceId === deviceId && want.has(r.clientEventId));
+}
+
 /** A member's signals since `since`, oldest first (for correlation). */
 export function memoryListRecentUserSignals(
   tenantId: string,

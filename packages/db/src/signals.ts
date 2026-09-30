@@ -101,6 +101,23 @@ export async function updateDeviceSignal(
   return row;
 }
 
+/**
+ * This device's rows among `clientEventIds` (`GET /api/signals/status`,
+ * `_specs/browser-extension.md`). Unknown ids are simply absent from the result.
+ */
+export async function listDeviceSignalsByClientIds(
+  db: Db,
+  tenantId: string,
+  deviceId: string,
+  clientEventIds: readonly string[],
+): Promise<DeviceSignalRow[]> {
+  if (clientEventIds.length === 0) return [];
+  return tenantScoped(db, tenantId).select(
+    deviceSignals,
+    and(eq(deviceSignals.deviceId, deviceId), inArray(deviceSignals.clientEventId, [...clientEventIds])),
+  );
+}
+
 /** A member's signals since `since`, oldest first (for correlation). */
 export async function listRecentUserSignals(
   db: Db,

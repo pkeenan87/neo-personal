@@ -124,6 +124,9 @@ export const SAFE_METADATA_FIELDS: ReadonlySet<string> = new Set([
   "artifactsPurged",
   "artifactErrors",
   "inboundRowsDeleted",
+  // Browser extension (_specs/browser-extension.md): the on-demand check logs the registrable
+  // domain only, never the full URL or page content.
+  "domain",
 ]);
 
 function sanitizeMetadata(meta: Record<string, unknown> | undefined): Record<string, unknown> | undefined {

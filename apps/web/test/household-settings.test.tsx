@@ -105,7 +105,7 @@ describe("HouseholdSettingsView devices (owner)", () => {
 
     const pat = screen.getByRole("group", { name: "Pat's devices" });
     expect(within(pat).getByText("No devices yet.")).toBeInTheDocument();
-    expect(screen.getByText(/browser extension and PC app are coming soon/)).toBeInTheDocument();
+    expect(screen.getByText(/Add a device below to get an enrollment code/)).toBeInTheDocument();
   });
 
   it("shows an enrollment code once and lists it as pending", async () => {

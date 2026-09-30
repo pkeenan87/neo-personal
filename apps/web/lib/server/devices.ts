@@ -13,6 +13,7 @@ import {
   listDevices as dbListDevices,
   listPendingEnrollmentCodes as dbListPendingEnrollmentCodes,
   listStaleDevices as dbListStaleDevices,
+  lookupDeviceTenant as dbLookupDeviceTenant,
   markDeviceOfflineAlerted as dbMarkDeviceOfflineAlerted,
   previewEnrollmentCode as dbPreviewEnrollmentCode,
   purgeOldDevices as dbPurgeOldDevices,
@@ -38,6 +39,7 @@ import {
   memoryListDevices,
   memoryListPendingEnrollmentCodes,
   memoryListStaleDevices,
+  memoryLookupDeviceTenant,
   memoryMarkDeviceOfflineAlerted,
   memoryPreviewEnrollmentCode,
   memoryPurgeOldDevices,
@@ -146,6 +148,12 @@ export async function listDevices(tenantId: string, opts: { userId?: string } = 
 export async function getDevice(tenantId: string, id: string): Promise<DevicePublic | undefined> {
   const db = getDb();
   return db ? dbGetDevice(db, tenantId, id) : memoryGetDevice(tenantId, id);
+}
+
+/** The tenant of an active device, known only by its id (the unauthenticated uninstall route). */
+export async function lookupDeviceTenant(id: string): Promise<string | undefined> {
+  const db = getDb();
+  return db ? dbLookupDeviceTenant(db, id) : memoryLookupDeviceTenant(id);
 }
 
 export async function renameDevice(tenantId: string, id: string, name: string): Promise<DevicePublic | "invalid" | undefined> {

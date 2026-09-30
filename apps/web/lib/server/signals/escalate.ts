@@ -28,6 +28,7 @@ import { sharedUrlCache } from "../agent-run";
 import type { SignalAlertKind } from "../alerts";
 import { getDevice } from "../devices";
 import { applyAlertedSignal, type SignalDeviceInfo } from "./apply";
+import { classifyUrlAnalysis } from "./classify";
 import { alertKindForDetector } from "./rules";
 import { getDeviceSignal, listExpectedTools, updateDeviceSignal } from "./store";
 
@@ -151,25 +152,23 @@ export async function runSignalEscalate(data: SignalEscalateData, deps: Escalate
   }
 }
 
-const YOUNG_DOMAIN_DAYS = 30;
-
+/**
+ * lookalike_login escalation: analyze the domain and use the same `classifyUrlAnalysis`
+ * mapping as the on-demand check (`_specs/browser-extension.md`). `dangerous` confirms
+ * malicious (high severity); `suspicious` confirms suspicious (medium); anything else
+ * (`unknown` or `no_known_problems`) dismisses without an alert, same as any other
+ * inconclusive escalation.
+ */
 async function escalateLookalikeLogin(event: Extract<SignalEvent, { detector: "lookalike_login" }>, rowId: string, subject: string, device: SignalDeviceInfo, deps: EscalateDeps): Promise<void> {
   const analysis = await deps.analyzeUrl(`https://${event.domain}/`, { deps: { cache: deps.cache } });
-  const sb = analysis.reputation.safe_browsing;
-  const vt = analysis.reputation.virustotal;
-  const us = analysis.reputation.urlscan;
-  const malicious =
-    (sb && !isSkipped(sb) && sb.flagged) ||
-    (vt && !isSkipped(vt) && vt.status === "found" && vt.malicious > 0) ||
-    (us && !isSkipped(us) && us.malicious === true);
-  if (malicious) {
+  const { rating } = classifyUrlAnalysis(analysis);
+  if (rating === "dangerous") {
     const codes = ["brand_lookalike", ...analysis.heuristics.filter((h) => h === "safe_browsing_match" || h === "virustotal_malicious" || h === "urlscan_malicious")];
     await applyAlertedSignal({ device, event, rowId, subject, severity: "high", verdictLabel: "malicious", alertKind: alertKindForDetector("lookalike_login") as SignalAlertKind, reasonCodes: codes });
     return;
   }
-  const isYoung = analysis.domain.age_days !== undefined && analysis.domain.age_days < YOUNG_DOMAIN_DAYS;
-  const looksLikeBrand = analysis.heuristics.includes("brand_lookalike") || event.indicators.includes("lookalike_skeleton") || event.indicators.includes("punycode");
-  if (looksLikeBrand && (isYoung || analysis.heuristics.includes("brand_lookalike"))) {
+  if (rating === "suspicious") {
+    const isYoung = analysis.heuristics.includes("young_domain");
     const codes = isYoung ? ["brand_lookalike_young_domain"] : ["brand_lookalike"];
     await applyAlertedSignal({ device, event, rowId, subject, severity: "medium", verdictLabel: "suspicious", alertKind: alertKindForDetector("lookalike_login") as SignalAlertKind, reasonCodes: codes });
     return;

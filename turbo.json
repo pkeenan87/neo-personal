@@ -9,6 +9,10 @@
     "@neo/web#build": {
       "dependsOn": ["^build", "@neo/web#typecheck"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+    "@neo/extension#build": {
+      "dependsOn": ["^build"],
+      "outputs": [".output/**"]
     }
   }
 }

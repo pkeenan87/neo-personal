@@ -124,4 +124,10 @@ export interface HeartbeatResponse {
   heartbeatSeconds: number;
   /** Detection-lists content version (_specs/signals.md); refetch GET /api/signals/lists when it changed. */
   listsVersion: string;
+  /**
+   * `<origin>/uninstalled?d=...&s=...` (_specs/browser-extension.md "Uninstall"), passed to
+   * `runtime.setUninstallURL`. Absent only when `AUTH_SECRET` is unset on a production
+   * deployment (lib/server/uninstall.ts).
+   */
+  uninstallUrl?: string;
 }

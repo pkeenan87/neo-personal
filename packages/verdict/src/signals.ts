@@ -31,6 +31,21 @@ export const TECH_SUPPORT_INDICATORS = [
 ] as const;
 export type TechSupportIndicator = (typeof TECH_SUPPORT_INDICATORS)[number];
 
+/** The `TECH_SUPPORT_INDICATORS` that come from page text, as opposed to page behaviour. */
+export const TECH_SUPPORT_TEXT_INDICATORS = ["support_phone_text", "fake_scan"] as const satisfies readonly TechSupportIndicator[];
+
+/**
+ * A `tech_support_scam` hit needs at least one text indicator (`support_phone_text` or
+ * `fake_scan`) and at least 2 distinct indicators in total. This is stricter than "2 indicators,
+ * or `support_phone_text` plus any lock": a browser game using fullscreen plus pointer lock alone
+ * is not a hit (see `_specs/browser-extension.md`, amending `_specs/signals.md`).
+ */
+export function isTechSupportScamHit(indicators: readonly TechSupportIndicator[]): boolean {
+  const distinct = new Set(indicators);
+  const hasTextIndicator = TECH_SUPPORT_TEXT_INDICATORS.some((i) => distinct.has(i));
+  return hasTextIndicator && distinct.size >= 2;
+}
+
 /** Indicator codes for `page`/`lookalike_login`. */
 export const LOOKALIKE_INDICATORS = ["password_field", "punycode", "lookalike_skeleton", "brand_in_subdomain", "new_tab_from_email"] as const;
 export type LookalikeIndicator = (typeof LOOKALIKE_INDICATORS)[number];

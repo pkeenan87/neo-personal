@@ -15,9 +15,10 @@ import { PUT as expectedToolsPUT } from "@/app/api/household/devices/[id]/expect
 import { POST as codesPOST } from "@/app/api/household/members/[userId]/enrollment-codes/route";
 import { POST as signalsPOST } from "@/app/api/signals/route";
 import { GET as listsGET } from "@/app/api/signals/lists/route";
+import { GET as statusGET } from "@/app/api/signals/status/route";
 import type { CreateEnrollmentCodeResponse, EnrollDeviceResponse, HeartbeatResponse } from "@/lib/household-types";
 import type { AlertListResponse } from "@/lib/alert-types";
-import type { SignalIngestResponse } from "@/lib/signal-types";
+import type { SignalIngestResponse, SignalStatusResponse } from "@/lib/signal-types";
 import { memoryAlertRows, resetMemoryAlerts } from "@/lib/server/memory-alerts";
 import { resetMemoryDevices } from "@/lib/server/memory-devices";
 import { resetMemoryHousehold } from "@/lib/server/memory-household";
@@ -341,6 +342,63 @@ describe("GET /api/signals/lists", () => {
     bearer(token);
     const weak = await listsGET(new Request("http://localhost/api/signals/lists", { headers: { "If-None-Match": `W/${etag}` } }));
     expect(weak.status).toBe(304);
+  });
+
+  it("includes brands (_specs/browser-extension.md)", async () => {
+    const { token } = await enrollDevice(GRAN.userId);
+    bearer(token);
+    const res = await listsGET(new Request("http://localhost/api/signals/lists"));
+    const body = (await res.json()) as { brands: { id: string; name: string; domains: string[]; keywords: string[] }[] };
+    expect(body.brands.length).toBeGreaterThan(0);
+    expect(body.brands.find((b) => b.id === "paypal")).toMatchObject({ name: "PayPal", domains: expect.arrayContaining(["paypal.com"]) });
+  });
+});
+
+async function statusOf(token: string, ids: string[]): Promise<{ status: number; body: SignalStatusResponse | { error?: string; code?: string } }> {
+  bearer(token);
+  const res = await statusGET(new Request(`http://localhost/api/signals/status?ids=${ids.join(",")}`));
+  return { status: res.status, body: (await res.json().catch(() => ({}))) as SignalStatusResponse };
+}
+
+describe("GET /api/signals/status", () => {
+  it("scope: a monitoring token succeeds, a full token or browser session gets 403 insufficient_scope", async () => {
+    const { token } = await enrollDevice(GRAN.userId);
+    const ok = await statusOf(token, [uuid()]);
+    expect(ok.status).toBe(200);
+
+    as(OWNER);
+    const asBrowser = await statusGET(new Request(`http://localhost/api/signals/status?ids=${uuid()}`));
+    expect(asBrowser.status).toBe(403);
+    expect(await asBrowser.json()).toMatchObject({ code: "insufficient_scope" });
+  });
+
+  it("400 bad_request for 0, 51, or malformed ids", async () => {
+    const { token } = await enrollDevice(GRAN.userId);
+    expect((await statusOf(token, [])).status).toBe(400);
+    expect((await statusOf(token, Array.from({ length: 51 }, uuid))).status).toBe(400);
+    expect((await statusOf(token, ["not-a-uuid"])).status).toBe(400);
+  });
+
+  it("returns only this device's events; unknown or another device's ids are omitted", async () => {
+    const a = await enrollDevice(GRAN.userId, "Gran's phone");
+    const b = await enrollDevice(GRAN.userId, "Gran's laptop");
+    const event = techSupportScamEvent();
+    await sendSignals(a.token, [event]);
+    const otherEvent = techSupportScamEvent();
+    await sendSignals(b.token, [otherEvent]);
+
+    const { status, body } = await statusOf(a.token, [event.id, otherEvent.id, uuid()]);
+    expect(status).toBe(200);
+    const results = (body as SignalStatusResponse).results;
+    expect(results).toHaveLength(1);
+    expect(results[0]).toMatchObject({ id: event.id, outcome: "alerted", severity: "high", alerted: true });
+  });
+
+  it("429 after 120 requests/hour/device", async () => {
+    const { token, deviceId } = await enrollDevice(GRAN.userId);
+    for (let i = 0; i < 120; i++) takeRateSlot("signals-status", deviceId, 120, 60 * 60 * 1000);
+    const res = await statusOf(token, [uuid()]);
+    expect(res.status).toBe(429);
   });
 });
 

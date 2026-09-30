@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_SIGNAL_BATCH, SignalEventSchema, parseSignalEvent, type SignalEvent } from "../src/index.js";
+import { MAX_SIGNAL_BATCH, SignalEventSchema, isTechSupportScamHit, parseSignalEvent, type SignalEvent } from "../src/index.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const RELATES_TO = "22222222-2222-4222-8222-222222222222";
@@ -186,6 +186,30 @@ describe("SignalEventSchema", () => {
 
   it("exposes MAX_SIGNAL_BATCH", () => {
     expect(MAX_SIGNAL_BATCH).toBe(50);
+  });
+});
+
+describe("isTechSupportScamHit", () => {
+  it("is false for a game page (fullscreen + pointer_lock, no text)", () => {
+    expect(isTechSupportScamHit(["fullscreen", "pointer_lock"])).toBe(false);
+  });
+
+  it("is true for a text indicator plus one behaviour indicator", () => {
+    expect(isTechSupportScamHit(["support_phone_text", "fullscreen"])).toBe(true);
+  });
+
+  it("is true for two text indicators", () => {
+    expect(isTechSupportScamHit(["fake_scan", "support_phone_text"])).toBe(true);
+  });
+
+  it("is false for a single text indicator alone", () => {
+    expect(isTechSupportScamHit(["support_phone_text"])).toBe(false);
+    expect(isTechSupportScamHit(["fake_scan"])).toBe(false);
+  });
+
+  it("does not count duplicates twice", () => {
+    expect(isTechSupportScamHit(["support_phone_text", "support_phone_text"])).toBe(false);
+    expect(isTechSupportScamHit(["fullscreen", "fullscreen", "support_phone_text"])).toBe(true);
   });
 });
 

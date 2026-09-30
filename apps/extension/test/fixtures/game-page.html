@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Block Blaster — a totally normal browser game</title>
+  </head>
+  <body>
+    <!-- Manual-check fixture: a legitimate game using fullscreen + pointer lock. No scam text, so
+         it must NOT trigger a warning (Possible Edge Cases: "A browser game or video player"). -->
+    <h1>Block Blaster</h1>
+    <p>Click to play. Press F for fullscreen, click the canvas to lock your mouse for aiming.</p>
+    <canvas id="game" width="640" height="480"></canvas>
+    <button id="play">Play fullscreen</button>
+    <script>
+      document.getElementById("play").addEventListener("click", () => {
+        document.documentElement.requestFullscreen?.();
+        document.getElementById("game").requestPointerLock?.();
+      });
+    </script>
+  </body>
+</html>

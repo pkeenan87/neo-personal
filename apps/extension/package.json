@@ -1,0 +1,39 @@
+{
+  "name": "@neo/extension",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Neo browser extension: on-device scam-page, lookalike-login and remote-access-tool detection",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "WXT_NEO_BASE_URL=http://localhost:3000 wxt",
+    "dev:firefox": "WXT_NEO_BASE_URL=http://localhost:3000 wxt -b firefox",
+    "build": "node scripts/build-lists-snapshot.mjs && wxt build && wxt build -b firefox",
+    "zip": "node scripts/build-lists-snapshot.mjs && wxt zip && wxt zip -b firefox",
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@neo/tools": "workspace:*",
+    "@neo/verdict": "workspace:*",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@wxt-dev/module-react": "1.2.2",
+    "eslint": "^10.11.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.12.0",
+    "jsdom": "30.1.1",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.70.1",
+    "vitest": "^5.0.1",
+    "wxt": "0.21.4"
+  }
+}

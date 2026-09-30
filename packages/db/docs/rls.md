@@ -33,9 +33,10 @@ Extra policies:
 
 ## Security-definer functions (pre-tenant lookups)
 
-Ten operations must run before (or across) tenants, as the app role. Rather than widening a
+Eleven operations must run before (or across) tenants, as the app role. Rather than widening a
 table policy, migrations `0003_phase1`, `0007_household_invites`, `0008_alerts`,
-`0009_devices` and `0010_signals` add `SECURITY DEFINER` SQL functions. They run as
+`0009_devices`, `0010_signals` and `0011_device_uninstall` add `SECURITY DEFINER` SQL
+functions. They run as
 their owner (the migration role, which owns the tables and so is not subject to RLS),
 return only ids, and pin `search_path = pg_catalog, public`:
 
@@ -51,6 +52,7 @@ return only ids, and pin `search_path = pg_catalog, public`:
 | `purge_old_device_signals()` (migration `0010`) | `integer`: deletes `device_signals` rows with `received_at` older than 30 days, across tenants, and returns the count | `purgeOldDeviceSignals()` in the retention job |
 | `purge_expired_reputation_cache()` (migration `0010`) | `integer`: deletes `reputation_cache` rows with `expires_at < now()` and returns the count | `purgeExpiredReputationCache()` in the retention job |
 | `purge_old_inbound_messages(older_than_days integer)` | `integer`: deletes `inbound_messages` rows with status `rejected` or `failed` received more than `older_than_days` (at least 1, default 90) days ago, across tenants, and returns the count | `inbound.purgeOld()` in the retention job |
+| `lookup_device_tenant(device_id uuid)` (migration `0011`) | `(tenant_id uuid)` of that device, only while it is **active** (not revoked), at most one row | `lookupDeviceTenant()` on the unauthenticated `POST /api/devices/uninstalled` route |
 
 Everything after the lookup is tenant-scoped as usual (the caller passes the returned
 `tenant_id` to `tenantScoped()`).
@@ -81,9 +83,10 @@ back to the inviting household to insert the membership. `app.user_id` is set as
   GRANT EXECUTE ON FUNCTION public.purge_old_device_signals() TO app_user;
   GRANT EXECUTE ON FUNCTION public.purge_expired_reputation_cache() TO app_user;
   GRANT SELECT, INSERT, UPDATE, DELETE ON reputation_cache TO app_user;
+  GRANT EXECUTE ON FUNCTION public.lookup_device_tenant(uuid) TO app_user;
   ```
 
-Verify with `select proname, proacl from pg_proc where proname in ('resolve_inbound_address', 'list_expired_artifacts', 'purge_old_inbound_messages', 'lookup_household_invite', 'purge_old_alerts', 'lookup_device_enrollment_code', 'list_stale_devices', 'purge_old_devices', 'purge_old_device_signals', 'purge_expired_reputation_cache');`
+Verify with `select proname, proacl from pg_proc where proname in ('resolve_inbound_address', 'list_expired_artifacts', 'purge_old_inbound_messages', 'lookup_household_invite', 'purge_old_alerts', 'lookup_device_enrollment_code', 'list_stale_devices', 'purge_old_devices', 'purge_old_device_signals', 'purge_expired_reputation_cache', 'lookup_device_tenant');`
 (expect `app_user=X/...` and no entry starting with `=`). `test/inbound.test.ts` and
 `test/artifact-store.test.ts` exercise the functions under `SET ROLE app_user`.
 

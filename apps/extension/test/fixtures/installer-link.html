@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Free Remote Support Tool</title>
+  </head>
+  <body>
+    <!--
+      Manual-check fixture: a page offering an AnyDesk-named installer, from a domain that is not
+      one of AnyDesk's `vendorDomains` (`packages/tools/src/data/remote-access-tools.json`).
+      Serve this file (not `file://`, so `downloads.onCreated`'s referrer matches an ordinary
+      http(s) page) and click the link with the unpacked extension loaded: it should show the
+      "You are downloading AnyDesk" notification. The file itself does not need to be a real
+      installer — only the filename pattern is matched, and the extension never opens it.
+    -->
+    <h1>Free Remote Support Tool</h1>
+    <p>A technician will use this to help you. Click below to download.</p>
+    <a href="./AnyDesk.exe" download="AnyDesk.exe">Download AnyDesk.exe</a>
+  </body>
+</html>
