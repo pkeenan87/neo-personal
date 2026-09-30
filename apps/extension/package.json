@@ -12,8 +12,7 @@
     "zip": "node scripts/build-lists-snapshot.mjs && wxt zip && wxt zip -b firefox",
     "typecheck": "wxt prepare && tsc --noEmit",
     "lint": "eslint .",
-    "test": "vitest run",
-    "postinstall": "wxt prepare"
+    "test": "vitest run"
   },
   "dependencies": {
     "@neo/tools": "workspace:*",
