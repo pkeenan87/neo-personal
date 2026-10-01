@@ -70,16 +70,15 @@ pub fn records(channel: &str, ids: &[u32], since_unix: i64) -> Vec<EventLogRecor
             }
             for h in handles.iter().take(returned as usize) {
                 let event = EVT_HANDLE(*h);
-                if out.len() < MAX_RECORDS {
-                    if let Some(xml) = render_xml(event) {
-                        if let Some((event_id, time)) = parse_event_xml(&xml) {
-                            out.push(EventLogRecord {
-                                channel: channel.to_string(),
-                                event_id,
-                                time,
-                            });
-                        }
-                    }
+                if out.len() < MAX_RECORDS
+                    && let Some(xml) = render_xml(event)
+                    && let Some((event_id, time)) = parse_event_xml(&xml)
+                {
+                    out.push(EventLogRecord {
+                        channel: channel.to_string(),
+                        event_id,
+                        time,
+                    });
                 }
                 let _ = EvtClose(event);
             }

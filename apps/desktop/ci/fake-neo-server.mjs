@@ -32,7 +32,7 @@ function fixture(name) {
   return f;
 }
 
-const routes = {
+const routes = new Map(Object.entries({
   "POST /api/devices/enroll/preview": () => fixture("enroll_preview"),
   "POST /api/devices/enroll": () => fixture("enroll"),
   "POST /api/devices/heartbeat": () => fixture("heartbeat"),
@@ -44,19 +44,21 @@ const routes = {
     headers: {},
     body: { results: (JSON.parse(body || "{}").events ?? []).map((e) => ({ id: e.id, status: "accepted", severity: "high" })) },
   }),
-};
+}));
 
 createServer((req, res) => {
   const path = (req.url ?? "").split("?")[0];
   const key = `${req.method} ${path}`;
-  appendFileSync(logFile, `${key}\n`);
+  const route = routes.get(key);
+  // Only known route names reach the log (the CI job counts DELETE /api/devices/self); never raw request text.
+  const known = [...routes.keys()].find((k) => k === key) ?? "unknown route";
+  appendFileSync(logFile, `${known}\n`);
   const chunks = [];
   req.on("data", (c) => chunks.push(c));
   req.on("end", () => {
-    const route = routes[key];
     if (!route) {
       res.writeHead(404, { "content-type": "application/json" });
-      return res.end(JSON.stringify({ error: `no route ${key}`, code: "not_found" }));
+      return res.end(JSON.stringify({ error: "no such route", code: "not_found" }));
     }
     const out = route(Buffer.concat(chunks).toString("utf8"));
     const body = typeof out.body === "string" ? out.body : JSON.stringify(out.body);

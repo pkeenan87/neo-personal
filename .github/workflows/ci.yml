@@ -129,12 +129,12 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: apps/desktop/ci/changed.sh
 
-      # The runner's preinstalled rustup, no extra action. rust-version in Cargo.toml is 1.90.
+      # The runner's preinstalled rustup, no extra action. Version matches apps/desktop/rust-toolchain.toml.
       - name: Rust toolchain
         if: steps.changes.outputs.run == 'true'
         run: |
-          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
-          rustup default stable
+          rustup toolchain install 1.98.1 --profile minimal --component rustfmt --component clippy
+          rustup default 1.98.1
           rustc --version
 
       - name: Format
@@ -211,8 +211,8 @@ jobs:
         if: steps.changes.outputs.run == 'true'
         shell: bash
         run: |
-          rustup toolchain install stable --profile minimal --component clippy
-          rustup default stable
+          rustup toolchain install 1.98.1 --profile minimal --component clippy
+          rustup default 1.98.1
           rustc --version
 
       - name: Build the UI
