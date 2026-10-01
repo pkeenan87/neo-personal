@@ -15,7 +15,7 @@ use neo_agent::update::{Available, UpdateError, Updater};
 use neo_agent_core::api::{HttpRequest, HttpResponse, Transport, TransportError};
 use neo_agent_core::detect::ExeHint;
 use neo_agent_core::lists::PathEnv;
-use neo_agent_core::snapshot::{EventLogRecord, ExeFacts, ProcessInfo, ServiceInfo, Snapshot, UninstallEntry};
+use neo_agent_core::snapshot::{AppBundle, EventLogRecord, ExeFacts, ProcessInfo, ServiceInfo, Snapshot, TccSnapshot, UninstallEntry};
 use serde_json::{Value, json};
 use time::{Duration, OffsetDateTime};
 
@@ -47,6 +47,10 @@ fn response(fixture: &Value) -> HttpResponse {
 pub struct FakeProbe {
     pub snap: Arc<Mutex<Snapshot>>,
     pub files: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+    /// macOS fake: `Some` makes this probe a Mac whose Full Disk Access state is the value.
+    pub fda: Arc<Mutex<Option<bool>>>,
+    /// How many times the TCC database was read.
+    pub tcc_reads: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl FakeProbe {
@@ -64,6 +68,15 @@ impl FakeProbe {
     }
     pub fn set_uninstall(&self, u: Vec<UninstallEntry>) {
         self.snap.lock().unwrap().uninstall_entries = u;
+    }
+    pub fn set_bundles(&self, b: Vec<AppBundle>) {
+        self.snap.lock().unwrap().app_bundles = b;
+    }
+    pub fn set_tcc(&self, t: Option<TccSnapshot>) {
+        self.snap.lock().unwrap().tcc = t;
+    }
+    pub fn set_fda(&self, v: Option<bool>) {
+        *self.fda.lock().unwrap() = v;
     }
     pub fn write_file(&self, path: &str, text: &str) {
         self.files.lock().unwrap().insert(path.to_lowercase(), text.as_bytes().to_vec());
@@ -112,6 +125,22 @@ impl SystemProbe for FakeProbe {
     }
     fn exe_facts(&self, _h: &[ExeHint]) -> Vec<ExeFacts> {
         self.snap.lock().unwrap().exe_facts.clone()
+    }
+    fn platform(&self) -> &'static str {
+        if self.fda.lock().unwrap().is_some() { "macos" } else { "windows" }
+    }
+    fn app_bundles(&self) -> Vec<AppBundle> {
+        self.snap.lock().unwrap().app_bundles.clone()
+    }
+    fn bundle_exe_facts(&self, _p: &[String]) -> Vec<ExeFacts> {
+        self.snap.lock().unwrap().exe_facts.clone()
+    }
+    fn full_disk_access(&self) -> Option<bool> {
+        *self.fda.lock().unwrap()
+    }
+    fn tcc(&self) -> Option<TccSnapshot> {
+        self.tcc_reads.fetch_add(1, Ordering::SeqCst);
+        self.snap.lock().unwrap().tcc.clone()
     }
 }
 
@@ -188,6 +217,8 @@ pub struct Server {
     pub expected: AtomicBool,
     /// Severity returned for every accepted event.
     pub severity: Mutex<String>,
+    /// Serve the macOS detection lists (`lists-macos.json`) instead of the Windows-era fixture.
+    pub macos_lists: AtomicBool,
 }
 
 impl Server {
@@ -239,6 +270,10 @@ impl Server {
 
     fn fixture(&self, name: &str) -> Value {
         let mut v: Value = serde_json::from_str(&http_fixture(name)).unwrap();
+        if name == "lists" && self.macos_lists.load(Ordering::SeqCst) {
+            let path = format!("{}/../agent-core/tests/fixtures/lists-macos.json", env!("CARGO_MANIFEST_DIR"));
+            v["body"] = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        }
         if !self.expected.load(Ordering::SeqCst)
             && let Some(d) = v["body"].get_mut("device")
         {

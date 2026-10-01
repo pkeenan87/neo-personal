@@ -5,7 +5,9 @@ import type { Warning } from "./lib/types";
 import { AboutView } from "./views/AboutView";
 import { CheckLinkView } from "./views/CheckLinkView";
 import { EnrollView } from "./views/EnrollView";
+import { PermissionsView } from "./views/PermissionsView";
 import { StopView } from "./views/StopView";
+import { UninstallView } from "./views/UninstallView";
 import { WarningView } from "./views/WarningView";
 import "./styles.css";
 
@@ -32,6 +34,10 @@ function App() {
       return <CheckLinkView client={client} />;
     case "stop":
       return <StopView client={client} shell={tauriShell} />;
+    case "permissions":
+      return <PermissionsView client={client} shell={tauriShell} />;
+    case "uninstall":
+      return <UninstallView client={client} shell={tauriShell} />;
     case "about":
       return <AboutView shell={tauriShell} />;
     default:

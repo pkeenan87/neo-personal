@@ -88,8 +88,8 @@ pub fn checkin_line(last_check_in: Option<&str>, now_unix: i64) -> String {
     }
 }
 
-/// (title, body) of the toast for a tool or unwanted-software warning. `None` for a session: that
-/// gets the critical window.
+/// (title, body) of the toast for a tool or unwanted-software warning. `None` for a session or a
+/// permission grant: those get the critical window.
 pub fn toast_text(kind: &str, tool_name: &str) -> Option<(String, String)> {
     match kind {
         "tool" => Some((
@@ -100,6 +100,7 @@ pub fn toast_text(kind: &str, tool_name: &str) -> Option<(String, String)> {
             "Neo: unwanted software found".to_string(),
             format!("Neo found {tool_name}, which is known unwanted software."),
         )),
+        // `session` and `permission` (macOS) get the critical window.
         _ => None,
     }
 }
@@ -108,8 +109,54 @@ pub fn toast_text(kind: &str, tool_name: &str) -> Option<(String, String)> {
 pub fn op_allowed(request: &Value) -> bool {
     matches!(
         request.get("op").and_then(Value::as_str),
-        Some("status" | "enroll_preview" | "enroll" | "self_enroll_start" | "self_enroll_poll" | "check_url" | "unenroll")
+        Some(
+            "status"
+                | "enroll_preview"
+                | "enroll"
+                | "self_enroll_start"
+                | "self_enroll_poll"
+                | "check_url"
+                | "unenroll"
+                | "probe_permissions"
+        )
     )
+}
+
+/// The menu line that offers Full Disk Access (macOS), only while the daemon says it is missing.
+/// `None` otherwise (Windows, unknown, or already granted): the item is then not in the menu. The
+/// tray icon itself never changes for this, and nothing here ever notifies.
+pub fn permissions_menu_text(status: Option<&Value>) -> Option<&'static str> {
+    (status?.get("fullDiskAccess") == Some(&Value::Bool(false))).then_some("App permission checks are off: turn on\u{2026}")
+}
+
+/// Whether the status comes from a Mac (the Uninstall item is only there).
+pub fn is_macos(status: Option<&Value>) -> bool {
+    status.and_then(|s| s.get("platform")).and_then(Value::as_str) == Some("macos")
+}
+
+/// The System Settings panes that hold Full Disk Access, newest first. Hardcoded here: the web view
+/// can only ask for "open Full Disk Access", never for an arbitrary address.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const FULL_DISK_ACCESS_LINKS: [&str; 2] = [
+    "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles",
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles",
+];
+
+/// The daemon's bundle, revealed in Finder so it can be added with the + button.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const DAEMON_BUNDLE: &str = "/Library/Application Support/Neo/Neo Protection.app";
+/// What "Uninstall Neo..." runs with administrator rights.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub const UNINSTALL_SCRIPT: &str = "/Library/Application Support/Neo/Neo Protection.app/Contents/Resources/uninstall.sh";
+
+/// The AppleScript that runs the uninstall script with the standard administrator password prompt.
+/// The path is a fixed constant with no quote characters; nothing from the web view goes in.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub fn uninstall_applescript(script: &str) -> Option<String> {
+    if script.contains(['"', '\'', '\\']) {
+        return None;
+    }
+    Some(format!("do shell script \"/bin/sh '{script}'\" with administrator privileges"))
 }
 
 /// Only http(s) addresses are opened in the browser.
@@ -134,7 +181,10 @@ pub fn parse_warning(push: &Value) -> Option<Value> {
         return None;
     }
     let kind = push.get("kind").and_then(Value::as_str)?;
-    if !matches!(kind, "tool" | "session" | "unwanted") || text(push, "eventId").is_none() || text(push, "toolName").is_none() {
+    if !matches!(kind, "tool" | "session" | "unwanted" | "permission")
+        || text(push, "eventId").is_none()
+        || text(push, "toolName").is_none()
+    {
         return None;
     }
     let mut w = push.clone();
@@ -200,12 +250,45 @@ mod tests {
             "Neo found Foo, which is known unwanted software."
         );
         assert!(toast_text("session", "AnyDesk").is_none());
+        assert!(
+            toast_text("permission", "AnyDesk").is_none(),
+            "a permission grant is a window, not a toast"
+        );
+    }
+
+    #[test]
+    fn the_permissions_item_shows_only_while_full_disk_access_is_off() {
+        assert_eq!(
+            permissions_menu_text(Some(&json!({"fullDiskAccess": false}))),
+            Some("App permission checks are off: turn on\u{2026}")
+        );
+        assert_eq!(permissions_menu_text(Some(&json!({"fullDiskAccess": true}))), None);
+        assert_eq!(permissions_menu_text(Some(&json!({"fullDiskAccess": null}))), None, "Windows");
+        assert_eq!(permissions_menu_text(Some(&json!({}))), None);
+        assert_eq!(permissions_menu_text(None), None);
+        assert!(is_macos(Some(&json!({"platform":"macos"}))));
+        assert!(!is_macos(Some(&json!({"platform":"windows"}))));
+        assert!(!is_macos(None));
+    }
+
+    #[test]
+    fn the_settings_links_and_uninstall_command_are_fixed() {
+        assert!(FULL_DISK_ACCESS_LINKS[0].ends_with("Privacy_AllFiles"));
+        assert!(FULL_DISK_ACCESS_LINKS.iter().all(|l| l.starts_with("x-apple.systempreferences:")));
+        assert_eq!(
+            uninstall_applescript(UNINSTALL_SCRIPT).unwrap(),
+            "do shell script \"/bin/sh '/Library/Application Support/Neo/Neo Protection.app/Contents/Resources/uninstall.sh'\" with administrator privileges"
+        );
+        assert!(UNINSTALL_SCRIPT.starts_with(DAEMON_BUNDLE));
+        assert!(uninstall_applescript("/x/it's").is_none());
+        assert!(uninstall_applescript("/x\"; do shell script \"evil").is_none());
     }
 
     #[test]
     fn the_web_view_cannot_subscribe_or_send_unknown_ops() {
         assert!(op_allowed(&json!({"op":"status"})));
         assert!(op_allowed(&json!({"op":"unenroll"})));
+        assert!(op_allowed(&json!({"op":"probe_permissions"})));
         assert!(!op_allowed(&json!({"op":"subscribe"})));
         assert!(!op_allowed(&json!({"op":"rm"})));
         assert!(!op_allowed(&json!({})));
@@ -228,6 +311,10 @@ mod tests {
         let w = parse_warning(&push).unwrap();
         assert!(w.get("push").is_none());
         assert_eq!(w["kind"], "session");
+        let perm = json!({"push":"warning","eventId":"e2","kind":"permission","toolName":"AnyDesk","service":"accessibility","severity":"critical","ownerName":"Pat","ownerTold":false});
+        let w = parse_warning(&perm).unwrap();
+        assert_eq!(w["kind"], "permission");
+        assert_eq!(w["service"], "accessibility");
         assert!(parse_warning(&json!({"push":"status_changed"})).is_none());
         assert!(parse_warning(&json!({"push":"warning","kind":"nope","eventId":"e","toolName":"x"})).is_none());
         assert!(parse_warning(&json!({"push":"warning","kind":"tool","toolName":"x"})).is_none());

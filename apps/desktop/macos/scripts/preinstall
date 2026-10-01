@@ -1,0 +1,5 @@
+#!/bin/sh
+# Runs before the payload is copied. On an upgrade the daemon is running from the files that are
+# about to be replaced, so stop it first. On a first install there is nothing to stop.
+/bin/launchctl bootout system/dev.neoshield.agent >/dev/null 2>&1 || true
+exit 0

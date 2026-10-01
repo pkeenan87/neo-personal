@@ -9,7 +9,7 @@ use time::OffsetDateTime;
 
 use crate::events::{Discovery, SignalEvent, TccService, UnwantedReason, clean_peer_id};
 use crate::lists::{CompiledLists, CompiledTool, norm_path, publisher_matches, same_path};
-use crate::snapshot::{AppBundle, ExeFacts, Snapshot, TccRow, UninstallEntry};
+use crate::snapshot::{AppBundle, ExeFacts, Snapshot, TccSnapshot, UninstallEntry};
 use crate::state::{MAX_LINE_BYTES, SeenState, ToolSighting};
 
 /// Bundle ids of Neo's own macOS apps (daemon bundle and tray); grants to them are never reported.
@@ -416,14 +416,17 @@ pub fn detect(
     }
 
     // ---- tcc_grant ----
-    events.extend(detect_tcc(seen, snapshot.tcc.as_deref(), &snapshot.app_bundles, now));
+    events.extend(detect_tcc(seen, snapshot.tcc.as_ref(), &snapshot.app_bundles, now));
     events
 }
 
-/// macOS permission grants. `rows` is the current TCC snapshot (`None` = unreadable: nothing
+/// macOS permission grants. `tcc` is the current TCC snapshot (`None` = unreadable: nothing
 /// happens and the stored state is kept).
 ///
-/// - The first readable snapshot is a silent baseline.
+/// - Only databases in `dbs_read` are compared and updated; a database not read this pass keeps its
+///   previous state (so a user logging out does not look like revoked grants, nor their return
+///   like new ones).
+/// - A database's first read is a silent baseline, even after other databases were baselined.
 /// - Afterwards a `(db, client, service)` that was absent or not allowed and now has
 ///   `auth_value == 2` yields one `tcc_grant` (at most one per `(client, service)` per call).
 ///   Rows that stay allowed (Sequoia re-approvals touch them) yield nothing; a revoke followed by a
@@ -432,14 +435,12 @@ pub fn detect(
 ///   `kTCCServiceSystemPolicyAllFiles` count; Neo's own bundle ids ([`NEO_BUNDLE_IDS`]) are ignored.
 /// - `client_type` 0 is a bundle id (`bundleId` set; `app` is the installed bundle's name when
 ///   known, else the id); 1 is a path (`app` is its last component, no `bundleId`).
-///
-/// The service must return `Some` only when every database it could read was read: a database
-/// that vanishes for one pass looks like revoked grants, and its return like new ones.
-pub fn detect_tcc(seen: &mut SeenState, rows: Option<&[TccRow]>, bundles: &[AppBundle], now: OffsetDateTime) -> Vec<SignalEvent> {
-    let Some(rows) = rows else { return Vec::new() };
+pub fn detect_tcc(seen: &mut SeenState, tcc: Option<&TccSnapshot>, bundles: &[AppBundle], now: OffsetDateTime) -> Vec<SignalEvent> {
+    let Some(tcc) = tcc else { return Vec::new() };
+    let first_read: Vec<&String> = tcc.dbs_read.iter().filter(|d| !seen.tcc_db_baselined(d)).collect();
     let mut current: BTreeMap<String, bool> = BTreeMap::new();
-    let mut allowed_rows: Vec<(String, &TccRow, TccService)> = Vec::new();
-    for r in rows {
+    let mut allowed_rows: Vec<(String, &crate::snapshot::TccRow, TccService)> = Vec::new();
+    for r in tcc.rows.iter().filter(|r| tcc.dbs_read.contains(&r.db)) {
         let Some(service) = TccService::from_tcc(&r.service) else {
             continue;
         };
@@ -454,14 +455,14 @@ pub fn detect_tcc(seen: &mut SeenState, rows: Option<&[TccRow]>, bundles: &[AppB
             allowed_rows.push((key, r, service));
         }
     }
-    let (was_baselined, prev) = seen.swap_tcc(current);
-    if !was_baselined {
-        return Vec::new();
-    }
+    let prev = seen.swap_tcc(&tcc.dbs_read, current);
     let mut events = Vec::new();
     let mut emitted: Vec<(&str, TccService)> = Vec::new();
     for (key, r, service) in allowed_rows {
-        if prev.get(&key).copied().unwrap_or(false) || emitted.contains(&(r.client.as_str(), service)) {
+        if first_read.iter().any(|d| **d == r.db)
+            || prev.get(&key).copied().unwrap_or(false)
+            || emitted.contains(&(r.client.as_str(), service))
+        {
             continue;
         }
         emitted.push((r.client.as_str(), service));

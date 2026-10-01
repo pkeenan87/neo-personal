@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>dev.neoshield.agent</string>
+	<key>Program</key>
+	<string>/Library/Application Support/Neo/Neo Protection.app/Contents/MacOS/neo-agent</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<!-- launchd is the supervisor: it relaunches the daemon whenever it exits (a crash, or the
+	     deliberate exit that lets a new Full Disk Access grant take effect). -->
+	<key>KeepAlive</key>
+	<true/>
+	<!-- Helpers the daemon starts (the update installer, uninstall.sh) must outlive it when
+	     launchd boots it out. -->
+	<key>AbandonProcessGroup</key>
+	<true/>
+	<!-- Shows "Neo Protection" under Login Items, tied to the bundle. -->
+	<key>AssociatedBundleIdentifiers</key>
+	<array>
+		<string>dev.neoshield.agent</string>
+	</array>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

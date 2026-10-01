@@ -44,12 +44,22 @@ struct Inner {
 
 struct TrayUi {
     tray: TrayIcon,
+    menu: Menu<tauri::Wry>,
     status: MenuItem<tauri::Wry>,
     checkin: MenuItem<tauri::Wry>,
     setup: MenuItem<tauri::Wry>,
     check: MenuItem<tauri::Wry>,
     stop: MenuItem<tauri::Wry>,
+    /// macOS: "App permission checks are off: turn on...", in the menu only while it applies.
+    perms: MenuItem<tauri::Wry>,
+    perms_shown: Mutex<bool>,
+    /// macOS: "Uninstall Neo...", at the end of the menu.
+    uninstall: MenuItem<tauri::Wry>,
+    uninstall_shown: Mutex<bool>,
 }
+
+/// Where the permissions item goes: after the two status lines and their separator.
+const PERMS_MENU_POSITION: usize = 3;
 
 // ---- commands the web view may call --------------------------------------------------------
 
@@ -69,6 +79,91 @@ fn open_url(app: AppHandle, url: String) -> Result<(), String> {
         return Err("only web addresses can be opened".to_string());
     }
     app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
+}
+
+/// The macOS-only actions. Everything is fixed here: the web view only names the action and never
+/// supplies an address, a path or a command.
+#[cfg(target_os = "macos")]
+mod mac {
+    use crate::logic;
+
+    fn open_with(args: &[&str]) -> bool {
+        std::process::Command::new("/usr/bin/open")
+            .args(args)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }
+
+    /// The macOS 13+ Full Disk Access address first, the older one as a fallback.
+    pub fn open_full_disk_access() -> Result<(), String> {
+        if logic::FULL_DISK_ACCESS_LINKS.iter().any(|link| open_with(&[link])) {
+            Ok(())
+        } else {
+            Err("could not open System Settings".to_string())
+        }
+    }
+
+    /// Shows `Neo Protection` in Finder so it can be added to the list with the + button.
+    pub fn reveal_daemon() -> Result<(), String> {
+        if open_with(&["-R", logic::DAEMON_BUNDLE]) {
+            Ok(())
+        } else {
+            Err("could not open Finder".to_string())
+        }
+    }
+
+    /// Runs `uninstall.sh` with the standard administrator password prompt. Cancelling the prompt
+    /// makes `osascript` fail and nothing is changed.
+    pub fn uninstall() -> Result<(), String> {
+        let script = logic::uninstall_applescript(logic::UNINSTALL_SCRIPT).ok_or("bad uninstall path")?;
+        let ok = std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(script)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok { Ok(()) } else { Err("the uninstall did not run".to_string()) }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+mod mac {
+    const NOT_A_MAC: &str = "this only works on a Mac";
+
+    pub fn open_full_disk_access() -> Result<(), String> {
+        Err(NOT_A_MAC.to_string())
+    }
+
+    pub fn reveal_daemon() -> Result<(), String> {
+        Err(NOT_A_MAC.to_string())
+    }
+
+    pub fn uninstall() -> Result<(), String> {
+        Err(NOT_A_MAC.to_string())
+    }
+}
+
+#[tauri::command]
+async fn open_full_disk_access() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(mac::open_full_disk_access)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn reveal_daemon() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(mac::reveal_daemon)
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// "Uninstall Neo...": the confirmation (who will be told) is the web view's `uninstall` window.
+#[tauri::command]
+async fn uninstall_mac() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(mac::uninstall)
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 #[tauri::command]
@@ -140,6 +235,8 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayUi> {
     let stop = MenuItem::with_id(app, "stop", "Stop protecting this computer…", false, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
+    let perms = MenuItem::with_id(app, "perms", "App permission checks are off: turn on\u{2026}", true, None::<&str>)?;
+    let uninstall = MenuItem::with_id(app, "uninstall", "Uninstall Neo\u{2026}", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&status, &checkin, &sep1, &setup, &check, &open, &about, &sep2, &stop])?;
     let tray = TrayIconBuilder::with_id("neo")
         .icon(Image::from_bytes(GREY)?)
@@ -151,6 +248,15 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayUi> {
             "check" => open_view(app, "check", "view=check", "Check a link", 520.0, 360.0),
             "about" => open_view(app, "about", "view=about", "About Neo", 520.0, 420.0),
             "stop" => open_view(app, "stop", "view=stop", "Stop protecting", 480.0, 280.0),
+            "perms" => open_view(
+                app,
+                "permissions",
+                "view=permissions",
+                "Let Neo check app permissions",
+                540.0,
+                600.0,
+            ),
+            "uninstall" => open_view(app, "uninstall", "view=uninstall", "Uninstall Neo", 480.0, 320.0),
             "open" => {
                 let base = {
                     let shared = app.state::<Shared>();
@@ -167,11 +273,16 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayUi> {
         .build(app)?;
     Ok(TrayUi {
         tray,
+        menu,
         status,
         checkin,
         setup,
         check,
         stop,
+        perms,
+        perms_shown: Mutex::new(false),
+        uninstall,
+        uninstall_shown: Mutex::new(false),
     })
 }
 
@@ -205,6 +316,16 @@ fn refresh_tray(app: &AppHandle) {
     let _ = ui.setup.set_enabled(up && !enrolled);
     let _ = ui.check.set_enabled(enrolled);
     let _ = ui.stop.set_enabled(enrolled);
+    // macOS: the Full Disk Access offer and the Uninstall item come and go with the status. The icon
+    // and the notifications are untouched: the person is still protected by the other detectors.
+    sync_menu_item(
+        &ui.menu,
+        &ui.perms,
+        &ui.perms_shown,
+        logic::permissions_menu_text(status.as_ref()).is_some(),
+        Some(PERMS_MENU_POSITION),
+    );
+    sync_menu_item(&ui.menu, &ui.uninstall, &ui.uninstall_shown, logic::is_macos(status.as_ref()), None);
     let (bytes, tip) = match logic::icon_state(up, state, last_warning, now) {
         IconState::Shield => (SHIELD, format!("Neo: {line}")),
         IconState::Grey => (GREY, format!("Neo: {line}")),
@@ -214,6 +335,23 @@ fn refresh_tray(app: &AppHandle) {
         let _ = ui.tray.set_icon(Some(img));
     }
     let _ = ui.tray.set_tooltip(Some(tip));
+}
+
+/// Adds or removes a menu item so that it is in the menu exactly when `want` (`at`: where to
+/// insert it, `None` = at the end).
+fn sync_menu_item(menu: &Menu<tauri::Wry>, item: &MenuItem<tauri::Wry>, shown: &Mutex<bool>, want: bool, at: Option<usize>) {
+    let mut shown = shown.lock().unwrap_or_else(|e| e.into_inner());
+    if *shown == want {
+        return;
+    }
+    let done = match (want, at) {
+        (true, Some(pos)) => menu.insert(item, pos),
+        (true, None) => menu.append(item),
+        (false, _) => menu.remove(item),
+    };
+    if done.is_ok() {
+        *shown = want;
+    }
 }
 
 /// Asks the service for its status and updates the tray. The first time the computer turns out
@@ -310,8 +448,19 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
         .manage(Shared::default())
-        .invoke_handler(tauri::generate_handler![agent_request, open_url, close_self, get_warning])
+        .invoke_handler(tauri::generate_handler![
+            agent_request,
+            open_url,
+            close_self,
+            get_warning,
+            open_full_disk_access,
+            reveal_daemon,
+            uninstall_mac
+        ])
         .setup(|app| {
+            // A menu-bar-only app: no Dock icon, no app menu.
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
             let handle = app.handle().clone();
             let ui = build_tray(&handle)?;
             app.manage(ui);

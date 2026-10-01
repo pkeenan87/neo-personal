@@ -100,6 +100,18 @@ pub struct TccRow {
     pub auth_value: i64,
 }
 
+/// A TCC snapshot: the rows plus which databases were actually read this pass.
+///
+/// A database that could not be read this pass (unreadable, vanished, user logged out) must not be
+/// listed in `dbs_read`: its previous state is kept, and a database read for the first time is
+/// baselined silently. Rows whose `db` is not in `dbs_read` are ignored.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TccSnapshot {
+    /// `"system"` or `"user:<uid>"`, one entry per database read this pass.
+    pub dbs_read: Vec<String>,
+    pub rows: Vec<TccRow>,
+}
+
 /// One unified-log entry returned for a `unifiedlog` evidence predicate.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnifiedLogRecord {
@@ -163,10 +175,10 @@ pub struct Snapshot {
     /// macOS: unified-log entries for the verified `unifiedlog` evidence.
     #[serde(default)]
     pub unified_log_records: Vec<UnifiedLogRecord>,
-    /// macOS: every readable TCC row. `None` = not readable (no Full Disk Access) or the schema
-    /// was not understood; detection state is then left untouched.
+    /// macOS: the TCC rows of every database read this pass. `None` = nothing readable (no Full
+    /// Disk Access) or the schema was not understood; detection state is then left untouched.
     #[serde(default)]
-    pub tcc: Option<Vec<TccRow>>,
+    pub tcc: Option<TccSnapshot>,
     /// Expansion environment for session log paths.
     #[serde(default)]
     pub env: PathEnv,

@@ -1,5 +1,5 @@
 /** Words shown to the member. The warning and consent copy is fixed by `_specs/desktop-agent.md`. */
-import type { Rating, Warning } from "./types";
+import type { PermissionService, Rating, Warning } from "./types";
 
 export const OWNER_FALLBACK = "the household owner";
 
@@ -59,4 +59,44 @@ export function toolToast(toolName: string): string {
 
 export function unwantedToast(name: string): string {
   return `Neo found ${name}, which is known unwanted software.`;
+}
+
+/** What an app can now do, by permission; the general phrase when the service is unknown. */
+export function permissionPhrase(service?: PermissionService): string {
+  switch (service) {
+    case "screen_recording":
+      return "see your screen";
+    case "accessibility":
+      return "control this Mac";
+    case "full_disk_access":
+      return "read all your files";
+    default:
+      return "see and control this Mac";
+  }
+}
+
+export function permissionHeadline(w: Pick<Warning, "toolName" | "service">): string {
+  return `${w.toolName} can now ${permissionPhrase(w.service)}.`;
+}
+
+export const PERMISSION_ADVICE = "If someone on the phone asked you to allow this, it is a scam. Hang up, then open System Settings \u2192 Privacy & Security and turn it off.";
+
+// ---- macOS: the Full Disk Access step and Uninstall (spec `_specs/desktop-agent-macos.md`) ------
+
+export const FDA_TITLE = "Let Neo check app permissions";
+export const FDA_WHY =
+  "Scammers make you allow screen recording or control of your Mac so they can take over. With this one setting on, Neo can warn you when an app is newly allowed to do that.";
+export const FDA_ONLY_SETTING = "This is the only setting Neo asks for, and you can turn it off any time.";
+export const FDA_NEVER_ON_A_CALL =
+  "Neo will never ask you to do this on a phone call. If someone on the phone asks you to open System Settings and allow a program, it is a scam.";
+export const FDA_RESTARTING = "Neo is restarting to pick up the change. Wait a few seconds, then press Done again.";
+export const FDA_NOT_YET = "Neo can't read it yet. Make sure Neo Protection is switched on in the list, then press Done again.";
+export const FDA_GRANTED = "Neo can now check app permissions.";
+
+export function uninstallConfirm(owner: string | null): { headline: string; who: string; rest: string } {
+  return {
+    headline: "Uninstall Neo?",
+    who: owner ?? OWNER_FALLBACK,
+    rest: "This removes Neo and its protection from this Mac. You will be asked for an administrator password.",
+  };
 }

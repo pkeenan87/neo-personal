@@ -3,7 +3,7 @@ mod common;
 use common::t0;
 use neo_agent_core::detect::detect_tcc;
 use neo_agent_core::events::{EventBody, SignalEvent, TccService, valid_bundle_id};
-use neo_agent_core::snapshot::{AppBundle, TccRow};
+use neo_agent_core::snapshot::{AppBundle, TccRow, TccSnapshot};
 use neo_agent_core::state::SeenState;
 use time::Duration;
 
@@ -21,8 +21,22 @@ fn row(client: &str, service: &str, auth_value: i64) -> TccRow {
     }
 }
 
+/// A snapshot that read the system database plus every user database that has rows.
+fn snap(rows: &[TccRow]) -> TccSnapshot {
+    let mut dbs_read = vec!["system".to_string()];
+    for r in rows {
+        if !dbs_read.contains(&r.db) {
+            dbs_read.push(r.db.clone());
+        }
+    }
+    TccSnapshot {
+        dbs_read,
+        rows: rows.to_vec(),
+    }
+}
+
 fn run(seen: &mut SeenState, rows: Option<&[TccRow]>, step: i64) -> Vec<SignalEvent> {
-    detect_tcc(seen, rows, &[], t0() + Duration::seconds(step))
+    detect_tcc(seen, rows.map(snap).as_ref(), &[], t0() + Duration::seconds(step))
 }
 
 fn grants(evs: &[SignalEvent]) -> Vec<(String, Option<String>, TccService)> {
@@ -151,7 +165,7 @@ fn bundle_and_path_clients() {
         ..Default::default()
     }];
     let rows = [row("com.philandro.anydesk", AX, 2), path_row, row("com.unknown.app", FDA, 2)];
-    let evs = detect_tcc(&mut seen, Some(&rows), &bundles, t0());
+    let evs = detect_tcc(&mut seen, Some(&snap(&rows)), &bundles, t0());
     assert_eq!(
         grants(&evs),
         [
@@ -221,4 +235,70 @@ fn tcc_state_survives_a_restart_and_old_files_load() {
     // A seen.json written before TCC existed starts un-baselined.
     let old = SeenState::from_json(r#"{"tools":{},"programs":{},"sessions":{},"unsigned_unknown":{"day":"","count":0}}"#);
     assert!(!old.tcc_baselined());
+}
+
+fn user_row(uid: u32, client: &str, service: &str, auth_value: i64) -> TccRow {
+    TccRow {
+        db: format!("user:{uid}"),
+        ..row(client, service, auth_value)
+    }
+}
+
+fn snap_of(dbs: &[&str], rows: Vec<TccRow>) -> TccSnapshot {
+    TccSnapshot {
+        dbs_read: dbs.iter().map(|d| d.to_string()).collect(),
+        rows,
+    }
+}
+
+#[test]
+fn database_not_read_this_pass_keeps_its_state() {
+    let mut seen = SeenState::default();
+    let now = t0();
+    // Baseline: both databases, a user grant already present.
+    let both = snap_of(&["system", "user:501"], vec![user_row(501, "com.a.b", SC, 2)]);
+    assert!(detect_tcc(&mut seen, Some(&both), &[], now).is_empty());
+    // The user database is unreadable for a pass: not in dbs_read, so no revoke is recorded...
+    let sys_only = snap_of(&["system"], vec![]);
+    assert!(detect_tcc(&mut seen, Some(&sys_only), &[], now).is_empty());
+    // ...and when it returns with the same grant nothing is sent.
+    assert!(detect_tcc(&mut seen, Some(&both), &[], now).is_empty());
+    // Rows of a database that was not read are ignored, not baselined or sent.
+    let stray = snap_of(&["system"], vec![user_row(501, "com.new.app", SC, 2)]);
+    assert!(detect_tcc(&mut seen, Some(&stray), &[], now).is_empty());
+    let evs = detect_tcc(
+        &mut seen,
+        Some(&snap_of(&["system", "user:501"], vec![user_row(501, "com.new.app", SC, 2)])),
+        &[],
+        now,
+    );
+    assert_eq!(
+        grants(&evs).len(),
+        1,
+        "a grant that appeared while the db was unread is seen once it is read"
+    );
+}
+
+#[test]
+fn a_database_read_for_the_first_time_is_baselined_silently() {
+    let mut seen = SeenState::default();
+    let now = t0();
+    assert!(detect_tcc(&mut seen, Some(&snap_of(&["system"], vec![])), &[], now).is_empty());
+    // A second user's database appears after the global baseline: its existing grants are baseline.
+    let second = snap_of(&["system", "user:502"], vec![user_row(502, "us.zoom.xos", SC, 2)]);
+    assert!(detect_tcc(&mut seen, Some(&second), &[], now).is_empty());
+    assert!(seen.tcc_db_baselined("user:502"));
+    // From then on it is compared like any other.
+    let more = snap_of(
+        &["system", "user:502"],
+        vec![user_row(502, "us.zoom.xos", SC, 2), user_row(502, "com.x.y", AX, 2)],
+    );
+    assert_eq!(grants(&detect_tcc(&mut seen, Some(&more), &[], now)).len(), 1);
+}
+
+#[test]
+fn empty_dbs_read_changes_nothing() {
+    let mut seen = SeenState::default();
+    assert!(detect_tcc(&mut seen, Some(&snap_of(&[], vec![])), &[], t0()).is_empty());
+    assert!(!seen.tcc_baselined());
 }

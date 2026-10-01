@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Wraps the component package so the installer can state its minimum macOS version and the
+     architectures it supports. build-pkg.sh stamps the version. -->
+<installer-gui-script minSpecVersion="2">
+	<title>Neo</title>
+	<options customize="never" hostArchitectures="arm64,x86_64"/>
+	<volume-check>
+		<allowed-os-versions>
+			<os-version min="13.0"/>
+		</allowed-os-versions>
+	</volume-check>
+	<choices-outline>
+		<line choice="default">
+			<line choice="dev.neoshield.pkg"/>
+		</line>
+	</choices-outline>
+	<choice id="default"/>
+	<choice id="dev.neoshield.pkg" visible="false">
+		<pkg-ref id="dev.neoshield.pkg"/>
+	</choice>
+	<pkg-ref id="dev.neoshield.pkg" version="__VERSION__">neo-component.pkg</pkg-ref>
+</installer-gui-script>

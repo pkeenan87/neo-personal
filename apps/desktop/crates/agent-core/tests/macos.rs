@@ -4,7 +4,7 @@ use common::{lists, lists_macos, proc, snap, t0};
 use neo_agent_core::detect::{bundle_exe_hints, detect};
 use neo_agent_core::events::{Discovery, EventBody, SignalEvent, TccService, UnwantedReason};
 use neo_agent_core::lists::{PathEnv, valid_log_predicate};
-use neo_agent_core::snapshot::{AppBundle, ExeFacts, LogChunk, ProcessInfo, TccRow, UnifiedLogRecord};
+use neo_agent_core::snapshot::{AppBundle, ExeFacts, LogChunk, ProcessInfo, TccRow, TccSnapshot, UnifiedLogRecord};
 use neo_agent_core::state::SeenState;
 use neo_agent_core::warn::{ExpectedTool, WarningKind, decide, decide_with_lists};
 use time::Duration;
@@ -327,11 +327,17 @@ fn tcc_through_detect_uses_snapshot_and_none_is_inert() {
         auth_value: v,
     };
     let mut s = snap();
-    s.tcc = Some(vec![row("com.a.b", 0)]);
+    s.tcc = Some(TccSnapshot {
+        dbs_read: vec!["system".into()],
+        rows: vec![row("com.a.b", 0)],
+    });
     assert!(detect(&l, &mut seen, &s, t0(), true).is_empty());
     s.tcc = None;
     assert!(detect(&l, &mut seen, &s, t0() + Duration::minutes(1), false).is_empty());
-    s.tcc = Some(vec![row("com.a.b", 2)]);
+    s.tcc = Some(TccSnapshot {
+        dbs_read: vec!["system".into()],
+        rows: vec![row("com.a.b", 2)],
+    });
     let evs = detect(&l, &mut seen, &s, t0() + Duration::minutes(2), false);
     assert!(matches!(
         &evs[0].body,
@@ -347,9 +353,9 @@ fn tcc_grant_warning_rules() {
     let l = lists_macos();
     let grant = |app: &str, id: Option<&str>| SignalEvent::tcc_grant(t0(), app, id, TccService::Accessibility);
     let any = grant("AnyDesk", Some("com.philandro.anydesk"));
-    assert_eq!(decide_with_lists(&any, &[], &l), Some(WarningKind::Session));
+    assert_eq!(decide_with_lists(&any, &[], &l), Some(WarningKind::Permission));
     let case = grant("AnyDesk", Some("COM.Philandro.AnyDesk"));
-    assert_eq!(decide_with_lists(&case, &[], &l), Some(WarningKind::Session));
+    assert_eq!(decide_with_lists(&case, &[], &l), Some(WarningKind::Permission));
     // Expected on this device: no window.
     let expected = vec![ExpectedTool {
         tool_id: "anydesk".into(),
@@ -360,7 +366,7 @@ fn tcc_grant_warning_rules() {
         tool_id: "teamviewer".into(),
         peer_ids: vec![],
     }];
-    assert_eq!(decide_with_lists(&any, &other, &l), Some(WarningKind::Session));
+    assert_eq!(decide_with_lists(&any, &other, &l), Some(WarningKind::Permission));
     // Other apps and path clients: no local warning, even for Full Disk Access.
     assert_eq!(decide_with_lists(&grant("Zoom", Some("us.zoom.xos")), &[], &l), None);
     assert_eq!(decide_with_lists(&grant("helper", None), &[], &l), None);

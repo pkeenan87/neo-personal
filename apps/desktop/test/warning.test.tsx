@@ -42,4 +42,31 @@ describe("WarningView", () => {
     render(<WarningView warning={{ ...session, ownerName: "", ownerTold: true }} shell={fakeShell()} />);
     expect(screen.getByText("Neo let the household owner know.")).toBeInTheDocument();
   });
+
+  describe("permission grants (macOS)", () => {
+    const grant: Warning = { eventId: "e2", kind: "permission", toolName: "AnyDesk", service: "accessibility", severity: "critical", ownerName: "Pat", ownerTold: false };
+
+    it("uses the spec's wording, adapted to the permission", () => {
+      const advice = "If someone on the phone asked you to allow this, it is a scam. Hang up, then open System Settings \u2192 Privacy & Security and turn it off.";
+      for (const [service, what] of [
+        [undefined, "see and control this Mac"],
+        ["screen_recording", "see your screen"],
+        ["accessibility", "control this Mac"],
+        ["full_disk_access", "read all your files"],
+      ] as const) {
+        const { unmount } = render(<WarningView warning={{ ...grant, service }} shell={fakeShell()} />);
+        expect(screen.getByRole("heading")).toHaveTextContent(`AnyDesk can now ${what}.`);
+        expect(screen.getByText(advice)).toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it("has one button that only closes the window", async () => {
+      const shell = fakeShell();
+      render(<WarningView warning={grant} shell={shell} />);
+      expect(screen.getAllByRole("button")).toHaveLength(1);
+      await userEvent.setup().click(screen.getByRole("button", { name: "I understand" }));
+      expect(shell.close).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -1,6 +1,6 @@
 //! Local working state (`seen.json`, `cursors.json`). Never sent anywhere.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 use time::OffsetDateTime;
@@ -54,9 +54,10 @@ pub struct SeenState {
     /// readable TCC snapshot, for the three reported services only.
     #[serde(default)]
     tcc: BTreeMap<String, bool>,
-    /// A readable TCC snapshot has been taken (it was the silent baseline).
+    /// Databases (`"system"`, `"user:<uid>"`) read at least once: each one's first read is a silent
+    /// baseline.
     #[serde(default)]
-    tcc_baselined: bool,
+    tcc_dbs: BTreeSet<String>,
 }
 
 /// Result of recording a tool sighting.
@@ -189,17 +190,32 @@ impl SeenState {
         true
     }
 
-    /// Whether the first readable TCC snapshot has been recorded.
+    /// Whether any readable TCC snapshot has been recorded.
     pub fn tcc_baselined(&self) -> bool {
-        self.tcc_baselined
+        !self.tcc_dbs.is_empty()
     }
 
-    /// Replaces the stored TCC state with `current` and returns the previous one. The first call
-    /// is the baseline (the caller sends nothing for it).
-    pub fn swap_tcc(&mut self, current: BTreeMap<String, bool>) -> (bool, BTreeMap<String, bool>) {
-        let was_baselined = self.tcc_baselined;
-        self.tcc_baselined = true;
-        (was_baselined, std::mem::replace(&mut self.tcc, current))
+    /// Whether `db` has been read before (its first read is a silent baseline).
+    pub fn tcc_db_baselined(&self, db: &str) -> bool {
+        self.tcc_dbs.contains(db)
+    }
+
+    /// Replaces the stored state of the databases in `dbs_read` with `current` (keys start with
+    /// `"<db>\u{1f}"`) and returns their previous entries. Other databases keep their state.
+    pub fn swap_tcc(&mut self, dbs_read: &[String], current: BTreeMap<String, bool>) -> BTreeMap<String, bool> {
+        let mut prev = BTreeMap::new();
+        for db in dbs_read {
+            let prefix = format!("{db}\u{1f}");
+            let keys: Vec<String> = self.tcc.keys().filter(|k| k.starts_with(&prefix)).cloned().collect();
+            for k in keys {
+                if let Some(v) = self.tcc.remove(&k) {
+                    prev.insert(k, v);
+                }
+            }
+            self.tcc_dbs.insert(db.clone());
+        }
+        self.tcc.extend(current);
+        prev
     }
 
     pub fn tool_count(&self) -> usize {

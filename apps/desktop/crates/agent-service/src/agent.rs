@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 
 use serde_json::{Value, json};
 use time::OffsetDateTime;
@@ -40,6 +41,12 @@ const HEARTBEAT_RETRY_SECS: i64 = 300;
 /// Warnings remembered so the owner-told update can reach an open window.
 const MAX_REMEMBERED_WARNINGS: usize = 50;
 const DEFAULT_OWNER: &str = "the household owner";
+/// While Full Disk Access is missing, it is re-probed this often (the tray can ask sooner).
+const FDA_REPROBE_SECS: i64 = 300;
+/// The daemon exits for a relaunch at most this often (only the tray's "Done" button asks for it).
+const FDA_RELAUNCH_MIN_SECS: i64 = 60;
+/// The relaunch waits this long so the reply to the tray is written first.
+const RELAUNCH_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
 pub trait Clock: Send + Sync {
     fn now(&self) -> OffsetDateTime;
@@ -103,6 +110,8 @@ struct Warning {
     severity: &'static str,
     owner_name: String,
     owner_told: bool,
+    /// `permission` warnings: which permission (`screen_recording`, `accessibility`, `full_disk_access`).
+    service: Option<&'static str>,
 }
 
 impl Warning {
@@ -119,6 +128,9 @@ impl Warning {
         if let Some(p) = &self.peer_id {
             v["peerId"] = json!(p);
         }
+        if let Some(svc) = self.service {
+            v["service"] = json!(svc);
+        }
         v
     }
 }
@@ -133,6 +145,10 @@ struct Inner {
     sched: Schedule,
     sign_in: Option<SignIn>,
     warned: HashMap<String, Warning>,
+    /// macOS: whether the daemon can read the TCC database; `None` = not probed yet or not macOS.
+    fda: Option<bool>,
+    /// Unix seconds of the last Full Disk Access probe.
+    fda_probed_at: i64,
 }
 
 pub struct Agent {
@@ -140,6 +156,8 @@ pub struct Agent {
     dir: DataDir,
     hub: Hub,
     inner: Mutex<Inner>,
+    /// macOS: set when the daemon should exit so that launchd relaunches it (see `probe_permissions`).
+    relaunch: Mutex<Option<Instant>>,
 }
 
 fn builtin_lists() -> DetectionLists {
@@ -159,6 +177,15 @@ fn map_api_error(e: &ApiError) -> Value {
         ApiError::Http { .. } | ApiError::InsufficientScope | ApiError::Decode(_) => {
             error_response("server_error", "Neo couldn't complete that. Try again in a moment.")
         }
+    }
+}
+
+/// The name the sign-in page shows for this program.
+fn client_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "Neo for Mac"
+    } else {
+        "Neo for Windows"
     }
 }
 
@@ -191,12 +218,15 @@ impl Agent {
             sched: Schedule::default(),
             sign_in: None,
             warned: HashMap::new(),
+            fda: None,
+            fda_probed_at: 0,
         };
         Agent {
             deps,
             dir,
             hub: Hub::default(),
             inner: Mutex::new(inner),
+            relaunch: Mutex::new(None),
         }
     }
 
@@ -237,6 +267,7 @@ impl Agent {
     // ---- status -----------------------------------------------------------------------------
 
     pub fn status(&self) -> Value {
+        let full_disk_access = self.full_disk_access_known();
         let g = self.lock();
         let state = if g.creds.is_some() {
             "enrolled"
@@ -257,7 +288,84 @@ impl Agent {
             "lastCheckIn": g.meta.last_heartbeat.and_then(iso),
             "lastWarningAt": g.meta.last_warning.and_then(iso),
             "updateAvailable": g.meta.update_available,
+            "platform": self.deps.probe.platform(),
+            "fullDiskAccess": full_disk_access,
         }))
+    }
+
+    /// The cached Full Disk Access state, probing once if it was never probed. `None` off macOS.
+    fn full_disk_access_known(&self) -> Option<bool> {
+        let cached = self.lock().fda;
+        match cached {
+            Some(v) => Some(v),
+            None => self.refresh_fda(self.deps.clock.now().unix_timestamp(), true),
+        }
+    }
+
+    /// Probes Full Disk Access and returns the state. Always when `force` (the tray's Done button);
+    /// otherwise on every call (the probe is one `open`) unless it is known to be missing, which is
+    /// re-probed only every [`FDA_REPROBE_SECS`]. A change is pushed to the tray.
+    fn refresh_fda(&self, ts: i64, force: bool) -> Option<bool> {
+        {
+            let g = self.lock();
+            if !force && g.fda == Some(false) && ts - g.fda_probed_at < FDA_REPROBE_SECS {
+                return g.fda;
+            }
+        }
+        let now = self.deps.probe.full_disk_access();
+        let changed = {
+            let mut g = self.lock();
+            g.fda_probed_at = ts;
+            let changed = g.fda != now && g.fda.is_some();
+            g.fda = now;
+            changed
+        };
+        if changed {
+            log::info!("full disk access is now {now:?}");
+            self.status_changed();
+        }
+        now
+    }
+
+    /// `probe_permissions`: look at Full Disk Access now. A grant only becomes visible to a process
+    /// started after it, so the first failed probe makes the daemon exit once for launchd to
+    /// relaunch it (KeepAlive); the tray asks again after a moment.
+    fn probe_permissions(&self) -> Value {
+        let ts = self.deps.clock.now().unix_timestamp();
+        match self.refresh_fda(ts, true) {
+            Some(false) => {
+                let restarting = {
+                    let mut g = self.lock();
+                    let allowed = g.meta.fda_relaunch_at.is_none_or(|t| ts - t >= FDA_RELAUNCH_MIN_SECS);
+                    if allowed {
+                        g.meta.fda_relaunch_at = Some(ts);
+                        self.save_meta(&g);
+                    }
+                    allowed
+                };
+                if restarting {
+                    log::info!("full disk access is not visible; restarting once to pick up a new grant");
+                    *self.relaunch.lock().unwrap_or_else(|e| e.into_inner()) = Some(Instant::now() + RELAUNCH_DELAY);
+                }
+                ok_response(json!({ "fullDiskAccess": false, "restarting": restarting }))
+            }
+            Some(true) => {
+                let mut g = self.lock();
+                if g.meta.fda_relaunch_at.take().is_some() {
+                    self.save_meta(&g);
+                }
+                ok_response(json!({ "fullDiskAccess": true, "restarting": false }))
+            }
+            None => ok_response(json!({ "fullDiskAccess": null, "restarting": false })),
+        }
+    }
+
+    /// Whether the service loop should end now so that launchd relaunches the daemon.
+    pub fn relaunch_due(&self) -> bool {
+        self.relaunch
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_some_and(|at| Instant::now() >= at)
     }
 
     fn status_changed(&self) {
@@ -278,6 +386,7 @@ impl Agent {
             Request::SelfEnrollPoll => self.self_enroll_poll(),
             Request::CheckUrl { url } => self.check_url(&url),
             Request::Unenroll => self.unenroll(),
+            Request::ProbePermissions => self.probe_permissions(),
         }
     }
 
@@ -373,7 +482,7 @@ impl Agent {
         let name = name.unwrap_or_else(|| self.deps.probe.computer_name());
         let result = self
             .client(&base, None)
-            .and_then(|c| c.device_flow_start("Neo for Windows", &name, config::VERSION));
+            .and_then(|c| c.device_flow_start(client_label(), &name, config::VERSION));
         match result {
             Ok(s) => {
                 self.lock().sign_in = Some(SignIn {
@@ -640,6 +749,7 @@ impl Agent {
         if slow {
             snap.uninstall_entries = probe.uninstall_entries();
             snap.services = probe.services();
+            snap.app_bundles = probe.app_bundles();
         }
         if fast {
             let history = if discovery { History::Skip } else { History::Read };
@@ -681,6 +791,18 @@ impl Agent {
                     }
                 }
             }
+            // macOS: the unified log (the same 30-second cadence) and the TCC database. Both are
+            // empty on Windows. Overlapping `log show` windows are harmless: a session is one event
+            // per tool and peer per 30 minutes.
+            let mut predicates: Vec<String> = lists.unifiedlog_targets().into_iter().map(|t| t.predicate).collect();
+            predicates.sort();
+            predicates.dedup();
+            if !predicates.is_empty() {
+                snap.unified_log_records = probe.unified_log(&predicates);
+            }
+            if self.refresh_fda(now.unix_timestamp(), false) == Some(true) {
+                snap.tcc = probe.tcc();
+            }
         }
         if slow {
             let hints: Vec<ExeHint> = {
@@ -690,6 +812,14 @@ impl Agent {
             let hints: Vec<ExeHint> = hints.into_iter().take(MAX_EXE_HINTS_PER_SCAN).collect();
             if !hints.is_empty() {
                 snap.exe_facts = probe.exe_facts(&hints);
+            }
+            let bundles: Vec<String> = {
+                let g = self.lock();
+                detect::bundle_exe_hints(&g.seen, &snap.app_bundles)
+            };
+            let bundles: Vec<String> = bundles.into_iter().take(MAX_EXE_HINTS_PER_SCAN).collect();
+            if !bundles.is_empty() {
+                snap.exe_facts.extend(probe.bundle_exe_facts(&bundles));
             }
         }
 
@@ -727,6 +857,7 @@ impl Agent {
     }
 
     fn warning_for(&self, e: &SignalEvent, kind: WarningKind, lists: &CompiledLists, meta: &Meta, expected: &[ExpectedTool]) -> Warning {
+        let mut service = None;
         let (tool_name, peer_id, severity) = match &e.body {
             EventBody::RemoteAccessTool { name, .. } => (name.clone(), None, "high"),
             EventBody::RemoteAccessSession { tool_id, peer_id, .. } => {
@@ -738,7 +869,10 @@ impl Agent {
                 (lists.tool_name(tool_id).unwrap_or(tool_id).to_string(), peer_id.clone(), sev)
             }
             EventBody::UnwantedSoftware { name, .. } => (name.clone(), None, "medium"),
-            EventBody::TccGrant { app, .. } => (app.clone(), None, "critical"),
+            EventBody::TccGrant { app, service: svc, .. } => {
+                service = Some(svc.as_str());
+                (app.clone(), None, "critical")
+            }
         };
         Warning {
             event_id: e.id.clone(),
@@ -748,6 +882,7 @@ impl Agent {
             severity,
             owner_name: meta.owner_name.clone().unwrap_or_else(|| DEFAULT_OWNER.to_string()),
             owner_told: false,
+            service,
         }
     }
 
@@ -756,8 +891,8 @@ impl Agent {
     fn dispatch(&self, w: &Warning) {
         let delivered = self.hub.broadcast(&w.push());
         log::info!("warning {:?} for {} shown to {delivered} subscriber(s)", w.kind, w.tool_name);
-        if delivered == 0 && matches!(w.kind, WarningKind::Session | WarningKind::Tool) {
-            let (title, body) = fallback_text(w.kind, &w.tool_name);
+        if delivered == 0 && matches!(w.kind, WarningKind::Session | WarningKind::Tool | WarningKind::Permission) {
+            let (title, body) = fallback_text(w.kind, &w.tool_name, w.service);
             self.deps.notifier.fallback_warning(&title, &body);
         }
     }

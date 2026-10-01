@@ -88,6 +88,38 @@ pub fn windows_agent(data_dir: &Path) -> Arc<Agent> {
     ))
 }
 
+/// The real macOS agent: libproc/Security probe, the root-only `device.json`, the console-user
+/// notifier and `pkgutil`/`installer` updates.
+#[cfg(target_os = "macos")]
+pub fn macos_agent(data_dir: &Path) -> Arc<Agent> {
+    use crate::macos::{installer::PkgInstaller, notify::ConsoleNotifier, probe::MacProbe};
+    use crate::secrets::DEVICE_FILE_MACOS;
+
+    let dir = DataDir::new(data_dir);
+    Arc::new(Agent::new(
+        Deps {
+            probe: Box::new(MacProbe::new(data_dir)),
+            // No DPAPI here: the protection is the root-only directory and the 0600 file.
+            secrets: Box::new(FileSecretStore::named(dir.clone(), PlainProtector, DEVICE_FILE_MACOS)),
+            notifier: Box::new(ConsoleNotifier),
+            clock: Box::new(SystemClock),
+            transport: transport(),
+            updater: Box::new(StandardUpdater {
+                manifest_url: config::UPDATE_URL.to_string(),
+                pubkey: config::UPDATE_PUBKEY.map(str::to_string),
+                platform: config::UPDATE_PLATFORM.to_string(),
+                stage_dir: dir.updates_dir(),
+                allow_unsigned: config::ALLOW_UNSIGNED_UPDATE,
+                downloader: UreqDownloader::default(),
+                installer: PkgInstaller {
+                    log_path: dir.logs_dir().join("pkg-update.log"),
+                },
+            }),
+        },
+        dir,
+    ))
+}
+
 /// The default Windows data directory (`%ProgramData%\Neo`).
 pub fn windows_data_dir() -> PathBuf {
     match std::env::var_os("ProgramData") {

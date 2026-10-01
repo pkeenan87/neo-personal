@@ -112,7 +112,7 @@ jobs:
       - name: Test before shipping
         shell: bash
         run: |
-          pnpm turbo run typecheck lint test --filter=@neo/desktop...
+          pnpm turbo run typecheck lint test build --filter=@neo/desktop...
           cd apps/desktop && cargo test --locked --workspace
 
       # Build the programs first, unbundled, so they can be signed before they go into the MSI.
@@ -218,20 +218,27 @@ jobs:
 
       - name: Publish the release and the update manifest
         shell: bash
+        working-directory: apps/desktop
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/release"
-          gh release create "$TAG" \
-            --title "Neo for Windows ${TAG#desktop-v}" \
+          # The macOS workflow (desktop-release-macos.yml) may have created this release already;
+          # either one creates it.
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
+            --title "Neo ${TAG#desktop-v}" \
             --generate-notes \
-            --latest=false \
-            "$out/$MSI_NAME" "$out/$MSI_NAME.sig" "$out/latest.json"
-          # The agent reads a fixed address, so the manifest is also kept on a rolling pre-release
+            --latest=false ||
+            gh release view "$TAG" >/dev/null
+          gh release upload "$TAG" "$out/$MSI_NAME" "$out/$MSI_NAME.sig" --clobber
+          # The agent reads a fixed address, so the manifest is kept on a rolling pre-release
           # (`releases/latest` would point at whichever release, extension or desktop, is newest).
-          gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest \
-            --prerelease --title "Desktop update manifest" \
-            --notes "Rolling release holding latest.json, which installed agents check daily. Do not delete."
-          gh release upload desktop-latest "$out/latest.json" --clobber
+          # One manifest carries every platform: this merges the Windows entry into whatever the
+          # macOS workflow published (and re-checks, since the two can run at the same time).
+          ci/publish-manifest.sh --platform windows-x86_64 --version "$VERSION" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${MSI_NAME}" \
+            --sig-file "$out/$MSI_NAME.sig" --notes "Neo desktop agent ${VERSION}" --dir "$RUNNER_TEMP/manifest"
+          gh release upload "$TAG" "$RUNNER_TEMP/manifest/latest.json" --clobber

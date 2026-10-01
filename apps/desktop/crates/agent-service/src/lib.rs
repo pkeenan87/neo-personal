@@ -1,9 +1,10 @@
-//! `neo-agent`: the Windows service of the Neo desktop agent (`_specs/desktop-agent.md`).
+//! `neo-agent`: the Windows service and macOS daemon of the Neo desktop agent
+//! (`_specs/desktop-agent.md`, `_specs/desktop-agent-macos.md`).
 //!
 //! Everything OS-independent lives here and is tested on Linux: the pipe protocol, scheduling,
 //! scanning, local state, warnings, enrollment and updates. The Windows-only code is in
-//! [`windows`] behind `cfg(windows)` and only turns the OS into the traits in [`probe`],
-//! [`secrets`] and [`update`].
+//! [`windows`] behind `cfg(windows)` and the macOS code in [`macos`]; both only turn the OS into
+//! the traits in [`probe`], [`secrets`] and [`update`].
 
 pub mod agent;
 #[cfg(feature = "http")]
@@ -26,5 +27,7 @@ pub mod signer_cache;
 pub mod text;
 pub mod update;
 
+#[cfg(unix)]
+pub mod macos;
 #[cfg(windows)]
 pub mod windows;

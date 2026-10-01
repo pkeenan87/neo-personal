@@ -56,6 +56,15 @@ pub enum TccService {
 }
 
 impl TccService {
+    /// The wire name (`screen_recording`, `accessibility`, `full_disk_access`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TccService::ScreenRecording => "screen_recording",
+            TccService::Accessibility => "accessibility",
+            TccService::FullDiskAccess => "full_disk_access",
+        }
+    }
+
     /// Maps a raw TCC `service` string; `None` for every service the agent does not report.
     pub fn from_tcc(service: &str) -> Option<Self> {
         match service {

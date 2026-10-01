@@ -180,6 +180,10 @@ pub trait Installer {
     /// Starts `msiexec /i <msi> /qn` detached. Windows Installer stops this service, replaces the
     /// files and starts the new one.
     fn install(&self, msi: &Path) -> Result<(), UpdateError>;
+    /// File extension of the staged installer (`msi`; `pkg` on macOS, where `installer` insists on it).
+    fn extension(&self) -> &'static str {
+        "msi"
+    }
 }
 
 /// Downloads, verifies and starts the install. Returns the staged MSI path. Nothing is written to
@@ -199,7 +203,7 @@ pub fn apply<D: Downloader, I: Installer>(
     verify_signature(pubkey_b64, &update.signature, &bytes)?;
     std::fs::create_dir_all(stage_dir).map_err(|e| UpdateError::Download(e.to_string()))?;
     let version: String = update.version.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '.').collect();
-    let path = stage_dir.join(format!("neo-{version}.msi"));
+    let path = stage_dir.join(format!("neo-{version}.{}", installer.extension()));
     std::fs::write(&path, &bytes).map_err(|e| UpdateError::Download(e.to_string()))?;
     let checked = signer_policy(
         installer.own_signer().as_deref(),

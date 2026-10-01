@@ -1,6 +1,6 @@
 [package]
 name = "neo-agent"
-description = "Neo Protection: the Windows service of the Neo desktop agent"
+description = "Neo Protection: the Windows service and macOS daemon of the Neo desktop agent"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -32,6 +32,19 @@ sha2.workspace = true
 thiserror.workspace = true
 time = { workspace = true, features = ["macros"] }
 ureq = { workspace = true, optional = true }
+
+# macOS code that is plain files, SQLite and plists also builds (and is tested) on Linux, so these
+# are `cfg(unix)`; Windows never compiles them.
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.189"
+plist = { version = "=1.10.1", default-features = false }
+rusqlite = { version = "=0.40.2", features = ["bundled"] }
+
+# Only the Security framework glue needs a Mac.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "=0.10.1"
+core-foundation-sys = "=0.8.7"
+security-framework-sys = "=2.17.0"
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "=0.8.1"

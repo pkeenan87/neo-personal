@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Sets `run=true|false` in $GITHUB_OUTPUT: whether this change touches anything the desktop jobs
 # care about (the Rust and UI sources, the list data the agent embeds, or the CI workflow itself).
-# Both desktop jobs always start (the "All checks passed" aggregator treats a skipped job as a
+# All the desktop jobs always start (the "All checks passed" aggregator treats a skipped job as a
 # failure), then skip their real work when this says false.
 #
 # Needs a checkout with history (fetch-depth: 0). Env: EVENT (github.event_name),
@@ -9,7 +9,7 @@
 set -euo pipefail
 
 out="${GITHUB_OUTPUT:-/dev/stdout}"
-paths='^(apps/desktop/|packages/tools/src/data/|\.github/workflows/ci\.yml$|\.github/workflows/desktop-release\.yml$)'
+paths='^(apps/desktop/|packages/tools/src/data/|\.github/workflows/ci\.yml$|\.github/workflows/desktop-release(-macos)?\.yml$)'
 
 if [[ "${EVENT:-}" == "pull_request" ]]; then
   base="$(git merge-base "${BASE_SHA}" HEAD 2>/dev/null || true)"

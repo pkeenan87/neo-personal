@@ -25,12 +25,16 @@ export function createTauriClient(): AgentClient {
     selfEnrollPoll: () => request({ op: "self_enroll_poll" }),
     checkUrl: (url) => request({ op: "check_url", url }),
     unenroll: () => request({ op: "unenroll" }),
+    probePermissions: () => request({ op: "probe_permissions" }),
   };
 }
 
 export const tauriShell: Shell = {
   openUrl: (url) => invoke("open_url", { url }),
   close: () => invoke("close_self"),
+  openFullDiskAccess: () => invoke("open_full_disk_access"),
+  showDaemonInFinder: () => invoke("reveal_daemon"),
+  uninstallMac: () => invoke("uninstall_mac"),
 };
 
 /** The warning a window was opened for (kept by the Rust side, keyed by event id). */

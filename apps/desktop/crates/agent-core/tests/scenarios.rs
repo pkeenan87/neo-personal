@@ -60,7 +60,7 @@ fn macos_scenarios_warn_only_for_the_remote_access_tool() {
             .filter_map(|e| decide_with_lists(&e, &loaded.scenario.expected_tools, &loaded.lists))
             .collect::<Vec<_>>()
     };
-    assert_eq!(kinds("macos-anydesk-accessibility"), [WarningKind::Tool, WarningKind::Session]);
+    assert_eq!(kinds("macos-anydesk-accessibility"), [WarningKind::Tool, WarningKind::Permission]);
     assert!(kinds("macos-baseline-grants").is_empty());
     assert!(kinds("macos-unknown-screen-recording").is_empty());
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { consentText, errorMessage, NEVER_SENT } from "../lib/copy";
 import type { AgentClient, AgentStatus, EnrollPreview, Shell, SignInStart } from "../lib/types";
+import { PermissionsView } from "./PermissionsView";
 
 type Screen =
   | { name: "loading" }
@@ -8,7 +9,8 @@ type Screen =
   | { name: "code" }
   | { name: "consent"; preview: EnrollPreview }
   | { name: "sign-in"; start: SignInStart }
-  | { name: "done"; status: AgentStatus };
+  | { name: "done"; status: AgentStatus }
+  | { name: "permissions" };
 
 interface Props {
   client: AgentClient;
@@ -108,6 +110,9 @@ export function EnrollView({ client, shell }: Props) {
     setScreen({ name: "choice" });
   }
 
+  // macOS: after enrollment, the Full Disk Access step (it has its own page).
+  if (screen.name === "permissions") return <PermissionsView client={client} shell={shell} />;
+
   return (
     <main className="page">
       <h1>Set up Neo</h1>
@@ -194,9 +199,15 @@ export function EnrollView({ client, shell }: Props) {
           <p>
             Protecting <strong>{screen.status.memberName ?? "this computer"}</strong>&apos;s computer for <strong>{screen.status.householdName ?? "your household"}</strong>.
           </p>
-          <button type="button" className="primary" onClick={() => void shell.close()}>
-            Done
-          </button>
+          {screen.status.platform === "macos" && screen.status.fullDiskAccess === false ? (
+            <button type="button" className="primary" onClick={() => setScreen({ name: "permissions" })}>
+              Continue
+            </button>
+          ) : (
+            <button type="button" className="primary" onClick={() => void shell.close()}>
+              Done
+            </button>
+          )}
         </section>
       )}
     </main>

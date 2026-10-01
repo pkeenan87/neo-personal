@@ -12,15 +12,20 @@
             "/Users/gran"
           ]
         },
-        "tcc": [
-          {
-            "db": "system",
-            "service": "kTCCServiceScreenCapture",
-            "client": "us.zoom.xos",
-            "client_type": 0,
-            "auth_value": 2
-          }
-        ]
+        "tcc": {
+          "dbs_read": [
+            "system"
+          ],
+          "rows": [
+            {
+              "db": "system",
+              "service": "kTCCServiceScreenCapture",
+              "client": "us.zoom.xos",
+              "client_type": 0,
+              "auth_value": 2
+            }
+          ]
+        }
       },
       "expect": []
     },
@@ -32,15 +37,20 @@
             "/Users/gran"
           ]
         },
-        "tcc": [
-          {
-            "db": "system",
-            "service": "kTCCServiceScreenCapture",
-            "client": "us.zoom.xos",
-            "client_type": 0,
-            "auth_value": 2
-          }
-        ]
+        "tcc": {
+          "dbs_read": [
+            "system"
+          ],
+          "rows": [
+            {
+              "db": "system",
+              "service": "kTCCServiceScreenCapture",
+              "client": "us.zoom.xos",
+              "client_type": 0,
+              "auth_value": 2
+            }
+          ]
+        }
       },
       "expect": []
     }

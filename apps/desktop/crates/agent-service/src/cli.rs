@@ -1,11 +1,11 @@
 //! Command line: the service itself, plus `--console`, `--unenroll` (the MSI uninstall custom
-//! action) and the development flags.
+//! action and macOS `uninstall.sh`) and the development flags.
 
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    /// No flags: started by the Service Control Manager.
+    /// No flags: started by the Service Control Manager (Windows) or launchd (macOS).
     Service,
     /// Run in the foreground (debugging).
     Console {
@@ -63,7 +63,7 @@ pub fn parse<I: IntoIterator<Item = String>>(args: I) -> Result<Command, String>
 
 pub const USAGE: &str = "neo-agent (Neo Protection service)\n\
     \n\
-    Started by the Service Control Manager with no arguments.\n\
+    Started by the Service Control Manager (Windows) or launchd (macOS) with no arguments.\n\
     \n\
     Options:\n\
     \x20 --console              run in the foreground (debugging)\n\

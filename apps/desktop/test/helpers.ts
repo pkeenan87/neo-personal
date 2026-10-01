@@ -15,6 +15,8 @@ export function status(over: Partial<AgentStatus> = {}): AgentStatus {
     lastCheckIn: null,
     lastWarningAt: null,
     updateAvailable: null,
+    platform: "windows",
+    fullDiskAccess: null,
     ...over,
   };
 }
@@ -36,10 +38,17 @@ export function fakeClient(over: Partial<AgentClient> = {}): AgentClient {
     selfEnrollPoll: vi.fn(async () => ({ ok: true as const, status: "pending" as const, interval: 1 })),
     checkUrl: vi.fn(async () => ({ ok: true as const, rating: "no_known_problems" as const, domain: "example.com", reasons: [], checkedAt: "2026-10-01T00:00:00Z" })),
     unenroll: vi.fn(async () => ({ ok: true as const })),
+    probePermissions: vi.fn(async () => ({ ok: true as const, fullDiskAccess: true, restarting: false })),
     ...over,
   };
 }
 
-export function fakeShell(): Shell & { openUrl: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } {
-  return { openUrl: vi.fn(async () => {}), close: vi.fn(async () => {}) };
+export function fakeShell() {
+  return {
+    openUrl: vi.fn(async () => {}),
+    close: vi.fn(async () => {}),
+    openFullDiskAccess: vi.fn(async () => {}),
+    showDaemonInFinder: vi.fn(async () => {}),
+    uninstallMac: vi.fn(async () => {}),
+  } satisfies Shell;
 }
