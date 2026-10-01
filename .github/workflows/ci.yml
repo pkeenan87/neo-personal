@@ -454,41 +454,6 @@ jobs:
 
   # Single required status check for branch protection. Runs even when an
   # upstream job fails or is cancelled, and fails unless every job succeeded.
-  # TEMPORARY (spec desktop-agent-macos.md "Verify before implementation"); removed before merge.
-  macos-probe:
-    name: macOS probe (temporary)
-    runs-on: macos-15
-    timeout-minutes: 15
-    permissions: {}
-    steps:
-      - name: Probe TCC, pkgutil and unified log
-        run: |
-          set +e
-          sw_vers
-          echo "== system TCC.db schema (sudo)"
-          sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" ".schema access"; echo "exit=$?"
-          echo "== system TCC.db immutable read (sudo)"
-          sudo sqlite3 "file:/Library/Application Support/com.apple.TCC/TCC.db?mode=ro&immutable=1" "select service, client_type, auth_value, count(*) from access group by 1,2,3"; echo "exit=$?"
-          echo "== user TCC.db schema"
-          sqlite3 "$HOME/Library/Application Support/com.apple.TCC/TCC.db" ".schema access"; echo "exit=$?"
-          echo "== pkgutil --check-signature on a Developer ID Installer signed pkg"
-          for v in 3.12.10 3.13.0; do
-            curl -fsSLo /tmp/py.pkg "https://www.python.org/ftp/python/$v/python-$v-macos11.pkg" && break
-          done
-          pkgutil --check-signature /tmp/py.pkg; echo "exit=$?"
-          echo "== unsigned pkg"
-          mkdir -p /tmp/root/tmp && echo hi > /tmp/root/tmp/neo-probe.txt
-          pkgbuild --root /tmp/root --identifier dev.neoshield.probe --version 1 /tmp/unsigned.pkg >/dev/null
-          pkgutil --check-signature /tmp/unsigned.pkg; echo "exit=$?"
-          echo "== unified log ndjson"
-          log show --last 2m --style ndjson --predicate 'process == "screensharingd"' | head -c 600; echo; echo "exit=$?"
-          echo "== codesign of a third-party app"
-          ls /Applications | head -20
-          for a in "/Applications/Google Chrome.app" "/Applications/Firefox.app" "/Applications/Xcode.app"; do
-            [ -d "$a" ] && codesign -dv --verbose=4 "$a" 2>&1 | grep -E "Identifier|TeamIdentifier|Authority" | head -5
-          done
-          rustc --version; rustup target list --installed
-
   all-checks-passed:
     name: All checks passed
     runs-on: ubuntu-latest

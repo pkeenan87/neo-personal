@@ -108,7 +108,7 @@ This step adds:
 - **First-run window**, after enrollment:
   - A step titled "Let Neo check app permissions". It says plainly why: scammers make you allow screen recording or control of your Mac.
   - The person is guided:
-    1. **Open System Settings** opens the Full Disk Access pane through its deep link (to verify on macOS 26).
+    1. **Open System Settings** opens the Full Disk Access pane through its deep link (see "Verified before implementation").
     2. Turn on **Neo Protection**. If it is not listed, press **+** and choose `Neo Protection` (a Finder window opened by the tray shows it).
     3. The window checks for success by asking the daemon to probe, and shows "Done" when it can read the database.
   - **Skip for now** is allowed.
@@ -292,13 +292,24 @@ This step adds:
 - [ ] Only `verified: true` macOS session evidence ships, and `unifiedlog` predicates pass the restricted-form test.
 - [ ] Contracts, privacy page, `.env.example`, the Add-a-device link and `docs/desktop-agent.md` are updated.
 
-## Verify before implementation (docs or a CI probe, not memory)
+## Verified before implementation (2026-10-01)
 
-- How Full Disk Access attaches to a root LaunchDaemon: whether it attaches to the bundle's code identity, or whether a bare executable path works. This decides the bundle layout and how hard the grant is for a relative.
-- Whether GitHub `macos-15` runners can read `TCC.db` under `sudo`.
-- `pkgutil --check-signature` output, for the Team ID check.
-- `tauri build --target universal-apple-darwin` combined with a separately built `lipo` daemon in one pkg.
-- The Full Disk Access deep-link URL on macOS 26.
+- **Full Disk Access attaches to a signed `.app` bundle.**
+  - The Full Disk Access UI refuses a bare daemon executable. Apple DTS's supported layout for an unmanaged Mac is a daemon inside its own app bundle, which the person adds with **+** (developer forums thread 804548).
+  - `Neo Protection.app`, with its own `CFBundleIdentifier` (`dev.neoshield.agent`), is that layout. The grant is keyed by bundle id (`client_type` 0) and code requirement.
+  - A grant becomes visible on the next process launch. After the tray's "Done" probe fails once, the daemon exits so that launchd relaunches it (`KeepAlive`), then probes again.
+  - No API tells a daemon whether it has Full Disk Access. Probing `TCC.db` for `EPERM` is the method.
+- **Deep link:** `x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles` on macOS 13+, falling back to `x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles`. macOS 26 is unconfirmed until it is tried on a real Mac.
+- **A GitHub `macos-15` runner (15.7.9) can read both TCC databases under `sudo`,** including `file:…?mode=ro&immutable=1`.
+  - The `access` schema columns are: `service`, `client`, `client_type`, `auth_value`, `auth_reason`, `auth_version`, `csreq`, `policy_id`, `indirect_object_identifier_type`, `indirect_object_identifier`, `indirect_object_code_identity`, `flags`, `last_modified`, `pid`, `pid_version`, `boot_uuid`, `last_reminded`. Primary key: `(service, client, client_type, indirect_object_identifier)`.
+  - The system and user databases have the same schema. Accessibility, ScreenCapture and SystemPolicyAllFiles rows are in the system database.
+  - The CI job therefore runs the real reader against the runner's database. The fixture schema is recorded as `15.7.9`.
+- **`pkgutil --check-signature`:**
+  - A signed pkg prints `Status: signed by a developer certificate issued by Apple for distribution`, `Notarization: trusted by the Apple notary service`, and certificate 1 as `Developer ID Installer: <Name> (<TEAMID>)`. The Team ID is parsed from that line, and the notarization line is required.
+  - An unsigned pkg prints `Status: no signature` and exits 1.
+- **Signer format:** `codesign` reports `TeamIdentifier=<id>` and `Authority=Developer ID Application: <Name> (<TEAMID>)`. The Security framework returns the same Team ID.
+- **Unified log:** `log show --style ndjson` works. With no entries it prints `{"count":0,"finished":1}`.
+- **Rust:** the runner's toolchain has only `aarch64-apple-darwin`. The universal build adds `x86_64-apple-darwin` with `rustup target add`.
 
 ## Open Questions
 

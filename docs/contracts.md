@@ -776,3 +776,30 @@ type SessionEvidence =
   - A warning may be pushed twice with the same `eventId`: first `ownerTold: false`, then `ownerTold: true` once the server accepted it at `medium`+.
   - Error codes: `request_too_large`, `invalid_json`, `invalid_request`, `unknown_op`, `not_enrolled`, `already_enrolled`, `invalid_code`, `invalid_server_url`, `server_unreachable`, `rate_limited`, `device_limit`, `disconnected`, `no_sign_in`, `storage_failed`, `server_error` (tray adds `agent_unavailable`). At most 32 connections; an oversize request is answered once and the connection closed.
 - The MSI installs `neo-agent.exe` through its own WiX component (not Tauri `externalBin`); build-time `TAURI_NEO_AGENT_EXE` points at it. Build-time `NEO_DESKTOP_UPDATE_PUBKEY` (unset = updates off) and CI-only `NEO_ALLOW_UNSIGNED_UPDATE`.
+
+## Desktop agent, macOS (spec `_specs/desktop-agent-macos.md`)
+
+`@neo/tools`:
+- `RemoteAccessTool.macos` gains `sessionEvidence: SessionEvidence[]` (same union as Windows) and the union gains:
+
+```ts
+| { kind: "unifiedlog"; predicate: string; pattern: string; verified: boolean; checked?: string }
+// predicate is exactly `process == "<name>"` or `subsystem == "<name>"` (name: [A-Za-z0-9._-]{1,64}); pattern follows the shared regex subset
+```
+
+- macOS log paths may use `%Home%` (expanded once per local user); Windows tokens stay as they are.
+- New tool id `apple_screen_sharing` ("Apple Screen Sharing / Remote Management"): no `vendorDomains`, no `installerPatterns`, no Windows signals; macOS session evidence only. Agents never send `remote_access_tool` for it.
+
+`agent-core` (Rust):
+- `snapshot::TccRow { db: String /* "system" | "user:<uid>" */, service: String, client: String, client_type: i64, auth_value: i64 }`; `Snapshot.tcc: Option<Vec<TccRow>>` (None = not readable / no Full Disk Access).
+- `detect` emits `tcc_grant` (`type: "permission"`, `app`, `bundleId?`, `service: "screen_recording" | "accessibility" | "full_disk_access"`) only for transitions to `auth_value == 2` after the first readable TCC snapshot since enrollment; dedupe on `(client, service)`; Neo's own bundle ids ignored. Mapping: `kTCCServiceScreenCapture` → `screen_recording`, `kTCCServiceAccessibility` → `accessibility`, `kTCCServiceSystemPolicyAllFiles` → `full_disk_access`.
+- macOS matching uses `macos.bundleIds` and `macos.teamIds` (Team ID plays the role of the Authenticode publisher).
+
+Agent service (macOS):
+- Daemon bundle `/Library/Application Support/Neo/Neo Protection.app` (`CFBundleIdentifier` `dev.neoshield.agent`), executable `Contents/MacOS/neo-agent`, LaunchDaemon `dev.neoshield.agent` (root, `KeepAlive`). Tray `/Applications/Neo.app`, LaunchAgent `dev.neoshield.tray`. Pkg identifier `dev.neoshield.pkg`.
+- Data dir `/Library/Application Support/Neo/data` (root `0700`, created before contents): `device.json` (`0600`) plus the same state files as Windows.
+- IPC: Unix socket `/var/run/neo-agent.sock` (`0666`, root-owned), the same protocol as the Windows pipe; `status` adds `platform: "windows" | "macos"` and `fullDiskAccess: boolean | null`; new op `probe_permissions` → `{ ok, fullDiskAccess }`.
+- Updates: `latest.json` platform `darwin-universal`; minisign, then `pkgutil --check-signature` must show `Developer ID Installer: … (<TEAMID>)` equal to the daemon's own Team ID and a notarization line; `installer -pkg <pkg> -target /`.
+- Uninstall: `uninstall.sh` in the daemon bundle and the tray's Uninstall item; `/Applications/Neo.app` missing for 10 minutes (build-time override `NEO_TRASH_GRACE_SECS`) → unenroll and remove.
+
+`apps/web`: Add a device links `NEXT_PUBLIC_MAC_AGENT_URL` (optional; unset → "coming soon"); privacy page macOS paragraph.
