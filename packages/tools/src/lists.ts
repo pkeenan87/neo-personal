@@ -3,41 +3,10 @@ import remoteAccessToolsData from "./data/remote-access-tools.json" with { type:
 import pupPublishersData from "./data/pup-publishers.json" with { type: "json" };
 import scamPagePhrasesData from "./data/scam-page-phrases.json" with { type: "json" };
 import skipDomainsData from "./data/skip-domains.json" with { type: "json" };
+import { BRANDS, brandId } from "./brands.js";
+import type { DetectionListsPayload, ListBrand, PupPublisher, RemoteAccessTool, ScamPagePhrase, ScamPhraseKind } from "./listsTypes.js";
 
-/** One remote-access tool's install/session signatures (`_specs/signals.md`, Detection lists). */
-export interface RemoteAccessTool {
-  id: string;
-  name: string;
-  vendorDomains: string[];
-  /** Installer filename regex sources (no flags stored; matched case-insensitively). */
-  installerPatterns: string[];
-  windows: {
-    publishers: string[];
-    displayNamePatterns: string[];
-    serviceNames: string[];
-    processNames: string[];
-  };
-  macos: {
-    bundleIds: string[];
-    teamIds: string[];
-  };
-  /** Process or log markers the desktop agent uses to infer an active session. */
-  sessionHints: string[];
-}
-
-export interface PupPublisher {
-  publisher?: string;
-  sha256?: string;
-  reason: string;
-}
-
-export type ScamPhraseKind = "support_phone_text" | "fake_scan";
-
-export interface ScamPagePhrase {
-  phrase: string;
-  kind: ScamPhraseKind;
-  lang: string;
-}
+export type { DetectionListsPayload, ListBrand, PupPublisher, RemoteAccessTool, ScamPagePhrase, ScamPhraseKind };
 
 export const REMOTE_ACCESS_TOOLS: readonly RemoteAccessTool[] = remoteAccessToolsData.tools as RemoteAccessTool[];
 
@@ -72,14 +41,11 @@ export function findRemoteAccessTool(id: string): RemoteAccessTool | undefined {
   return remoteAccessToolsById.get(id);
 }
 
-export interface DetectionLists {
-  /** First 16 hex chars of the sha256 over the canonical (stable key order) JSON of the four lists. */
-  version: string;
-  remoteAccessTools: readonly RemoteAccessTool[];
-  pupPublishers: readonly PupPublisher[];
-  scamPagePhrases: readonly ScamPagePhrase[];
-  skipDomains: readonly string[];
-}
+/** `BRANDS` shaped for the wire, with a stable `id` (see `brandId`, `_specs/browser-extension.md`). */
+export const BRAND_LIST: readonly ListBrand[] = BRANDS.map(({ name, domains, keywords }) => ({ id: brandId(name), name, domains, keywords }));
+
+/** Kept as an alias so existing imports (`apps/web/lib/signal-types.ts`) are unaffected by the `brands` addition. */
+export type DetectionLists = DetectionListsPayload;
 
 /** Deterministically orders object keys so JSON.stringify output is stable regardless of insertion order. */
 function canonicalize(value: unknown): unknown {
@@ -96,7 +62,7 @@ function canonicalize(value: unknown): unknown {
 
 let cached: DetectionLists | undefined;
 
-/** The four detection lists plus a stable content-hash `version` (16 hex chars). Memoized. */
+/** The five detection lists plus a stable content-hash `version` (16 hex chars). Memoized. */
 export function detectionLists(): DetectionLists {
   if (cached) return cached;
   const canonicalJson = JSON.stringify(
@@ -105,6 +71,7 @@ export function detectionLists(): DetectionLists {
       pupPublishers: PUP_PUBLISHERS,
       scamPagePhrases: SCAM_PAGE_PHRASES,
       skipDomains: SKIP_DOMAINS,
+      brands: BRAND_LIST,
     }),
   );
   const version = createHash("sha256").update(canonicalJson, "utf8").digest("hex").slice(0, 16);
@@ -114,6 +81,7 @@ export function detectionLists(): DetectionLists {
     pupPublishers: PUP_PUBLISHERS,
     scamPagePhrases: SCAM_PAGE_PHRASES,
     skipDomains: SKIP_DOMAINS,
+    brands: BRAND_LIST,
   };
   return cached;
 }

@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Sign in — PayPal</title>
+  </head>
+  <body>
+    <!--
+      Manual-check fixture. `file://` has no real hostname, so opening this file directly cannot
+      exercise the punycode/lookalike host check itself — that needs an actual `xn--` host (for
+      example, serve this page from `xn--pypal-4ve.com`, which decodes to "paypaI.com" using a
+      capital-I/lowercase-l confusable). This fixture is the *page content* half of that check
+      (a password field, styled like a real login): open it under such a host with the unpacked
+      extension loaded to see the lookalike-login warning once the server confirms it.
+
+      `test/lookalike.test.ts` covers the host-matching logic directly against
+      `evaluateLookalike`, without needing a real DNS host.
+    -->
+    <h1>PayPal</h1>
+    <form>
+      <label>Email <input type="email" name="email" /></label>
+      <label>Password <input type="password" name="password" /></label>
+      <button type="submit">Log In</button>
+    </form>
+  </body>
+</html>

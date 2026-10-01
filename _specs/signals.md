@@ -96,7 +96,7 @@ idempotency, correlation, and "what did this device report" debugging through th
 
 | Event | Result | Severity | Alert kind |
 |---|---|---|---|
-| `tech_support_scam` with ≥ 2 indicators, or `support_phone_text` plus any lock | `malicious` `page` verdict | `high` | `scam_page` |
+| `tech_support_scam` hit (`isTechSupportScamHit`: ≥ 1 text indicator — `support_phone_text` or `fake_scan` — and ≥ 2 distinct indicators in total; amended by `_specs/browser-extension.md`) | `malicious` `page` verdict | `high` | `scam_page` |
 | `tech_support_scam` with fewer | recorded, no verdict | — | — |
 | `lookalike_login` | **escalated**: `analyzeUrl("https://<domain>/")` → `malicious` if Safe Browsing, VirusTotal or urlscan flag it, `suspicious` for a lookalike of the named brand on a domain under 30 days old or with a `lookalike_*` heuristic, else dismissed | `high` / `medium` | `dangerous_site` |
 | `dangerous_site` (`safe_browsing_prefix`) | **escalated**: confirmed with `checkSafeBrowsing` on the domain; unconfirmed is dismissed | `high` | `dangerous_site` |

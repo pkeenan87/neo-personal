@@ -11,6 +11,8 @@ import type { Session } from "next-auth";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST as signalsPOST } from "@/app/api/signals/route";
 import { GET as signalsListsGET } from "@/app/api/signals/lists/route";
+import { GET as signalsStatusGET } from "@/app/api/signals/status/route";
+import { POST as checkUrlPOST } from "@/app/api/devices/check-url/route";
 import { memoryCreateDesktopToken, memoryInsertDeviceToken } from "@/lib/server/memory-desktop-tokens";
 import {
   memoryCreateEnrollmentCode,
@@ -304,6 +306,72 @@ describe("device signal routes", () => {
       expires: "2099-01-01T00:00:00Z",
     };
     const res = await signalsPOST(post("/api/signals", { events: [] }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "insufficient_scope" });
+  });
+
+  // _specs/browser-extension.md: GET /api/signals/status needs the same signals:write scope
+  // and is excluded from the generic walk by the same `signals(\/|$)` regex above.
+  it("a monitoring token is not refused on GET /api/signals/status; a full token is", async () => {
+    const { token } = enrollMonitoringDevice();
+    bearer(token);
+    const ok = await signalsStatusGET(new Request(`http://localhost/api/signals/status?ids=${crypto.randomUUID()}`));
+    expect(ok.status).not.toBe(403);
+
+    const minted = memoryCreateDesktopToken({ userId: DEV_SESSION_IDS.userId, tenantId: DEV_SESSION_IDS.tenantId, role: "owner", name: "Omarchy bar" });
+    if ("error" in minted) throw new Error(minted.error);
+    bearer(minted.token);
+    const res = await signalsStatusGET(new Request(`http://localhost/api/signals/status?ids=${crypto.randomUUID()}`));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "insufficient_scope" });
+  });
+});
+
+describe("device on-demand check route", () => {
+  // _specs/browser-extension.md: POST /api/devices/check-url needs scope `url:check` (not the
+  // default `full`); it is excluded from the generic walk by the `devices(\/|$)` regex above,
+  // like every other /api/devices/* route.
+  it("a monitoring token (url:check + device) is not refused", async () => {
+    const { token } = enrollMonitoringDevice();
+    bearer(token);
+    const res = await checkUrlPOST(post("/api/devices/check-url", { url: "https://example.com/" }));
+    expect(res.status).not.toBe(403);
+  });
+
+  it("a device token without url:check gets 403 insufficient_scope", async () => {
+    const { deviceId } = enrollMonitoringDevice();
+    const minted = memoryInsertDeviceToken({
+      userId: DEV_SESSION_IDS.userId,
+      tenantId: DEV_SESSION_IDS.tenantId,
+      role: "owner",
+      name: "Signals only",
+      deviceId,
+      scopes: ["device", "signals:write"],
+    });
+    bearer(minted.token);
+    const res = await checkUrlPOST(post("/api/devices/check-url", { url: "https://example.com/" }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "insufficient_scope" });
+  });
+
+  it("a full-scope token gets 403 insufficient_scope", async () => {
+    const minted = memoryCreateDesktopToken({ userId: DEV_SESSION_IDS.userId, tenantId: DEV_SESSION_IDS.tenantId, role: "owner", name: "Omarchy bar" });
+    if ("error" in minted) throw new Error(minted.error);
+    bearer(minted.token);
+    const res = await checkUrlPOST(post("/api/devices/check-url", { url: "https://example.com/" }));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "insufficient_scope" });
+  });
+
+  it("a browser session gets 403 insufficient_scope (no deviceId)", async () => {
+    authState.session = {
+      userId: DEV_SESSION_IDS.userId,
+      tenantId: DEV_SESSION_IDS.tenantId,
+      role: "owner",
+      user: { email: "pat@example.test", name: "Pat" },
+      expires: "2099-01-01T00:00:00Z",
+    };
+    const res = await checkUrlPOST(post("/api/devices/check-url", { url: "https://example.com/" }));
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ code: "insufficient_scope" });
   });

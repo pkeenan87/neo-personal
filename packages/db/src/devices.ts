@@ -498,6 +498,20 @@ export async function getDevice(db: Db, tenantId: string, id: string): Promise<D
   return tenantScoped(db, tenantId).transaction((t) => deviceById(t.tx, tenantId, id));
 }
 
+/**
+ * The tenant of an active device, known only by its id (the unauthenticated uninstall route,
+ * `_specs/browser-extension.md`: `POST /api/devices/uninstalled` has no session to scope the
+ * lookup with). `lookup_device_tenant` is a security-definer function, like
+ * `lookup_device_enrollment_code` (migration 0011_device_uninstall); undefined for an unknown
+ * or already-revoked device, so a repeat uninstall report is a safe no-op.
+ */
+export async function lookupDeviceTenant(db: Db, deviceId: string): Promise<string | undefined> {
+  if (!UUID_RE.test(deviceId)) return undefined;
+  const res = await db.execute(sql`select tenant_id from lookup_device_tenant(${deviceId})`);
+  const [r] = (res as unknown as { rows: Array<{ tenant_id: string }> }).rows;
+  return r?.tenant_id;
+}
+
 /** Rename an active device. "invalid" for a bad name; undefined for unknown or revoked devices. */
 export async function renameDevice(db: Db, tenantId: string, id: string, name: string): Promise<DevicePublic | "invalid" | undefined> {
   const clean = normalizeDeviceName(name);

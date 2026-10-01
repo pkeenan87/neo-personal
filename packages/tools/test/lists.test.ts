@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { BRANDS } from "../src/brands.js";
+import { BRANDS, brandId } from "../src/brands.js";
 import { registrableOf } from "../src/checks/normalize.js";
 import {
   REMOTE_ACCESS_TOOLS,
@@ -7,6 +7,7 @@ import {
   SCAM_PAGE_PHRASES,
   SKIP_DOMAINS,
   USER_CONTENT_HOSTS,
+  BRAND_LIST,
   findRemoteAccessTool,
   detectionLists,
 } from "../src/lists.js";
@@ -137,13 +138,52 @@ describe("skip-domains.json", () => {
   });
 });
 
+describe("brands (BRAND_LIST)", () => {
+  it("has one entry per BRANDS row, in order, with a stable id", () => {
+    expect(BRAND_LIST.length).toBe(BRANDS.length);
+    for (const [i, entry] of BRAND_LIST.entries()) {
+      const brand = BRANDS[i]!;
+      expect(entry.id).toBe(brandId(brand.name));
+      expect(entry.name).toBe(brand.name);
+      expect(entry.domains).toEqual(brand.domains);
+      expect(entry.keywords).toEqual(brand.keywords);
+    }
+  });
+
+  it("has unique ids matching /^[a-z0-9_-]{1,64}$/", () => {
+    const ids = BRAND_LIST.map((b) => b.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const id of ids) expect(id).toMatch(/^[a-z0-9_-]{1,64}$/);
+  });
+});
+
+describe("brandId", () => {
+  it("lowercases and collapses non-alphanumeric runs to a single dash", () => {
+    expect(brandId("PayPal")).toBe("paypal");
+    expect(brandId("X (Twitter)")).toBe("x-twitter");
+    expect(brandId("E*TRADE")).toBe("e-trade");
+  });
+
+  it("trims leading and trailing dashes", () => {
+    expect(brandId("--Foo--")).toBe("foo");
+    expect(brandId("!Bar!")).toBe("bar");
+  });
+
+  it("caps at 64 characters with no trailing dash", () => {
+    const id = brandId("a".repeat(100));
+    expect(id.length).toBe(64);
+    expect(id.endsWith("-")).toBe(false);
+  });
+});
+
 describe("detectionLists", () => {
-  it("returns all four lists", () => {
+  it("returns all five lists", () => {
     const lists = detectionLists();
     expect(lists.remoteAccessTools).toBe(REMOTE_ACCESS_TOOLS);
     expect(lists.pupPublishers).toBe(PUP_PUBLISHERS);
     expect(lists.scamPagePhrases).toBe(SCAM_PAGE_PHRASES);
     expect(lists.skipDomains).toBe(SKIP_DOMAINS);
+    expect(lists.brands).toBe(BRAND_LIST);
   });
 
   it("version is a stable 16-char hex string", () => {
@@ -151,5 +191,29 @@ describe("detectionLists", () => {
     const v2 = detectionLists().version;
     expect(v1).toBe(v2);
     expect(v1).toMatch(/^[0-9a-f]{16}$/);
+  });
+
+  it("version covers brands (changes if the brands list is dropped from the hash input)", async () => {
+    const { createHash } = await import("node:crypto");
+    // Mirrors lists.ts's private `canonicalize` (stable key order), minus the `brands` key.
+    function canonicalize(value: unknown): unknown {
+      if (Array.isArray(value)) return value.map(canonicalize);
+      if (value !== null && typeof value === "object") {
+        const out: Record<string, unknown> = {};
+        for (const key of Object.keys(value as Record<string, unknown>).sort()) out[key] = canonicalize((value as Record<string, unknown>)[key]);
+        return out;
+      }
+      return value;
+    }
+    const withoutBrands = JSON.stringify(
+      canonicalize({
+        remoteAccessTools: REMOTE_ACCESS_TOOLS,
+        pupPublishers: PUP_PUBLISHERS,
+        scamPagePhrases: SCAM_PAGE_PHRASES,
+        skipDomains: SKIP_DOMAINS,
+      }),
+    );
+    const versionWithoutBrands = createHash("sha256").update(withoutBrands, "utf8").digest("hex").slice(0, 16);
+    expect(detectionLists().version).not.toBe(versionWithoutBrands);
   });
 });

@@ -1,0 +1,2871 @@
+{
+  "version": "d0e95b5920ed686d",
+  "remoteAccessTools": [
+    {
+      "id": "anydesk",
+      "name": "AnyDesk",
+      "vendorDomains": [
+        "anydesk.com"
+      ],
+      "installerPatterns": [
+        "^AnyDesk.*\\.exe$"
+      ],
+      "windows": {
+        "publishers": [
+          "AnyDesk Software GmbH"
+        ],
+        "displayNamePatterns": [
+          "^AnyDesk$"
+        ],
+        "serviceNames": [
+          "AnyDesk"
+        ],
+        "processNames": [
+          "AnyDesk.exe"
+        ]
+      },
+      "macos": {
+        "bundleIds": [
+          "com.anydesk.anydesk"
+        ],
+        "teamIds": []
+      },
+      "sessionHints": [
+        "AnyDesk.exe"
+      ]
+    },
+    {
+      "id": "teamviewer",
+      "name": "TeamViewer",
+      "vendorDomains": [
+        "teamviewer.com"
+      ],
+      "installerPatterns": [
+        "^TeamViewer.*\\.exe$"
+      ],
+      "windows": {
+        "publishers": [
+          "TeamViewer Germany GmbH"
+        ],
+        "displayNamePatterns": [
+          "^TeamViewer.*$"
+        ],
+        "serviceNames": [
+          "TeamViewer"
+        ],
+        "processNames": [
+          "TeamViewer.exe"
+        ]
+      },
+      "macos": {
+        "bundleIds": [
+          "com.teamviewer.TeamViewer"
+        ],
+        "teamIds": []
+      },
+      "sessionHints": [
+        "TeamViewer.exe"
+      ]
+    },
+    {
+      "id": "screenconnect",
+      "name": "ScreenConnect (ConnectWise Control)",
+      "vendorDomains": [
+        "screenconnect.com",
+        "connectwise.com"
+      ],
+      "installerPatterns": [
+        "^(ScreenConnect|ConnectWiseControl)\\.ClientSetup.*\\.(exe|msi)$"
+      ],
+      "windows": {
+        "publishers": [
+          "ConnectWise, LLC"
+        ],
+        "displayNamePatterns": [
+          "^ScreenConnect Client.*$"
+        ],
+        "serviceNames": [],
+        "processNames": []
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": []
+    },
+    {
+      "id": "ultraviewer",
+      "name": "UltraViewer",
+      "vendorDomains": [
+        "ultraviewer.net"
+      ],
+      "installerPatterns": [
+        "^UltraViewer.*\\.exe$"
+      ],
+      "windows": {
+        "publishers": [],
+        "displayNamePatterns": [
+          "^UltraViewer.*$"
+        ],
+        "serviceNames": [],
+        "processNames": [
+          "UltraViewer_Desktop.exe"
+        ]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": [
+        "UltraViewer_Desktop.exe"
+      ]
+    },
+    {
+      "id": "rustdesk",
+      "name": "RustDesk",
+      "vendorDomains": [
+        "rustdesk.com"
+      ],
+      "installerPatterns": [
+        "^rustdesk.*\\.exe$"
+      ],
+      "windows": {
+        "publishers": [],
+        "displayNamePatterns": [
+          "^RustDesk$"
+        ],
+        "serviceNames": [
+          "RustDesk"
+        ],
+        "processNames": [
+          "rustdesk.exe"
+        ]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": [
+        "rustdesk.exe"
+      ]
+    },
+    {
+      "id": "quick_assist",
+      "name": "Quick Assist",
+      "vendorDomains": [],
+      "installerPatterns": [],
+      "windows": {
+        "publishers": [
+          "Microsoft Corporation"
+        ],
+        "displayNamePatterns": [
+          "^Quick Assist$"
+        ],
+        "serviceNames": [],
+        "processNames": [
+          "QuickAssist.exe"
+        ]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": [
+        "QuickAssist.exe"
+      ]
+    },
+    {
+      "id": "splashtop",
+      "name": "Splashtop",
+      "vendorDomains": [
+        "splashtop.com"
+      ],
+      "installerPatterns": [
+        "^Splashtop.*\\.exe$"
+      ],
+      "windows": {
+        "publishers": [
+          "Splashtop Inc."
+        ],
+        "displayNamePatterns": [
+          "^Splashtop Streamer$"
+        ],
+        "serviceNames": [
+          "SplashtopRemoteService"
+        ],
+        "processNames": [
+          "SRServer.exe"
+        ]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": [
+        "SRServer.exe"
+      ]
+    },
+    {
+      "id": "logmein",
+      "name": "LogMeIn",
+      "vendorDomains": [
+        "logmein.com",
+        "logmeinrescue.com"
+      ],
+      "installerPatterns": [
+        "^LogMeIn.*\\.exe$"
+      ],
+      "windows": {
+        "publishers": [
+          "LogMeIn, Inc."
+        ],
+        "displayNamePatterns": [
+          "^LogMeIn.*$"
+        ],
+        "serviceNames": [
+          "LogMeIn"
+        ],
+        "processNames": [
+          "LogMeIn.exe"
+        ]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": [
+        "LogMeIn.exe"
+      ]
+    },
+    {
+      "id": "atera",
+      "name": "Atera",
+      "vendorDomains": [
+        "atera.com"
+      ],
+      "installerPatterns": [
+        "^AteraAgent.*\\.(exe|msi)$"
+      ],
+      "windows": {
+        "publishers": [
+          "Atera Networks Ltd"
+        ],
+        "displayNamePatterns": [
+          "^Atera Agent$"
+        ],
+        "serviceNames": [
+          "AteraAgent"
+        ],
+        "processNames": [
+          "AteraAgent.exe"
+        ]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": [
+        "AteraAgent.exe"
+      ]
+    },
+    {
+      "id": "netsupport",
+      "name": "NetSupport Manager",
+      "vendorDomains": [
+        "netsupportsoftware.com"
+      ],
+      "installerPatterns": [
+        "^NetSupport.*\\.exe$"
+      ],
+      "windows": {
+        "publishers": [
+          "NetSupport Ltd"
+        ],
+        "displayNamePatterns": [
+          "^NetSupport Manager$"
+        ],
+        "serviceNames": [],
+        "processNames": [
+          "client32.exe"
+        ]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": [
+        "client32.exe"
+      ]
+    },
+    {
+      "id": "supremo",
+      "name": "Supremo",
+      "vendorDomains": [
+        "supremocontrol.com"
+      ],
+      "installerPatterns": [
+        "^Supremo.*\\.exe$"
+      ],
+      "windows": {
+        "publishers": [
+          "Nanosystems S.r.l."
+        ],
+        "displayNamePatterns": [
+          "^Supremo$"
+        ],
+        "serviceNames": [],
+        "processNames": [
+          "Supremo.exe"
+        ]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": [
+        "Supremo.exe"
+      ]
+    },
+    {
+      "id": "aeroadmin",
+      "name": "AeroAdmin",
+      "vendorDomains": [
+        "aeroadmin.com"
+      ],
+      "installerPatterns": [
+        "^AeroAdmin.*\\.exe$"
+      ],
+      "windows": {
+        "publishers": [],
+        "displayNamePatterns": [
+          "^AeroAdmin$"
+        ],
+        "serviceNames": [],
+        "processNames": [
+          "AeroAdmin.exe"
+        ]
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": []
+      },
+      "sessionHints": [
+        "AeroAdmin.exe"
+      ]
+    }
+  ],
+  "pupPublishers": [
+    {
+      "publisher": "Mindspark Interactive Network",
+      "reason": "Publishes a long history of bundled browser toolbars and search hijackers (e.g. Ask Toolbar-era products) widely flagged as PUP by antivirus engines."
+    },
+    {
+      "publisher": "APN, LLC",
+      "reason": "Ask Partner Network; historically the distribution arm behind the Ask Toolbar bundled with third-party installers and flagged as a browser hijacker."
+    },
+    {
+      "publisher": "Systweak Software",
+      "reason": "Publishes registry cleaner, driver-updater and 'PC optimizer' titles frequently flagged as PUP for scareware-style upselling."
+    },
+    {
+      "publisher": "Superfish, Inc.",
+      "reason": "Adware company behind the Superfish visual-search software that injected ads and installed a trusted root certificate; widely flagged as adware/PUP."
+    },
+    {
+      "publisher": "Conduit Ltd",
+      "reason": "Toolbar and 'SearchProtect' browser-hijacker platform bundled with many free downloads; widely flagged as PUP."
+    },
+    {
+      "publisher": "Wajam Internet Technologies",
+      "reason": "Ad-injection browser extension/adware bundled with free software installers; widely flagged as adware."
+    }
+  ],
+  "scamPagePhrases": [
+    {
+      "phrase": "call microsoft support",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "contact microsoft support",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "microsoft technical support",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "call apple support",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "contact apple support",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "call windows support",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "windows support alert",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "windows defender alert",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "windows security alert",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "your computer has been locked",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "your computer has been blocked",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "this device has been locked",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "do not close this window",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "do not restart your computer",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "do not turn off your computer",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "do not shut down your computer",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "call the number below immediately",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "call this number immediately",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "call the toll-free number below",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "technical support representative",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "certified technicians are standing by",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "your license has expired call support",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "this is not a joke",
+      "kind": "support_phone_text",
+      "lang": "en"
+    },
+    {
+      "phrase": "viruses detected",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "virus detected",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "your pc is infected",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "your computer is infected",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "your device is infected",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "scan complete",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "threats found",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "threats detected",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "malware detected",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "spyware detected",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "trojan detected",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "critical error",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "system warning",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "security warning",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "your personal information is at risk",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "your data is at risk",
+      "kind": "fake_scan",
+      "lang": "en"
+    },
+    {
+      "phrase": "hard drive failure detected",
+      "kind": "fake_scan",
+      "lang": "en"
+    }
+  ],
+  "skipDomains": [
+    "1password.com",
+    "a2z.com",
+    "aa.com",
+    "acrobat.com",
+    "adidas.com",
+    "adobe.com",
+    "adobesign.com",
+    "aexp.com",
+    "afterpay.com",
+    "airbnb.com",
+    "airtable.com",
+    "alibaba.com",
+    "aliexpress.com",
+    "ally.com",
+    "amazon.ca",
+    "amazon.co.jp",
+    "amazon.co.uk",
+    "amazon.com",
+    "amazon.com.au",
+    "amazon.de",
+    "amazon.es",
+    "amazon.fr",
+    "amazon.in",
+    "amazon.it",
+    "amd.com",
+    "americanexpress.com",
+    "android.com",
+    "anthropic.com",
+    "anz.com",
+    "anz.com.au",
+    "aol.com",
+    "apple.com",
+    "apple.news",
+    "appleid.com",
+    "archive.org",
+    "asana.com",
+    "asus.com",
+    "atlassian.com",
+    "atlassian.net",
+    "att.com",
+    "att.net",
+    "audible.com",
+    "auspost.com.au",
+    "azure.com",
+    "baidu.com",
+    "bankofamerica.com",
+    "barclaycardus.com",
+    "barclays.co.uk",
+    "barclays.com",
+    "bayareafastrak.org",
+    "bbc.co.uk",
+    "bbc.com",
+    "bestbuy.com",
+    "binance.com",
+    "binance.us",
+    "bing.com",
+    "bitbucket.org",
+    "bitfinex.com",
+    "bitstamp.net",
+    "bitwarden.com",
+    "block.xyz",
+    "blockchain.com",
+    "blogger.com",
+    "bloomberg.com",
+    "bnpparibas.com",
+    "bnpparibas.fr",
+    "bofa.com",
+    "booking.com",
+    "bybit.com",
+    "ca.gov",
+    "canadapost-postescanada.ca",
+    "canadapost.ca",
+    "canon.com",
+    "canva.com",
+    "capitalone.com",
+    "cash.app",
+    "cash.me",
+    "cdc.gov",
+    "chase.com",
+    "chatgpt.com",
+    "chess.com",
+    "chime.com",
+    "citi.com",
+    "citibank.com",
+    "citigroup.com",
+    "claude.ai",
+    "claude.com",
+    "cloudflare.com",
+    "cnn.com",
+    "coca-cola.com",
+    "coinbase.com",
+    "comcast.com",
+    "comcast.net",
+    "commbank.com.au",
+    "costco.com",
+    "coursera.org",
+    "craigslist.org",
+    "creditkarma.com",
+    "crypto.com",
+    "db.com",
+    "dell.com",
+    "delta.com",
+    "deutsche-bank.de",
+    "dhl.com",
+    "dhl.de",
+    "discord.com",
+    "discord.gg",
+    "discordapp.com",
+    "discover.com",
+    "discoverbank.com",
+    "disney.com",
+    "disneyplus.com",
+    "dmv.org",
+    "docusign.com",
+    "docusign.net",
+    "doordash.com",
+    "dpd.co.uk",
+    "dpd.com",
+    "dropbox.com",
+    "dropboxusercontent.com",
+    "duckduckgo.com",
+    "duolingo.com",
+    "e-zpassiag.com",
+    "e-zpassny.com",
+    "ebay.co.uk",
+    "ebay.com",
+    "ebay.de",
+    "edx.org",
+    "epicgames.com",
+    "epson.com",
+    "espn.com",
+    "etrade.com",
+    "etsy.com",
+    "evri.com",
+    "expedia.com",
+    "expressvpn.com",
+    "ezpassnj.com",
+    "facebook.com",
+    "fastmail.com",
+    "fastmail.fm",
+    "fb.com",
+    "fedex.com",
+    "fidelity.com",
+    "fidelityinvestments.com",
+    "figma.com",
+    "forbes.com",
+    "force.com",
+    "gemini.com",
+    "github.com",
+    "gitlab.com",
+    "glassdoor.com",
+    "gmail.com",
+    "gmx.com",
+    "gmx.de",
+    "gmx.net",
+    "godaddy.com",
+    "goo.gl",
+    "goodreads.com",
+    "google.dev",
+    "googleapis.com",
+    "googleusercontent.com",
+    "gov.uk",
+    "grammarly.com",
+    "gstatic.com",
+    "halifax.co.uk",
+    "hbomax.com",
+    "hilton.com",
+    "homedepot.com",
+    "hotmail.com",
+    "hp.com",
+    "hsbc.co.uk",
+    "hsbc.com",
+    "hsbc.com.hk",
+    "hubspot.com",
+    "hulu.com",
+    "hyatt.com",
+    "icloud.com",
+    "ikea.com",
+    "imdb.com",
+    "indeed.com",
+    "ing.com",
+    "ing.de",
+    "ing.nl",
+    "instagram.com",
+    "intel.com",
+    "intuit.com",
+    "irs.gov",
+    "jpmorgan.com",
+    "jpmorganchase.com",
+    "khanacademy.org",
+    "klarna.com",
+    "kraken.com",
+    "kucoin.com",
+    "lastpass.com",
+    "ledger.com",
+    "lenovo.com",
+    "letterboxd.com",
+    "lg.com",
+    "linkedin.com",
+    "live.com",
+    "lloydsbank.com",
+    "lloydsbankinggroup.com",
+    "lnkd.in",
+    "logitech.com",
+    "lyft.com",
+    "mac.com",
+    "mail.com",
+    "mailchimp.com",
+    "marriott.com",
+    "mastercard.com",
+    "mastercard.us",
+    "max.com",
+    "mcafee.com",
+    "mcdonalds.com",
+    "me.com",
+    "medicare.gov",
+    "merrilledge.com",
+    "messenger.com",
+    "meta.com",
+    "metamask.io",
+    "microsoft.com",
+    "microsoft365.com",
+    "microsoftonline.com",
+    "mint.com",
+    "ml.com",
+    "mlb.com",
+    "monday.com",
+    "moneygram.com",
+    "monster.com",
+    "monzo.com",
+    "mozilla.org",
+    "msn.com",
+    "myshopify.com",
+    "mysynchrony.com",
+    "n26.com",
+    "namecheap.com",
+    "nasa.gov",
+    "natwest.com",
+    "navyfederal.org",
+    "nba.com",
+    "netflix.com",
+    "nfl.com",
+    "nflxext.com",
+    "nih.gov",
+    "nike.com",
+    "nintendo.com",
+    "nordvpn.com",
+    "norton.com",
+    "nortonlifelock.com",
+    "notion.com",
+    "notion.so",
+    "npmjs.com",
+    "nvidia.com",
+    "nytimes.com",
+    "oculus.com",
+    "office.com",
+    "office365.com",
+    "okta.com",
+    "oktapreview.com",
+    "okx.com",
+    "onedrive.com",
+    "openai.com",
+    "opensea.io",
+    "outlook.com",
+    "paypal-community.com",
+    "paypal.com",
+    "paypal.me",
+    "paypalobjects.com",
+    "pepsi.com",
+    "phantom.app",
+    "phantom.com",
+    "pinterest.com",
+    "playstation.com",
+    "pnc.com",
+    "primevideo.com",
+    "proton.me",
+    "protonmail.ch",
+    "protonmail.com",
+    "protonvpn.com",
+    "python.org",
+    "qq.com",
+    "quickbooks.com",
+    "quora.com",
+    "rbc.com",
+    "rbcroyalbank.com",
+    "reddit.com",
+    "reuters.com",
+    "revolut.com",
+    "robinhood.com",
+    "roblox.com",
+    "royalmail.com",
+    "salesforce.com",
+    "samsung.com",
+    "santander.co.uk",
+    "santander.com",
+    "santanderbank.com",
+    "schwab.com",
+    "scotiabank.com",
+    "shein.com",
+    "shopify.com",
+    "signal.org",
+    "skype.com",
+    "slack.com",
+    "snapchat.com",
+    "sofi.com",
+    "sony.com",
+    "soundcloud.com",
+    "southwest.com",
+    "spectrum.com",
+    "spectrum.net",
+    "speedtest.net",
+    "spotify.com",
+    "square.com",
+    "squareup.com",
+    "ssa.gov",
+    "stackexchange.com",
+    "stackoverflow.com",
+    "starbucks.com",
+    "steamcommunity.com",
+    "steampowered.com",
+    "stripe.com",
+    "sunpass.com",
+    "synchrony.com",
+    "t-mobile.com",
+    "t.co",
+    "t.me",
+    "target.com",
+    "td.com",
+    "tdbank.com",
+    "telegram.org",
+    "temu.com",
+    "theguardian.com",
+    "thetollroads.com",
+    "threads.net",
+    "tiktok.com",
+    "transferwise.com",
+    "trello.com",
+    "trezor.io",
+    "tripadvisor.com",
+    "truist.com",
+    "trustwallet.com",
+    "tumblr.com",
+    "turbotax.com",
+    "twitch.tv",
+    "twitter.com",
+    "uber.com",
+    "udemy.com",
+    "un.org",
+    "uniswap.org",
+    "united.com",
+    "ups.com",
+    "usa.gov",
+    "usaa.com",
+    "usbank.com",
+    "usps.com",
+    "usps.gov",
+    "vanguard.com",
+    "venmo.com",
+    "verizon.com",
+    "verizonwireless.com",
+    "vimeo.com",
+    "visa.com",
+    "w3.org",
+    "walmart.com",
+    "washingtonpost.com",
+    "waze.com",
+    "weather.com",
+    "webex.com",
+    "weibo.com",
+    "wellsfargo.com",
+    "westernunion.com",
+    "wetransfer.com",
+    "wf.com",
+    "whatsapp.com",
+    "whatsapp.net",
+    "whitehouse.gov",
+    "who.int",
+    "wikimedia.org",
+    "wikipedia.org",
+    "windows.com",
+    "wise.com",
+    "withgoogle.com",
+    "wordpress.org",
+    "x.com",
+    "xbox.com",
+    "xfinity.com",
+    "yahoo.co.jp",
+    "yahoo.com",
+    "yandex.com",
+    "yelp.com",
+    "ymail.com",
+    "youtube.com",
+    "zellepay.com",
+    "zendesk.com",
+    "ziprecruiter.com",
+    "zoho.com",
+    "zoho.eu",
+    "zohomail.com",
+    "zoom.com",
+    "zoom.us"
+  ],
+  "brands": [
+    {
+      "id": "apple",
+      "name": "Apple",
+      "domains": [
+        "apple.com",
+        "icloud.com",
+        "me.com",
+        "mac.com",
+        "apple.news",
+        "appleid.com"
+      ],
+      "keywords": [
+        "appleid",
+        "icloud",
+        "itunes",
+        "apple",
+        "mac"
+      ]
+    },
+    {
+      "id": "microsoft",
+      "name": "Microsoft",
+      "domains": [
+        "microsoft.com",
+        "microsoftonline.com",
+        "live.com",
+        "outlook.com",
+        "office.com",
+        "office365.com",
+        "hotmail.com",
+        "msn.com",
+        "sharepoint.com",
+        "onedrive.com",
+        "windows.com",
+        "azure.com",
+        "xbox.com",
+        "skype.com",
+        "bing.com",
+        "microsoft365.com"
+      ],
+      "keywords": [
+        "office365",
+        "onedrive",
+        "outlook",
+        "hotmail",
+        "sharepoint",
+        "msonline",
+        "microsoft",
+        "microsoftonline",
+        "live",
+        "office",
+        "msn",
+        "windows",
+        "azure",
+        "xbox",
+        "skype",
+        "bing",
+        "microsoft365"
+      ]
+    },
+    {
+      "id": "google",
+      "name": "Google",
+      "domains": [
+        "google.com",
+        "gmail.com",
+        "youtube.com",
+        "googleusercontent.com",
+        "gstatic.com",
+        "googleapis.com",
+        "goo.gl",
+        "android.com",
+        "withgoogle.com",
+        "blogger.com",
+        "google.dev"
+      ],
+      "keywords": [
+        "gmail",
+        "youtube",
+        "google",
+        "goo",
+        "android",
+        "blogger"
+      ]
+    },
+    {
+      "id": "amazon",
+      "name": "Amazon",
+      "domains": [
+        "amazon.com",
+        "amazon.co.uk",
+        "amazon.de",
+        "amazon.fr",
+        "amazon.ca",
+        "amazon.co.jp",
+        "amazon.in",
+        "amazon.com.au",
+        "amazon.es",
+        "amazon.it",
+        "aws.amazon.com",
+        "amazonaws.com",
+        "a2z.com",
+        "primevideo.com",
+        "audible.com"
+      ],
+      "keywords": [
+        "primevideo",
+        "amazon",
+        "aws",
+        "amazonaws",
+        "audible"
+      ]
+    },
+    {
+      "id": "yahoo",
+      "name": "Yahoo",
+      "domains": [
+        "yahoo.com",
+        "yahoo.co.jp",
+        "ymail.com",
+        "aol.com"
+      ],
+      "keywords": [
+        "ymail",
+        "yahoo",
+        "aol"
+      ]
+    },
+    {
+      "id": "proton",
+      "name": "Proton",
+      "domains": [
+        "proton.me",
+        "protonmail.com",
+        "protonmail.ch"
+      ],
+      "keywords": [
+        "protonmail",
+        "proton"
+      ]
+    },
+    {
+      "id": "zoho",
+      "name": "Zoho",
+      "domains": [
+        "zoho.com",
+        "zoho.eu",
+        "zohomail.com"
+      ],
+      "keywords": [
+        "zoho",
+        "zohomail"
+      ]
+    },
+    {
+      "id": "gmx",
+      "name": "GMX",
+      "domains": [
+        "gmx.com",
+        "gmx.net",
+        "gmx.de",
+        "mail.com"
+      ],
+      "keywords": [
+        "gmx"
+      ]
+    },
+    {
+      "id": "fastmail",
+      "name": "Fastmail",
+      "domains": [
+        "fastmail.com",
+        "fastmail.fm"
+      ],
+      "keywords": [
+        "fastmail"
+      ]
+    },
+    {
+      "id": "meta",
+      "name": "Meta",
+      "domains": [
+        "facebook.com",
+        "fb.com",
+        "instagram.com",
+        "whatsapp.com",
+        "whatsapp.net",
+        "messenger.com",
+        "meta.com",
+        "threads.net",
+        "oculus.com"
+      ],
+      "keywords": [
+        "facebook",
+        "instagram",
+        "whatsapp",
+        "messenger",
+        "meta",
+        "threads",
+        "oculus"
+      ]
+    },
+    {
+      "id": "x-twitter",
+      "name": "X (Twitter)",
+      "domains": [
+        "x.com",
+        "twitter.com",
+        "t.co"
+      ],
+      "keywords": [
+        "twitter"
+      ]
+    },
+    {
+      "id": "linkedin",
+      "name": "LinkedIn",
+      "domains": [
+        "linkedin.com",
+        "lnkd.in"
+      ],
+      "keywords": [
+        "linkedin",
+        "lnkd"
+      ]
+    },
+    {
+      "id": "tiktok",
+      "name": "TikTok",
+      "domains": [
+        "tiktok.com"
+      ],
+      "keywords": [
+        "tiktok"
+      ]
+    },
+    {
+      "id": "snapchat",
+      "name": "Snapchat",
+      "domains": [
+        "snapchat.com"
+      ],
+      "keywords": [
+        "snapchat"
+      ]
+    },
+    {
+      "id": "discord",
+      "name": "Discord",
+      "domains": [
+        "discord.com",
+        "discord.gg",
+        "discordapp.com"
+      ],
+      "keywords": [
+        "discord",
+        "discordapp"
+      ]
+    },
+    {
+      "id": "telegram",
+      "name": "Telegram",
+      "domains": [
+        "telegram.org",
+        "t.me"
+      ],
+      "keywords": [
+        "telegram"
+      ]
+    },
+    {
+      "id": "signal",
+      "name": "Signal",
+      "domains": [
+        "signal.org"
+      ],
+      "keywords": [
+        "signal"
+      ]
+    },
+    {
+      "id": "reddit",
+      "name": "Reddit",
+      "domains": [
+        "reddit.com"
+      ],
+      "keywords": [
+        "reddit"
+      ]
+    },
+    {
+      "id": "pinterest",
+      "name": "Pinterest",
+      "domains": [
+        "pinterest.com"
+      ],
+      "keywords": [
+        "pinterest"
+      ]
+    },
+    {
+      "id": "paypal",
+      "name": "PayPal",
+      "domains": [
+        "paypal.com",
+        "paypal.me",
+        "paypalobjects.com",
+        "paypal-community.com"
+      ],
+      "keywords": [
+        "paypal",
+        "paypalcommunity"
+      ]
+    },
+    {
+      "id": "venmo",
+      "name": "Venmo",
+      "domains": [
+        "venmo.com"
+      ],
+      "keywords": [
+        "venmo"
+      ]
+    },
+    {
+      "id": "cash-app",
+      "name": "Cash App",
+      "domains": [
+        "cash.app",
+        "cash.me",
+        "squareup.com",
+        "block.xyz"
+      ],
+      "keywords": [
+        "cashapp",
+        "squareup"
+      ]
+    },
+    {
+      "id": "zelle",
+      "name": "Zelle",
+      "domains": [
+        "zellepay.com"
+      ],
+      "keywords": [
+        "zelle",
+        "zellepay"
+      ]
+    },
+    {
+      "id": "stripe",
+      "name": "Stripe",
+      "domains": [
+        "stripe.com"
+      ],
+      "keywords": [
+        "stripe"
+      ]
+    },
+    {
+      "id": "square",
+      "name": "Square",
+      "domains": [
+        "squareup.com",
+        "square.com"
+      ],
+      "keywords": [
+        "square"
+      ]
+    },
+    {
+      "id": "wise",
+      "name": "Wise",
+      "domains": [
+        "wise.com",
+        "transferwise.com"
+      ],
+      "keywords": [
+        "transferwise",
+        "wise"
+      ]
+    },
+    {
+      "id": "revolut",
+      "name": "Revolut",
+      "domains": [
+        "revolut.com"
+      ],
+      "keywords": [
+        "revolut"
+      ]
+    },
+    {
+      "id": "klarna",
+      "name": "Klarna",
+      "domains": [
+        "klarna.com"
+      ],
+      "keywords": [
+        "klarna"
+      ]
+    },
+    {
+      "id": "afterpay",
+      "name": "Afterpay",
+      "domains": [
+        "afterpay.com"
+      ],
+      "keywords": [
+        "afterpay"
+      ]
+    },
+    {
+      "id": "western-union",
+      "name": "Western Union",
+      "domains": [
+        "westernunion.com"
+      ],
+      "keywords": [
+        "westernunion"
+      ]
+    },
+    {
+      "id": "moneygram",
+      "name": "MoneyGram",
+      "domains": [
+        "moneygram.com"
+      ],
+      "keywords": [
+        "moneygram"
+      ]
+    },
+    {
+      "id": "visa",
+      "name": "Visa",
+      "domains": [
+        "visa.com"
+      ],
+      "keywords": [
+        "visa"
+      ]
+    },
+    {
+      "id": "mastercard",
+      "name": "Mastercard",
+      "domains": [
+        "mastercard.com",
+        "mastercard.us"
+      ],
+      "keywords": [
+        "mastercard"
+      ]
+    },
+    {
+      "id": "american-express",
+      "name": "American Express",
+      "domains": [
+        "americanexpress.com",
+        "aexp.com"
+      ],
+      "keywords": [
+        "amex",
+        "americanexpress"
+      ]
+    },
+    {
+      "id": "discover",
+      "name": "Discover",
+      "domains": [
+        "discover.com"
+      ],
+      "keywords": [
+        "discover"
+      ]
+    },
+    {
+      "id": "apple-pay",
+      "name": "Apple Pay",
+      "domains": [
+        "apple.com"
+      ],
+      "keywords": [
+        "applepay"
+      ]
+    },
+    {
+      "id": "google-pay",
+      "name": "Google Pay",
+      "domains": [
+        "pay.google.com",
+        "google.com"
+      ],
+      "keywords": [
+        "googlepay",
+        "gpay"
+      ]
+    },
+    {
+      "id": "chase",
+      "name": "Chase",
+      "domains": [
+        "chase.com",
+        "jpmorganchase.com",
+        "jpmorgan.com"
+      ],
+      "keywords": [
+        "jpmorgan",
+        "chase",
+        "jpmorganchase"
+      ]
+    },
+    {
+      "id": "bank-of-america",
+      "name": "Bank of America",
+      "domains": [
+        "bankofamerica.com",
+        "bofa.com",
+        "ml.com",
+        "merrilledge.com"
+      ],
+      "keywords": [
+        "bofa",
+        "merrill",
+        "bankofamerica",
+        "merrilledge"
+      ]
+    },
+    {
+      "id": "wells-fargo",
+      "name": "Wells Fargo",
+      "domains": [
+        "wellsfargo.com",
+        "wf.com"
+      ],
+      "keywords": [
+        "wellsfargo"
+      ]
+    },
+    {
+      "id": "citi",
+      "name": "Citi",
+      "domains": [
+        "citi.com",
+        "citibank.com",
+        "citigroup.com"
+      ],
+      "keywords": [
+        "citibank",
+        "citi",
+        "citigroup"
+      ]
+    },
+    {
+      "id": "capital-one",
+      "name": "Capital One",
+      "domains": [
+        "capitalone.com"
+      ],
+      "keywords": [
+        "capitalone"
+      ]
+    },
+    {
+      "id": "u-s-bank",
+      "name": "U.S. Bank",
+      "domains": [
+        "usbank.com"
+      ],
+      "keywords": [
+        "usbank"
+      ]
+    },
+    {
+      "id": "pnc",
+      "name": "PNC",
+      "domains": [
+        "pnc.com"
+      ],
+      "keywords": [
+        "pnc"
+      ]
+    },
+    {
+      "id": "truist",
+      "name": "Truist",
+      "domains": [
+        "truist.com"
+      ],
+      "keywords": [
+        "truist"
+      ]
+    },
+    {
+      "id": "td-bank",
+      "name": "TD Bank",
+      "domains": [
+        "td.com",
+        "tdbank.com"
+      ],
+      "keywords": [
+        "tdbank"
+      ]
+    },
+    {
+      "id": "ally",
+      "name": "Ally",
+      "domains": [
+        "ally.com"
+      ],
+      "keywords": [
+        "allybank",
+        "ally"
+      ]
+    },
+    {
+      "id": "navy-federal",
+      "name": "Navy Federal",
+      "domains": [
+        "navyfederal.org"
+      ],
+      "keywords": [
+        "navyfederal"
+      ]
+    },
+    {
+      "id": "usaa",
+      "name": "USAA",
+      "domains": [
+        "usaa.com"
+      ],
+      "keywords": [
+        "usaa"
+      ]
+    },
+    {
+      "id": "charles-schwab",
+      "name": "Charles Schwab",
+      "domains": [
+        "schwab.com"
+      ],
+      "keywords": [
+        "schwab"
+      ]
+    },
+    {
+      "id": "fidelity",
+      "name": "Fidelity",
+      "domains": [
+        "fidelity.com",
+        "fidelityinvestments.com"
+      ],
+      "keywords": [
+        "fidelity",
+        "fidelityinvestments"
+      ]
+    },
+    {
+      "id": "vanguard",
+      "name": "Vanguard",
+      "domains": [
+        "vanguard.com",
+        "investor.vanguard.com"
+      ],
+      "keywords": [
+        "vanguard"
+      ]
+    },
+    {
+      "id": "robinhood",
+      "name": "Robinhood",
+      "domains": [
+        "robinhood.com"
+      ],
+      "keywords": [
+        "robinhood"
+      ]
+    },
+    {
+      "id": "e-trade",
+      "name": "E*TRADE",
+      "domains": [
+        "etrade.com"
+      ],
+      "keywords": [
+        "etrade"
+      ]
+    },
+    {
+      "id": "sofi",
+      "name": "SoFi",
+      "domains": [
+        "sofi.com"
+      ],
+      "keywords": [
+        "sofi"
+      ]
+    },
+    {
+      "id": "chime",
+      "name": "Chime",
+      "domains": [
+        "chime.com"
+      ],
+      "keywords": [
+        "chime"
+      ]
+    },
+    {
+      "id": "discover-bank",
+      "name": "Discover Bank",
+      "domains": [
+        "discoverbank.com"
+      ],
+      "keywords": [
+        "discoverbank"
+      ]
+    },
+    {
+      "id": "synchrony",
+      "name": "Synchrony",
+      "domains": [
+        "synchrony.com",
+        "mysynchrony.com"
+      ],
+      "keywords": [
+        "synchrony"
+      ]
+    },
+    {
+      "id": "barclays",
+      "name": "Barclays",
+      "domains": [
+        "barclays.com",
+        "barclays.co.uk",
+        "barclaycardus.com"
+      ],
+      "keywords": [
+        "barclaycard",
+        "barclays",
+        "barclaycardus"
+      ]
+    },
+    {
+      "id": "hsbc",
+      "name": "HSBC",
+      "domains": [
+        "hsbc.com",
+        "hsbc.co.uk",
+        "hsbc.com.hk"
+      ],
+      "keywords": [
+        "hsbc"
+      ]
+    },
+    {
+      "id": "lloyds",
+      "name": "Lloyds",
+      "domains": [
+        "lloydsbank.com",
+        "lloydsbankinggroup.com"
+      ],
+      "keywords": [
+        "lloydsbank",
+        "lloydsbankinggroup"
+      ]
+    },
+    {
+      "id": "natwest",
+      "name": "NatWest",
+      "domains": [
+        "natwest.com"
+      ],
+      "keywords": [
+        "natwest"
+      ]
+    },
+    {
+      "id": "santander",
+      "name": "Santander",
+      "domains": [
+        "santander.com",
+        "santander.co.uk",
+        "santanderbank.com"
+      ],
+      "keywords": [
+        "santander",
+        "santanderbank"
+      ]
+    },
+    {
+      "id": "monzo",
+      "name": "Monzo",
+      "domains": [
+        "monzo.com"
+      ],
+      "keywords": [
+        "monzo"
+      ]
+    },
+    {
+      "id": "halifax",
+      "name": "Halifax",
+      "domains": [
+        "halifax.co.uk"
+      ],
+      "keywords": [
+        "halifax"
+      ]
+    },
+    {
+      "id": "ing",
+      "name": "ING",
+      "domains": [
+        "ing.com",
+        "ing.nl",
+        "ing.de"
+      ],
+      "keywords": [
+        "ing"
+      ]
+    },
+    {
+      "id": "deutsche-bank",
+      "name": "Deutsche Bank",
+      "domains": [
+        "deutsche-bank.de",
+        "db.com"
+      ],
+      "keywords": [
+        "deutschebank"
+      ]
+    },
+    {
+      "id": "bnp-paribas",
+      "name": "BNP Paribas",
+      "domains": [
+        "bnpparibas.com",
+        "bnpparibas.fr"
+      ],
+      "keywords": [
+        "bnpparibas"
+      ]
+    },
+    {
+      "id": "rbc",
+      "name": "RBC",
+      "domains": [
+        "rbc.com",
+        "rbcroyalbank.com"
+      ],
+      "keywords": [
+        "royalbank",
+        "rbc",
+        "rbcroyalbank"
+      ]
+    },
+    {
+      "id": "scotiabank",
+      "name": "Scotiabank",
+      "domains": [
+        "scotiabank.com"
+      ],
+      "keywords": [
+        "scotiabank"
+      ]
+    },
+    {
+      "id": "commonwealth-bank",
+      "name": "Commonwealth Bank",
+      "domains": [
+        "commbank.com.au"
+      ],
+      "keywords": [
+        "commbank"
+      ]
+    },
+    {
+      "id": "anz",
+      "name": "ANZ",
+      "domains": [
+        "anz.com",
+        "anz.com.au"
+      ],
+      "keywords": [
+        "anz"
+      ]
+    },
+    {
+      "id": "n26",
+      "name": "N26",
+      "domains": [
+        "n26.com"
+      ],
+      "keywords": [
+        "n26"
+      ]
+    },
+    {
+      "id": "coinbase",
+      "name": "Coinbase",
+      "domains": [
+        "coinbase.com"
+      ],
+      "keywords": [
+        "coinbase"
+      ]
+    },
+    {
+      "id": "binance",
+      "name": "Binance",
+      "domains": [
+        "binance.com",
+        "binance.us"
+      ],
+      "keywords": [
+        "binance"
+      ]
+    },
+    {
+      "id": "kraken",
+      "name": "Kraken",
+      "domains": [
+        "kraken.com"
+      ],
+      "keywords": [
+        "kraken"
+      ]
+    },
+    {
+      "id": "crypto-com",
+      "name": "Crypto.com",
+      "domains": [
+        "crypto.com"
+      ],
+      "keywords": [
+        "crypto"
+      ]
+    },
+    {
+      "id": "gemini",
+      "name": "Gemini",
+      "domains": [
+        "gemini.com"
+      ],
+      "keywords": [
+        "gemini"
+      ]
+    },
+    {
+      "id": "bitstamp",
+      "name": "Bitstamp",
+      "domains": [
+        "bitstamp.net"
+      ],
+      "keywords": [
+        "bitstamp"
+      ]
+    },
+    {
+      "id": "kucoin",
+      "name": "KuCoin",
+      "domains": [
+        "kucoin.com"
+      ],
+      "keywords": [
+        "kucoin"
+      ]
+    },
+    {
+      "id": "okx",
+      "name": "OKX",
+      "domains": [
+        "okx.com"
+      ],
+      "keywords": [
+        "okx"
+      ]
+    },
+    {
+      "id": "bybit",
+      "name": "Bybit",
+      "domains": [
+        "bybit.com"
+      ],
+      "keywords": [
+        "bybit"
+      ]
+    },
+    {
+      "id": "bitfinex",
+      "name": "Bitfinex",
+      "domains": [
+        "bitfinex.com"
+      ],
+      "keywords": [
+        "bitfinex"
+      ]
+    },
+    {
+      "id": "metamask",
+      "name": "MetaMask",
+      "domains": [
+        "metamask.io"
+      ],
+      "keywords": [
+        "metamask"
+      ]
+    },
+    {
+      "id": "ledger",
+      "name": "Ledger",
+      "domains": [
+        "ledger.com"
+      ],
+      "keywords": [
+        "ledger"
+      ]
+    },
+    {
+      "id": "trezor",
+      "name": "Trezor",
+      "domains": [
+        "trezor.io"
+      ],
+      "keywords": [
+        "trezor"
+      ]
+    },
+    {
+      "id": "trust-wallet",
+      "name": "Trust Wallet",
+      "domains": [
+        "trustwallet.com"
+      ],
+      "keywords": [
+        "trustwallet"
+      ]
+    },
+    {
+      "id": "blockchain-com",
+      "name": "Blockchain.com",
+      "domains": [
+        "blockchain.com"
+      ],
+      "keywords": [
+        "blockchain"
+      ]
+    },
+    {
+      "id": "uniswap",
+      "name": "Uniswap",
+      "domains": [
+        "uniswap.org",
+        "app.uniswap.org"
+      ],
+      "keywords": [
+        "uniswap"
+      ]
+    },
+    {
+      "id": "opensea",
+      "name": "OpenSea",
+      "domains": [
+        "opensea.io"
+      ],
+      "keywords": [
+        "opensea"
+      ]
+    },
+    {
+      "id": "phantom",
+      "name": "Phantom",
+      "domains": [
+        "phantom.app",
+        "phantom.com"
+      ],
+      "keywords": [
+        "phantom"
+      ]
+    },
+    {
+      "id": "usps",
+      "name": "USPS",
+      "domains": [
+        "usps.com",
+        "usps.gov"
+      ],
+      "keywords": [
+        "usps"
+      ]
+    },
+    {
+      "id": "ups",
+      "name": "UPS",
+      "domains": [
+        "ups.com"
+      ],
+      "keywords": [
+        "ups"
+      ]
+    },
+    {
+      "id": "fedex",
+      "name": "FedEx",
+      "domains": [
+        "fedex.com"
+      ],
+      "keywords": [
+        "fedex"
+      ]
+    },
+    {
+      "id": "dhl",
+      "name": "DHL",
+      "domains": [
+        "dhl.com",
+        "dhl.de"
+      ],
+      "keywords": [
+        "dhl"
+      ]
+    },
+    {
+      "id": "royal-mail",
+      "name": "Royal Mail",
+      "domains": [
+        "royalmail.com"
+      ],
+      "keywords": [
+        "royalmail"
+      ]
+    },
+    {
+      "id": "canada-post",
+      "name": "Canada Post",
+      "domains": [
+        "canadapost-postescanada.ca",
+        "canadapost.ca"
+      ],
+      "keywords": [
+        "canadapost",
+        "canadapostpostescanada"
+      ]
+    },
+    {
+      "id": "australia-post",
+      "name": "Australia Post",
+      "domains": [
+        "auspost.com.au"
+      ],
+      "keywords": [
+        "auspost"
+      ]
+    },
+    {
+      "id": "evri",
+      "name": "Evri",
+      "domains": [
+        "evri.com"
+      ],
+      "keywords": [
+        "hermes",
+        "evri"
+      ]
+    },
+    {
+      "id": "dpd",
+      "name": "DPD",
+      "domains": [
+        "dpd.com",
+        "dpd.co.uk"
+      ],
+      "keywords": [
+        "dpd"
+      ]
+    },
+    {
+      "id": "netflix",
+      "name": "Netflix",
+      "domains": [
+        "netflix.com",
+        "nflxext.com"
+      ],
+      "keywords": [
+        "netflix"
+      ]
+    },
+    {
+      "id": "disney",
+      "name": "Disney+",
+      "domains": [
+        "disneyplus.com",
+        "disney.com"
+      ],
+      "keywords": [
+        "disneyplus",
+        "disney"
+      ]
+    },
+    {
+      "id": "hulu",
+      "name": "Hulu",
+      "domains": [
+        "hulu.com"
+      ],
+      "keywords": [
+        "hulu"
+      ]
+    },
+    {
+      "id": "spotify",
+      "name": "Spotify",
+      "domains": [
+        "spotify.com"
+      ],
+      "keywords": [
+        "spotify"
+      ]
+    },
+    {
+      "id": "hbo-max",
+      "name": "HBO Max",
+      "domains": [
+        "max.com",
+        "hbomax.com"
+      ],
+      "keywords": [
+        "hbomax",
+        "max"
+      ]
+    },
+    {
+      "id": "amazon-prime",
+      "name": "Amazon Prime",
+      "domains": [
+        "amazon.com"
+      ],
+      "keywords": [
+        "amazonprime"
+      ]
+    },
+    {
+      "id": "steam",
+      "name": "Steam",
+      "domains": [
+        "steampowered.com",
+        "steamcommunity.com"
+      ],
+      "keywords": [
+        "steampowered",
+        "steamcommunity"
+      ]
+    },
+    {
+      "id": "epic-games",
+      "name": "Epic Games",
+      "domains": [
+        "epicgames.com"
+      ],
+      "keywords": [
+        "epicgames"
+      ]
+    },
+    {
+      "id": "roblox",
+      "name": "Roblox",
+      "domains": [
+        "roblox.com"
+      ],
+      "keywords": [
+        "roblox"
+      ]
+    },
+    {
+      "id": "playstation",
+      "name": "PlayStation",
+      "domains": [
+        "playstation.com",
+        "sony.com"
+      ],
+      "keywords": [
+        "playstation"
+      ]
+    },
+    {
+      "id": "nintendo",
+      "name": "Nintendo",
+      "domains": [
+        "nintendo.com"
+      ],
+      "keywords": [
+        "nintendo"
+      ]
+    },
+    {
+      "id": "ebay",
+      "name": "eBay",
+      "domains": [
+        "ebay.com",
+        "ebay.co.uk",
+        "ebay.de"
+      ],
+      "keywords": [
+        "ebay"
+      ]
+    },
+    {
+      "id": "walmart",
+      "name": "Walmart",
+      "domains": [
+        "walmart.com"
+      ],
+      "keywords": [
+        "walmart"
+      ]
+    },
+    {
+      "id": "target",
+      "name": "Target",
+      "domains": [
+        "target.com"
+      ],
+      "keywords": [
+        "target"
+      ]
+    },
+    {
+      "id": "costco",
+      "name": "Costco",
+      "domains": [
+        "costco.com"
+      ],
+      "keywords": [
+        "costco"
+      ]
+    },
+    {
+      "id": "best-buy",
+      "name": "Best Buy",
+      "domains": [
+        "bestbuy.com"
+      ],
+      "keywords": [
+        "bestbuy"
+      ]
+    },
+    {
+      "id": "home-depot",
+      "name": "Home Depot",
+      "domains": [
+        "homedepot.com"
+      ],
+      "keywords": [
+        "homedepot"
+      ]
+    },
+    {
+      "id": "etsy",
+      "name": "Etsy",
+      "domains": [
+        "etsy.com"
+      ],
+      "keywords": [
+        "etsy"
+      ]
+    },
+    {
+      "id": "shopify",
+      "name": "Shopify",
+      "domains": [
+        "shopify.com",
+        "myshopify.com"
+      ],
+      "keywords": [
+        "shopify",
+        "myshopify"
+      ]
+    },
+    {
+      "id": "aliexpress",
+      "name": "AliExpress",
+      "domains": [
+        "aliexpress.com",
+        "alibaba.com"
+      ],
+      "keywords": [
+        "aliexpress",
+        "alibaba"
+      ]
+    },
+    {
+      "id": "temu",
+      "name": "Temu",
+      "domains": [
+        "temu.com"
+      ],
+      "keywords": [
+        "temu"
+      ]
+    },
+    {
+      "id": "shein",
+      "name": "Shein",
+      "domains": [
+        "shein.com"
+      ],
+      "keywords": [
+        "shein"
+      ]
+    },
+    {
+      "id": "uber",
+      "name": "Uber",
+      "domains": [
+        "uber.com"
+      ],
+      "keywords": [
+        "uber"
+      ]
+    },
+    {
+      "id": "lyft",
+      "name": "Lyft",
+      "domains": [
+        "lyft.com"
+      ],
+      "keywords": [
+        "lyft"
+      ]
+    },
+    {
+      "id": "airbnb",
+      "name": "Airbnb",
+      "domains": [
+        "airbnb.com"
+      ],
+      "keywords": [
+        "airbnb"
+      ]
+    },
+    {
+      "id": "booking-com",
+      "name": "Booking.com",
+      "domains": [
+        "booking.com"
+      ],
+      "keywords": [
+        "booking"
+      ]
+    },
+    {
+      "id": "expedia",
+      "name": "Expedia",
+      "domains": [
+        "expedia.com"
+      ],
+      "keywords": [
+        "expedia"
+      ]
+    },
+    {
+      "id": "doordash",
+      "name": "DoorDash",
+      "domains": [
+        "doordash.com"
+      ],
+      "keywords": [
+        "doordash"
+      ]
+    },
+    {
+      "id": "dropbox",
+      "name": "Dropbox",
+      "domains": [
+        "dropbox.com",
+        "dropboxusercontent.com"
+      ],
+      "keywords": [
+        "dropbox"
+      ]
+    },
+    {
+      "id": "box",
+      "name": "Box",
+      "domains": [
+        "box.com"
+      ],
+      "keywords": [
+        "box"
+      ]
+    },
+    {
+      "id": "docusign",
+      "name": "DocuSign",
+      "domains": [
+        "docusign.com",
+        "docusign.net"
+      ],
+      "keywords": [
+        "docusign"
+      ]
+    },
+    {
+      "id": "adobe",
+      "name": "Adobe",
+      "domains": [
+        "adobe.com",
+        "adobesign.com",
+        "acrobat.com"
+      ],
+      "keywords": [
+        "adobe",
+        "adobesign",
+        "acrobat"
+      ]
+    },
+    {
+      "id": "salesforce",
+      "name": "Salesforce",
+      "domains": [
+        "salesforce.com",
+        "force.com"
+      ],
+      "keywords": [
+        "salesforce"
+      ]
+    },
+    {
+      "id": "slack",
+      "name": "Slack",
+      "domains": [
+        "slack.com"
+      ],
+      "keywords": [
+        "slack"
+      ]
+    },
+    {
+      "id": "zoom",
+      "name": "Zoom",
+      "domains": [
+        "zoom.us",
+        "zoom.com"
+      ],
+      "keywords": [
+        "zoom"
+      ]
+    },
+    {
+      "id": "webex",
+      "name": "Webex",
+      "domains": [
+        "webex.com"
+      ],
+      "keywords": [
+        "webex"
+      ]
+    },
+    {
+      "id": "atlassian",
+      "name": "Atlassian",
+      "domains": [
+        "atlassian.com",
+        "atlassian.net",
+        "bitbucket.org",
+        "trello.com"
+      ],
+      "keywords": [
+        "jira",
+        "confluence",
+        "trello",
+        "atlassian",
+        "bitbucket"
+      ]
+    },
+    {
+      "id": "github",
+      "name": "GitHub",
+      "domains": [
+        "github.com",
+        "github.io",
+        "githubusercontent.com"
+      ],
+      "keywords": [
+        "github"
+      ]
+    },
+    {
+      "id": "gitlab",
+      "name": "GitLab",
+      "domains": [
+        "gitlab.com"
+      ],
+      "keywords": [
+        "gitlab"
+      ]
+    },
+    {
+      "id": "notion",
+      "name": "Notion",
+      "domains": [
+        "notion.so",
+        "notion.com"
+      ],
+      "keywords": [
+        "notion"
+      ]
+    },
+    {
+      "id": "okta",
+      "name": "Okta",
+      "domains": [
+        "okta.com",
+        "oktapreview.com"
+      ],
+      "keywords": [
+        "okta",
+        "oktapreview"
+      ]
+    },
+    {
+      "id": "intuit",
+      "name": "Intuit",
+      "domains": [
+        "intuit.com",
+        "turbotax.com",
+        "quickbooks.com",
+        "creditkarma.com",
+        "mint.com"
+      ],
+      "keywords": [
+        "turbotax",
+        "quickbooks",
+        "creditkarma",
+        "intuit",
+        "mint"
+      ]
+    },
+    {
+      "id": "norton",
+      "name": "Norton",
+      "domains": [
+        "norton.com",
+        "nortonlifelock.com"
+      ],
+      "keywords": [
+        "norton",
+        "nortonlifelock"
+      ]
+    },
+    {
+      "id": "mcafee",
+      "name": "McAfee",
+      "domains": [
+        "mcafee.com"
+      ],
+      "keywords": [
+        "mcafee"
+      ]
+    },
+    {
+      "id": "mailchimp",
+      "name": "Mailchimp",
+      "domains": [
+        "mailchimp.com"
+      ],
+      "keywords": [
+        "mailchimp"
+      ]
+    },
+    {
+      "id": "wetransfer",
+      "name": "WeTransfer",
+      "domains": [
+        "wetransfer.com"
+      ],
+      "keywords": [
+        "wetransfer"
+      ]
+    },
+    {
+      "id": "openai",
+      "name": "OpenAI",
+      "domains": [
+        "openai.com",
+        "chatgpt.com"
+      ],
+      "keywords": [
+        "chatgpt",
+        "openai"
+      ]
+    },
+    {
+      "id": "anthropic",
+      "name": "Anthropic",
+      "domains": [
+        "anthropic.com",
+        "claude.ai",
+        "claude.com"
+      ],
+      "keywords": [
+        "anthropic",
+        "claude"
+      ]
+    },
+    {
+      "id": "cloudflare",
+      "name": "Cloudflare",
+      "domains": [
+        "cloudflare.com"
+      ],
+      "keywords": [
+        "cloudflare"
+      ]
+    },
+    {
+      "id": "godaddy",
+      "name": "GoDaddy",
+      "domains": [
+        "godaddy.com"
+      ],
+      "keywords": [
+        "godaddy"
+      ]
+    },
+    {
+      "id": "namecheap",
+      "name": "Namecheap",
+      "domains": [
+        "namecheap.com"
+      ],
+      "keywords": [
+        "namecheap"
+      ]
+    },
+    {
+      "id": "verizon",
+      "name": "Verizon",
+      "domains": [
+        "verizon.com",
+        "verizonwireless.com"
+      ],
+      "keywords": [
+        "verizon",
+        "verizonwireless"
+      ]
+    },
+    {
+      "id": "at-t",
+      "name": "AT&T",
+      "domains": [
+        "att.com",
+        "att.net"
+      ],
+      "keywords": [
+        "att"
+      ]
+    },
+    {
+      "id": "t-mobile",
+      "name": "T-Mobile",
+      "domains": [
+        "t-mobile.com"
+      ],
+      "keywords": [
+        "tmobile"
+      ]
+    },
+    {
+      "id": "comcast-xfinity",
+      "name": "Comcast Xfinity",
+      "domains": [
+        "xfinity.com",
+        "comcast.com",
+        "comcast.net"
+      ],
+      "keywords": [
+        "xfinity",
+        "comcast"
+      ]
+    },
+    {
+      "id": "spectrum",
+      "name": "Spectrum",
+      "domains": [
+        "spectrum.com",
+        "spectrum.net"
+      ],
+      "keywords": [
+        "spectrum"
+      ]
+    },
+    {
+      "id": "irs",
+      "name": "IRS",
+      "domains": [
+        "irs.gov"
+      ],
+      "keywords": [
+        "irs"
+      ]
+    },
+    {
+      "id": "social-security",
+      "name": "Social Security",
+      "domains": [
+        "ssa.gov"
+      ],
+      "keywords": [
+        "ssa"
+      ]
+    },
+    {
+      "id": "medicare",
+      "name": "Medicare",
+      "domains": [
+        "medicare.gov"
+      ],
+      "keywords": [
+        "medicare"
+      ]
+    },
+    {
+      "id": "hmrc",
+      "name": "HMRC",
+      "domains": [
+        "gov.uk"
+      ],
+      "keywords": [
+        "hmrc",
+        "gov"
+      ]
+    },
+    {
+      "id": "e-zpass",
+      "name": "E-ZPass",
+      "domains": [
+        "e-zpassny.com",
+        "ezpassnj.com",
+        "e-zpassiag.com"
+      ],
+      "keywords": [
+        "ezpass",
+        "ezpassny",
+        "ezpassnj",
+        "ezpassiag"
+      ]
+    },
+    {
+      "id": "sunpass",
+      "name": "SunPass",
+      "domains": [
+        "sunpass.com"
+      ],
+      "keywords": [
+        "sunpass"
+      ]
+    },
+    {
+      "id": "fastrak",
+      "name": "FasTrak",
+      "domains": [
+        "bayareafastrak.org",
+        "thetollroads.com"
+      ],
+      "keywords": [
+        "fastrak",
+        "bayareafastrak",
+        "thetollroads"
+      ]
+    },
+    {
+      "id": "dmv",
+      "name": "DMV",
+      "domains": [
+        "dmv.ca.gov",
+        "dmv.org"
+      ],
+      "keywords": [
+        "dmv"
+      ]
+    }
+  ]
+}

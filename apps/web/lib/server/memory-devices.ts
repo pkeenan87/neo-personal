@@ -330,6 +330,12 @@ export function memoryGetDevice(tenantId: string, id: string): DevicePublic | un
   return d && d.tenantId === tenantId ? toPublic(d) : undefined;
 }
 
+/** The tenant of an active device, known only by its id (the unauthenticated uninstall route). */
+export function memoryLookupDeviceTenant(id: string): string | undefined {
+  const d = state().devices.get(id);
+  return d && !d.revokedAt ? d.tenantId : undefined;
+}
+
 export function memoryRenameDevice(tenantId: string, id: string, name: string): DevicePublic | "invalid" | undefined {
   const clean = normalizeDeviceName(name);
   if (!clean) return "invalid";

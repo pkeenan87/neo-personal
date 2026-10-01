@@ -51,10 +51,14 @@ function sections(email: string): Section[] {
             <strong>Protected devices.</strong> When the household owner adds a browser or computer to protect a member,
             Neo keeps its name, kind, and platform, and the device checks in regularly with its app version and the time.
             An enrolled device also reports specific signals: the domain of a page that looked like a scam (never the
-            full address, path, or page content), the names of remote-access tools and flagged programs, a remote
-            peer ID during a remote-access session, and screen-recording or accessibility permission grants. Signal
-            records are kept for 30 days. The household owner can mark a tool as expected on a device, such as one
-            they use to help another member, so their own sessions with it don&apos;t raise an alert.
+            full address, path, or page content) or a fake login page, the names of remote-access tools and flagged
+            programs, a remote peer ID during a remote-access session, and screen-recording or accessibility permission
+            grants. Signal records are kept for 30 days. When someone uses the browser extension&apos;s own link check
+            (right-click a link, or paste one into the popup), Neo sends only that link, checks it the same way it
+            checks a link you paste in chat, and does not save or alert on the result. The extension never sends
+            browsing history, page content, form contents, or passwords. The household owner can mark a tool as
+            expected on a device, such as one they use to help another member, so their own sessions with it
+            don&apos;t raise an alert.
           </li>
           <li>
             <strong>Technical records.</strong> Our hosting provider keeps standard request logs (IP address, browser,

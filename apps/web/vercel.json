@@ -31,6 +31,10 @@
       "headers": [{ "key": "Referrer-Policy", "value": "no-referrer" }]
     },
     {
+      "source": "/uninstalled",
+      "headers": [{ "key": "Referrer-Policy", "value": "no-referrer" }]
+    },
+    {
       "source": "/api/(.*)",
       "headers": [{ "key": "Cache-Control", "value": "no-store" }]
     }

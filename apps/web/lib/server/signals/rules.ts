@@ -14,7 +14,7 @@
  */
 import type { ExpectedToolRow, SignalOutcome, SignalSeverity } from "@neo/db";
 import { REMOTE_ACCESS_TOOLS, findRemoteAccessTool } from "@neo/tools";
-import type { SignalDetector, SignalEvent, TechSupportIndicator } from "@neo/verdict";
+import { isTechSupportScamHit, type SignalDetector, type SignalEvent } from "@neo/verdict";
 import type { AlertKindName } from "@/lib/alert-types";
 
 export const SEVERITY_RANK: Record<SignalSeverity, number> = { low: 1, medium: 2, high: 3, critical: 4 };
@@ -25,10 +25,6 @@ export function bumpSeverity(current: SignalSeverity | null): SignalSeverity {
   const rank = current ? SEVERITY_RANK[current] : 0;
   return RANK_TO_SEVERITY[Math.min(4, rank + 1)]!;
 }
-
-/** `tech_support_scam` indicators that lock the page (fullscreen/pointer/keyboard capture). */
-const LOCK_INDICATORS: readonly TechSupportIndicator[] = ["fullscreen", "pointer_lock", "keyboard_lock"];
-const TECH_SUPPORT_MIN_INDICATORS = 2;
 
 /** Detector → alert kind for the `page` detectors `warning_bypassed` can relate to. */
 const PAGE_ALERT_KIND: Partial<Record<SignalDetector, AlertKindName>> = {
@@ -95,8 +91,7 @@ export function evaluateEvent(event: SignalEvent, ctx: RuleContext): RuleOutcome
   switch (event.detector) {
     case "tech_support_scam": {
       const indicators = event.indicators;
-      const hasLockPlusPhone = indicators.includes("support_phone_text") && indicators.some((i) => LOCK_INDICATORS.includes(i));
-      if (indicators.length >= TECH_SUPPORT_MIN_INDICATORS || hasLockPlusPhone) {
+      if (isTechSupportScamHit(indicators)) {
         return { outcome: "alerted", severity: "high", alertKind: "scam_page", verdictLabel: "malicious", reasonCodes: [...indicators] };
       }
       return recorded([...indicators]);

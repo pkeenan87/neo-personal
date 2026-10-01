@@ -117,6 +117,11 @@ Never bypass the hook with `--no-verify` to commit a real credential.
 2. Make the code work when it is unset (mock or skip), so CI and fresh clones still pass.
 3. If it is a secret, add it to the table in `docs/self-hosting.md` and to Vercel per environment.
 
+## Browser extension
+
+`apps/extension` (`@neo/extension`) is a separate WXT package: development against this same MOCK_MODE server,
+building and loading unpacked, release steps, and store-submission notes are in [extension.md](extension.md).
+
 ## Conventions
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the plan, spec, PR flow, commit format, and the SHA-pinning rule for Actions. See [contracts.md](contracts.md) for package interfaces.

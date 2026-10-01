@@ -213,3 +213,23 @@ export const BRANDS: Brand[] = ROWS.map(([name, domains, extra = [], ccTLDs = fa
   for (const k of keywords) claimed.add(k);
   return { name, domains, keywords: [...keywords], ccTLDs };
 });
+
+/**
+ * Stable slug for a brand's display name, for the detection lists and `lookalike_login` events'
+ * `brand` field (`_specs/browser-extension.md`): lowercase, runs of non-`[a-z0-9]` characters
+ * collapse to a single `-`, leading/trailing dashes are trimmed, and the result is capped at 64
+ * characters (matches `/^[a-z0-9_-]{1,64}$/` from `@neo/verdict`'s `BrandSchema`).
+ */
+export function brandId(name: string): string {
+  const collapsed = trimDashes(name.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+  return trimDashes(collapsed.slice(0, 64));
+}
+
+/** Strips leading and trailing `-` without a backtracking regex (CodeQL js/polynomial-redos). */
+function trimDashes(s: string): string {
+  let start = 0;
+  let end = s.length;
+  while (start < end && s[start] === "-") start++;
+  while (end > start && s[end - 1] === "-") end--;
+  return s.slice(start, end);
+}

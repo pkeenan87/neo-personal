@@ -30,6 +30,23 @@ export interface RemoteAccessToolOption {
   name: string;
 }
 
+/**
+ * Store listing links (_specs/browser-extension.md "Store links"), inlined at build time.
+ * Unset shows "coming soon" for that browser; the PC app has none yet and always says so.
+ */
+const CHROME_EXTENSION_URL = process.env.NEXT_PUBLIC_CHROME_EXTENSION_URL;
+const FIREFOX_EXTENSION_URL = process.env.NEXT_PUBLIC_FIREFOX_EXTENSION_URL;
+
+function extensionLink(url: string | undefined, label: string) {
+  return url ? (
+    <a href={url} target="_blank" rel="noreferrer" className="text-accent hover:text-accent-hover">
+      {label}
+    </a>
+  ) : (
+    <>{label} (coming soon)</>
+  );
+}
+
 const PEER_ID_MAX = 64;
 const PEER_ID_RE = /^[A-Za-z0-9 _.@-]+$/;
 const MAX_EXPECTED_TOOLS = 10;
@@ -335,8 +352,9 @@ export function DevicesSection({
           <CopyButton text={r.code} label="Copy enrollment code" />
         </div>
         <p className="mt-2 text-xs text-muted">
-          {codeExpiry(r.expiresAt)} · single use. Install Neo on their browser or PC, choose <em>I have an enrollment code</em>, and
-          enter this code.
+          {codeExpiry(r.expiresAt)} · single use. Install Neo — {extensionLink(CHROME_EXTENSION_URL, "Chrome")},{" "}
+          {extensionLink(FIREFOX_EXTENSION_URL, "Firefox")}, or the PC app (coming soon) — choose{" "}
+          <em>I have an enrollment code</em>, and enter this code.
         </p>
         <button
           type="button"
@@ -384,7 +402,8 @@ export function DevicesSection({
         Devices
       </h2>
       <p className="mb-2 text-xs text-muted">
-        Devices protected by Neo report scam warnings to you. The Neo browser extension and PC app are coming soon.
+        Devices protected by Neo report scam warnings to you. Add a device below to get an enrollment code and the
+        install links for their browser.
       </p>
       <div className="divide-y divide-border">
         {groups.map((m) => {

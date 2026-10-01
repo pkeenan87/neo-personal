@@ -64,6 +64,12 @@ describe("tech_support_scam", () => {
     const r = evaluateEvent(event, ctx());
     expect(r).toMatchObject({ outcome: "recorded", severity: null, alertKind: null, verdictLabel: null });
   });
+
+  it("a game page (fullscreen + pointer_lock + looping_audio, no text) → recorded, not alerted", () => {
+    const event: SignalEvent = { ...base, domain: "game.test", indicators: ["fullscreen", "pointer_lock", "looping_audio"] };
+    const r = evaluateEvent(event, ctx());
+    expect(r).toMatchObject({ outcome: "recorded", severity: null, alertKind: null, verdictLabel: null });
+  });
 });
 
 describe("lookalike_login / dangerous_site", () => {

@@ -8,6 +8,7 @@ import {
   countDeviceSignalsSince as dbCountDeviceSignalsSince,
   getDeviceSignal as dbGetDeviceSignal,
   insertDeviceSignal as dbInsertDeviceSignal,
+  listDeviceSignalsByClientIds as dbListDeviceSignalsByClientIds,
   listExpectedTools as dbListExpectedTools,
   listRecentUserSignals as dbListRecentUserSignals,
   purgeExpiredReputationCache as dbPurgeExpiredReputationCache,
@@ -23,6 +24,7 @@ import {
   memoryCountDeviceSignalsSince,
   memoryGetDeviceSignal,
   memoryInsertDeviceSignal,
+  memoryListDeviceSignalsByClientIds,
   memoryListExpectedTools,
   memoryListRecentUserSignals,
   memoryPurgeOldDeviceSignals,
@@ -48,6 +50,12 @@ export async function getDeviceSignal(tenantId: string, id: string): Promise<Dev
 export async function updateDeviceSignal(tenantId: string, id: string, patch: MemoryUpdateDeviceSignalPatch): Promise<DeviceSignalRow | undefined> {
   const db = getDb();
   return db ? dbUpdateDeviceSignal(db, tenantId, id, patch) : memoryUpdateDeviceSignal(tenantId, id, patch);
+}
+
+/** This device's rows among `clientEventIds` (`GET /api/signals/status`). Unknown ids omitted. */
+export async function listDeviceSignalsByClientIds(tenantId: string, deviceId: string, clientEventIds: readonly string[]): Promise<DeviceSignalRow[]> {
+  const db = getDb();
+  return db ? dbListDeviceSignalsByClientIds(db, tenantId, deviceId, clientEventIds) : memoryListDeviceSignalsByClientIds(tenantId, deviceId, clientEventIds);
 }
 
 /** A member's signals since `opts.since`, oldest first (for correlation). */

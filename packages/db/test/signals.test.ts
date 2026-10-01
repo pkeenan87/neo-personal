@@ -13,6 +13,7 @@ import {
   countDeviceSignalsSince,
   getDeviceSignal,
   insertDeviceSignal,
+  listDeviceSignalsByClientIds,
   listExpectedTools,
   listRecentUserSignals,
   purgeExpiredReputationCache,
@@ -83,6 +84,21 @@ describe("signals (PGlite as app_user)", () => {
     expect(again.row.subject).toBe("anydesk"); // the original row, not the retried payload
 
     expect(await getDeviceSignal(t.db, tenantId, first.row.id)).toMatchObject({ id: first.row.id });
+  });
+
+  it("listDeviceSignalsByClientIds returns only this device's rows among the requested ids", async () => {
+    const { ownerId, tenantId } = await household(t);
+    const deviceA = await enrolledDevice(t, tenantId, ownerId);
+    const deviceB = await enrolledDevice(t, tenantId, ownerId);
+    const idA = randomUUID();
+    const idB = randomUUID();
+    const unknown = randomUUID();
+    const { row: rowA } = await insertDeviceSignal(t.db, signal({ tenantId, deviceId: deviceA, userId: ownerId, clientEventId: idA }));
+    await insertDeviceSignal(t.db, signal({ tenantId, deviceId: deviceB, userId: ownerId, clientEventId: idB }));
+
+    const results = await listDeviceSignalsByClientIds(t.db, tenantId, deviceA, [idA, idB, unknown]);
+    expect(results.map((r) => r.id)).toEqual([rowA.id]);
+    expect(await listDeviceSignalsByClientIds(t.db, tenantId, deviceA, [])).toEqual([]);
   });
 
   it("isolates device_signals and device_expected_tools between households (RLS)", async () => {

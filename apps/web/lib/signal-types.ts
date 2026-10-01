@@ -27,6 +27,33 @@ export interface SignalIngestResponse {
 /** GET /api/signals/lists */
 export type DetectionListsResponse = DetectionLists;
 
+/** One `GET /api/signals/status` result, for one requested client event id. */
+export interface SignalStatusResult {
+  id: string;
+  outcome: "pending" | "alerted" | "recorded" | "dismissed";
+  severity?: "low" | "medium" | "high" | "critical";
+  verdictId?: string;
+  /** true when `alert_id` is set, whatever the outcome (`_specs/browser-extension.md`). */
+  alerted: boolean;
+}
+
+/** GET /api/signals/status?ids=<uuid>,<uuid> */
+export interface SignalStatusResponse {
+  results: SignalStatusResult[];
+}
+
+/** `POST /api/devices/check-url`'s rating (`_specs/browser-extension.md` "On-demand check"). */
+export type UrlRating = "dangerous" | "suspicious" | "no_known_problems" | "unknown";
+
+/** POST /api/devices/check-url */
+export interface CheckUrlResponse {
+  rating: UrlRating;
+  domain: string;
+  /** Template sentences, never page text. */
+  reasons: string[];
+  checkedAt: string;
+}
+
 /** An owner's expected remote-access tool for one device (PUT /api/household/devices/[id]/expected-tools). */
 export interface ExpectedToolItem {
   toolId: string;

@@ -2,7 +2,7 @@ export { analyzeUrl, type AnalyzeUrlOptions } from "./analyzeUrl.js";
 export { checkUrlTool, checkUrlDefinition, createCheckUrlTool, CheckUrlInputSchema, URL_ANALYSIS_GUIDANCE, type CheckUrlInput } from "./checkUrlTool.js";
 export { InMemoryReputationCache, createInMemoryCache, urlAnalysisCacheKey } from "./cache.js";
 export { resolveDeps, guardedFetch, defaultLookup } from "./deps.js";
-export { BRANDS, GENERIC_KEYWORDS } from "./brands.js";
+export { BRANDS, GENERIC_KEYWORDS, brandId } from "./brands.js";
 export { MOCK_URLS } from "./mock.js";
 export { extractUrlIocs } from "./iocs.js";
 
@@ -45,6 +45,7 @@ export {
   SCAM_PAGE_PHRASES,
   SKIP_DOMAINS,
   USER_CONTENT_HOSTS,
+  BRAND_LIST,
   findRemoteAccessTool,
   detectionLists,
   type RemoteAccessTool,
@@ -53,6 +54,8 @@ export {
   type ScamPhraseKind,
   type DetectionLists,
 } from "./lists.js";
+// Browser-extension additions (_specs/browser-extension.md): shared list-shape types
+export type { ListBrand, DetectionListsPayload } from "./listsTypes.js";
 export type * from "./email/types.js";
 export type * from "./sms/types.js";
 

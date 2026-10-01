@@ -1,8 +1,7 @@
-import { domainToUnicode } from "node:url";
-import { isIP } from "node:net";
 import { BRANDS, GENERIC_KEYWORDS } from "../brands.js";
+import { toUnicodeHost } from "../punycode.js";
 import type { Brand, Lookalike, LookalikeTechnique } from "../types.js";
-import { registrableOf } from "./normalize.js";
+import { parseHost } from "./registrable.js";
 
 /** Single-character confusables (Cyrillic, Greek, IPA, Latin extensions) -> Latin. */
 const CONFUSABLES: Record<string, string> = {
@@ -115,16 +114,16 @@ function hit(brand: Brand, technique: LookalikeTechnique): Lookalike {
  */
 export function detectLookalike(hostInput: string, brands: Brand[] = BRANDS): Lookalike | null {
   const host = hostInput.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
-  if (!host || isIP(host)) return null;
+  if (!host) return null;
   for (const b of brands) if (b.domains.some((d) => hostMatchesDomain(host, d))) return null;
 
-  const { registrable, subdomain, public_suffix } = registrableOf(host);
-  if (!registrable || !public_suffix) return null;
-  const labelAscii = registrable.slice(0, -(public_suffix.length + 1));
-  const label = domainToUnicode(labelAscii) || labelAscii;
+  const parsed = parseHost(host);
+  if (!parsed || parsed.isIp || !parsed.publicSuffix) return null;
+  const { subdomain, publicSuffix: public_suffix, label: labelAscii } = parsed;
+  const label = toUnicodeHost(labelAscii) || labelAscii;
   const labelFlat = label.replace(/-/g, "");
   const tokens = label.split("-").filter(Boolean);
-  const subUnicode = subdomain ? domainToUnicode(subdomain) || subdomain : "";
+  const subUnicode = subdomain ? toUnicodeHost(subdomain) || subdomain : "";
   const subTokens = subUnicode.split(/[.-]/).filter(Boolean);
   const all = candidates(brands);
 

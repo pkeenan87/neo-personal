@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Critical Security Alert</title>
+  </head>
+  <body>
+    <!--
+      Manual-check fixture (`_specs/browser-extension.md` "Mock mode and development"): open this
+      file directly in a browser with the unpacked extension loaded. It should trigger the
+      tech-support-scam warning immediately. The phone number is fictional (555), per
+      `_specs/browser-extension.md` "Testing Guidelines".
+
+      `test/tech-support.test.ts` reuses this file's *text* (not its scripts — jsdom in vitest
+      does not execute inline scripts from a loaded HTML string here; the behaviour indicators are
+      exercised directly against `BehaviorTracker` in that test instead).
+    -->
+    <h1>Critical Security Alert</h1>
+    <p>Your computer has been locked. This is a virus alert from Windows Defender.</p>
+    <p>Do not restart or shut down your computer. Call Microsoft support now at 1-855-555-0199.</p>
+    <p>An unauthorized user may be trying to access your computer and personal files.</p>
+    <button id="lock">I understand, continue</button>
+    <script>
+      // Manual-check behaviour: fullscreen on load, and a back-button trap.
+      document.getElementById("lock").addEventListener("click", () => {
+        document.documentElement.requestFullscreen?.();
+      });
+      for (let i = 0; i < 3; i++) history.pushState({}, "", "#" + i);
+      window.addEventListener("beforeunload", (e) => {
+        e.preventDefault();
+        e.returnValue = "";
+      });
+    </script>
+  </body>
+</html>
