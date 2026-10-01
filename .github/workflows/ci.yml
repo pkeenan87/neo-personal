@@ -427,11 +427,12 @@ jobs:
               `$sr.Close()
             }
           } else { 'C:\ProgramData\Neo does not exist' | Out-File '$keep\neo-data-listing.txt' }
+          'done' | Out-File '$keep\copy-done.txt'
           "@ | Set-Content -Path $copy -Encoding UTF8
           schtasks.exe /Create /TN NeoCopyLogs /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$copy`"" /SC ONCE /ST 00:00 /RU SYSTEM /RL HIGHEST /F | Out-Null
           schtasks.exe /Run /TN NeoCopyLogs | Out-Null
           $deadline = (Get-Date).AddSeconds(30)
-          while (-not (Test-Path "$keep\neo-data-listing.txt") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
+          while (-not (Test-Path "$keep\copy-done.txt") -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 500 }
           Start-Sleep -Seconds 2
           schtasks.exe /Delete /TN NeoCopyLogs /F | Out-Null
           Get-ChildItem $keep | Format-Table Name, Length
