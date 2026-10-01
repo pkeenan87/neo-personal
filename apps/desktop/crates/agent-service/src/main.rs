@@ -49,11 +49,14 @@ fn entry(stop: Arc<AtomicBool>) {
 
     let data_dir = default_data_dir();
     let dir = DataDir::new(&data_dir);
+    // Secure the folder before anything is created in it, so every child inherits the ACL.
+    let _ = std::fs::create_dir_all(&data_dir);
+    let secured = neo_agent::windows::acl::secure_dir(&data_dir);
     let _ = dir.ensure();
-    if let Err(e) = neo_agent::windows::acl::secure_dir(&data_dir) {
+    FileLogger::init(&dir.logs_dir(), false);
+    if let Err(e) = secured {
         log::error!("could not restrict the data directory: {e}");
     }
-    FileLogger::init(&dir.logs_dir(), false);
     log::info!("neo-agent {} starting", neo_agent::config::VERSION);
     let agent = neo_agent::bootstrap::windows_agent(&data_dir);
     neo_agent::runtime::run_loop(agent, stop, pipe::serve, pipe::wake);

@@ -306,10 +306,12 @@ jobs:
           $bad = & ./apps/desktop/ci/pipe-request.ps1 -Request '{"op":"nope"}' | ConvertFrom-Json
           if ($bad.ok -or $bad.code -ne 'unknown_op') { throw 'unknown op was not refused' }
 
-          # The data directory is for SYSTEM and Administrators only.
-          $acl = (Get-Acl 'C:\ProgramData\Neo').Access | ForEach-Object { $_.IdentityReference.ToString() }
-          Write-Host "ACL: $($acl -join ', ')"
-          if ($acl | Where-Object { $_ -match 'Users|Everyone|Authenticated' }) { throw 'the data directory is readable by ordinary users' }
+          # The data directory, and what is inside it, is for SYSTEM and Administrators only.
+          foreach ($path in 'C:\ProgramData\Neo', 'C:\ProgramData\Neo\logs') {
+            $acl = (Get-Acl $path).Access | ForEach-Object { $_.IdentityReference.ToString() }
+            Write-Host "ACL of ${path}: $($acl -join ', ')"
+            if ($acl | Where-Object { $_ -match 'Users|Everyone|Authenticated|INTERACTIVE' }) { throw "$path is readable by ordinary users" }
+          }
 
           # The tray app starts at login for every user.
           $run = Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name Neo
@@ -327,6 +329,9 @@ jobs:
           $text = [System.Text.Encoding]::ASCII.GetString($bytes)
           if ($text -match 'neo_dt_') { throw 'device.bin holds the token in the clear' }
           if ($bytes.Length -lt 100) { throw 'device.bin is suspiciously small' }
+          $acl = (Get-Acl 'C:\ProgramData\Neo\device.bin').Access | ForEach-Object { $_.IdentityReference.ToString() }
+          Write-Host "ACL of device.bin: $($acl -join ', ')"
+          if ($acl | Where-Object { $_ -match 'Users|Everyone|Authenticated|INTERACTIVE' }) { throw 'device.bin is readable by ordinary users' }
           foreach ($i in 1..30) {
             if ((Get-Content "$env:RUNNER_TEMP\neo-requests.log") -contains 'POST /api/devices/heartbeat') { break }
             Start-Sleep -Seconds 2
