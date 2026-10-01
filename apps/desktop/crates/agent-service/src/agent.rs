@@ -17,7 +17,7 @@ use neo_agent_core::lists::{CompiledLists, DetectionLists};
 use neo_agent_core::queue::EventQueue;
 use neo_agent_core::snapshot::Snapshot;
 use neo_agent_core::state::{Cursors, History, SeenState};
-use neo_agent_core::warn::{ExpectedTool, WarningKind, decide};
+use neo_agent_core::warn::{ExpectedTool, WarningKind, decide_with_lists};
 use time::Duration;
 
 use crate::config;
@@ -699,7 +699,7 @@ impl Agent {
             let events = detect::detect(&lists, &mut g.seen, &snap, now, discovery);
             for e in &events {
                 log::info!("event: {}", describe(e));
-                if let Some(kind) = decide(e, &expected) {
+                if let Some(kind) = decide_with_lists(e, &expected, &lists) {
                     warnings.push(self.warning_for(e, kind, &lists, &g.meta, &expected));
                 }
             }
@@ -738,6 +738,7 @@ impl Agent {
                 (lists.tool_name(tool_id).unwrap_or(tool_id).to_string(), peer_id.clone(), sev)
             }
             EventBody::UnwantedSoftware { name, .. } => (name.clone(), None, "medium"),
+            EventBody::TccGrant { app, .. } => (app.clone(), None, "critical"),
         };
         Warning {
             event_id: e.id.clone(),
@@ -848,5 +849,6 @@ fn describe(e: &SignalEvent) -> String {
         EventBody::RemoteAccessTool { tool_id, discovery, .. } => format!("remote_access_tool {tool_id} {discovery:?}"),
         EventBody::RemoteAccessSession { tool_id, .. } => format!("remote_access_session {tool_id}"),
         EventBody::UnwantedSoftware { reason, .. } => format!("unwanted_software {reason:?}"),
+        EventBody::TccGrant { service, .. } => format!("tcc_grant {service:?}"),
     }
 }

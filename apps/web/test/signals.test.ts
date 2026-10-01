@@ -147,6 +147,18 @@ describe("ingest: per-event results", () => {
     void deviceId;
   });
 
+  it("apple_screen_sharing: install and download events are invalid, a session is accepted", async () => {
+    const { token } = await enrollDevice(GRAN.userId);
+    const install = remoteAccessToolEvent({ toolId: "apple_screen_sharing", name: "Apple Screen Sharing" });
+    const download = { id: uuid(), type: "download", detector: "remote_tool_download", observedAt: iso(), toolId: "apple_screen_sharing", domain: "apple.com" };
+    const session = { id: uuid(), type: "remote_session", detector: "remote_access_session", observedAt: iso(), toolId: "apple_screen_sharing", direction: "incoming" };
+    const r = await sendSignals(token, [install, download, session]);
+    expect(r.status).toBe(200);
+    expect(r.body.results[0]).toEqual({ id: install.id, status: "rejected", reason: "invalid" });
+    expect(r.body.results[1]).toEqual({ id: download.id, status: "rejected", reason: "invalid" });
+    expect(r.body.results[2]).toMatchObject({ id: session.id, status: "accepted" });
+  });
+
   it("rejects a domain that isn't its own registrable domain", async () => {
     const { token } = await enrollDevice(GRAN.userId);
     const withPath = techSupportScamEvent({ domain: "scam.test/login" }); // schema itself also rejects "/" but exercise the path

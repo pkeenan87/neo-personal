@@ -1,0 +1,48 @@
+{
+  "name": "macos-baseline-grants",
+  "description": "Zoom already holds Screen Recording at the first snapshot, and macOS later re-approves it: nothing is sent.",
+  "lists": "../lists-macos.json",
+  "steps": [
+    {
+      "atSeconds": 0,
+      "discoveryPhase": true,
+      "snapshot": {
+        "env": {
+          "homes": [
+            "/Users/gran"
+          ]
+        },
+        "tcc": [
+          {
+            "db": "system",
+            "service": "kTCCServiceScreenCapture",
+            "client": "us.zoom.xos",
+            "client_type": 0,
+            "auth_value": 2
+          }
+        ]
+      },
+      "expect": []
+    },
+    {
+      "atSeconds": 3600,
+      "snapshot": {
+        "env": {
+          "homes": [
+            "/Users/gran"
+          ]
+        },
+        "tcc": [
+          {
+            "db": "system",
+            "service": "kTCCServiceScreenCapture",
+            "client": "us.zoom.xos",
+            "client_type": 0,
+            "auth_value": 2
+          }
+        ]
+      },
+      "expect": []
+    }
+  ]
+}

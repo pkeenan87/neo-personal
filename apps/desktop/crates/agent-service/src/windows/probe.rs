@@ -117,7 +117,11 @@ impl SystemProbe for WindowsProbe {
                 }
             }
         }
-        PathEnv { vars, app_data }
+        PathEnv {
+            vars,
+            app_data,
+            ..Default::default()
+        }
     }
 
     fn processes(&self) -> Vec<ProcessInfo> {
@@ -147,6 +151,7 @@ impl SystemProbe for WindowsProbe {
                     image_name,
                     image_path,
                     signer,
+                    ..Default::default()
                 });
                 more = Process32NextW(snap, &mut entry).is_ok();
             }

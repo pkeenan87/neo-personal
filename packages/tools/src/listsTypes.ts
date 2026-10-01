@@ -13,7 +13,13 @@ import type { Brand } from "./types.js";
 export type SessionEvidence =
   | { kind: "log"; path: string; pattern: string; verified: boolean; checked?: string }
   | { kind: "eventlog"; channel: string; eventIds: number[]; verified: boolean; checked?: string }
-  | { kind: "process"; name: string; verified: boolean; checked?: string };
+  | { kind: "process"; name: string; verified: boolean; checked?: string }
+  /**
+   * macOS only (`_specs/desktop-agent-macos.md`): `log show --predicate <predicate>`. `predicate` is exactly
+   * `process == "<name>"` or `subsystem == "<name>"` (name `[A-Za-z0-9._-]{1,64}`), so a list update cannot inject
+   * an arbitrary predicate. On macOS, `log` paths may also use `%Home%` (once per local user) or be absolute.
+   */
+  | { kind: "unifiedlog"; predicate: string; pattern: string; verified: boolean; checked?: string };
 
 /** One remote-access tool's install/session signatures (`_specs/signals.md`, Detection lists). */
 export interface RemoteAccessTool {
@@ -33,6 +39,8 @@ export interface RemoteAccessTool {
   macos: {
     bundleIds: string[];
     teamIds: string[];
+    /** Session evidence candidates; empty when none is known. */
+    sessionEvidence: SessionEvidence[];
   };
   /** Process or log markers the desktop agent uses to infer an active session. */
   sessionHints: string[];

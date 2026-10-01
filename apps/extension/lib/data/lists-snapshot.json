@@ -1,5 +1,5 @@
 {
-  "version": "7710c4cd122590d4",
+  "version": "3d9b817ce527fec5",
   "remoteAccessTools": [
     {
       "id": "anydesk",
@@ -42,7 +42,21 @@
         "bundleIds": [
           "com.anydesk.anydesk"
         ],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": [
+          {
+            "kind": "log",
+            "path": "%Home%/.anydesk/connection_trace.txt",
+            "pattern": "^Incoming\\s.*?\\s(?<peer>\\d{6,12})\\s",
+            "verified": false
+          },
+          {
+            "kind": "log",
+            "path": "/Library/Application Support/AnyDesk/connection_trace.txt",
+            "pattern": "^Incoming\\s.*?\\s(?<peer>\\d{6,12})\\s",
+            "verified": false
+          }
+        ]
       },
       "sessionHints": [
         "AnyDesk.exe"
@@ -83,7 +97,23 @@
         "bundleIds": [
           "com.teamviewer.TeamViewer"
         ],
-        "teamIds": []
+        "teamIds": [
+          "H7UGFBUGV6"
+        ],
+        "sessionEvidence": [
+          {
+            "kind": "log",
+            "path": "%Home%/Library/Logs/TeamViewer/Connections_incoming.txt",
+            "pattern": "^(?<peer>\\d{6,12})\\t",
+            "verified": false
+          },
+          {
+            "kind": "log",
+            "path": "/Library/Logs/TeamViewer/Connections_incoming.txt",
+            "pattern": "^(?<peer>\\d{6,12})\\t",
+            "verified": false
+          }
+        ]
       },
       "sessionHints": [
         "TeamViewer.exe"
@@ -118,7 +148,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": []
     },
@@ -151,7 +182,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": [
         "UltraViewer_Desktop.exe"
@@ -181,7 +213,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": [
         "rustdesk.exe"
@@ -213,7 +246,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": [
         "QuickAssist.exe"
@@ -252,7 +286,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": [
         "SRServer.exe"
@@ -285,7 +320,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": [
         "LogMeIn.exe"
@@ -317,7 +353,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": [
         "AteraAgent.exe"
@@ -347,7 +384,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": [
         "client32.exe"
@@ -384,7 +422,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": [
         "Supremo.exe"
@@ -412,11 +451,38 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": [
         "AeroAdmin.exe"
       ]
+    },
+    {
+      "id": "apple_screen_sharing",
+      "name": "Apple Screen Sharing / Remote Management",
+      "vendorDomains": [],
+      "installerPatterns": [],
+      "windows": {
+        "publishers": [],
+        "displayNamePatterns": [],
+        "serviceNames": [],
+        "processNames": [],
+        "sessionEvidence": []
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": [],
+        "sessionEvidence": [
+          {
+            "kind": "unifiedlog",
+            "predicate": "process == \"screensharingd\"",
+            "pattern": "Authentication: SUCCEEDED",
+            "verified": false
+          }
+        ]
+      },
+      "sessionHints": []
     }
   ],
   "pupPublishers": [

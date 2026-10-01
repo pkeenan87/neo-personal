@@ -59,7 +59,9 @@ function sections(email: string): Section[] {
             browsing history, page content, form contents, or passwords. The Windows app checks programs and
             remote-access tools on the computer. It sends Neo only the name of a remote-access tool or flagged program
             when one appears, a remote peer ID during an incoming session, and the fingerprint (SHA-256) of an unsigned
-            new program so it can be checked. It never sends your list of programs, files or browsing. The household owner can mark a tool as
+            new program so it can be checked. It never sends your list of programs, files or browsing. On a Mac, with your permission (Full Disk Access), Neo
+            also checks which apps were newly allowed to record your screen, control your Mac or read all your files. It
+            sends only the app&apos;s name and which permission changed. The household owner can mark a tool as
             expected on a device, such as one they use to help another member, so their own sessions with it
             don&apos;t raise an alert.
           </li>

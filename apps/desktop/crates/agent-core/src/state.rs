@@ -50,6 +50,13 @@ pub struct SeenState {
     /// `"<tool>\u{1f}<peer>"` -> unix seconds of the last session event.
     sessions: BTreeMap<String, i64>,
     unsigned_unknown: DayCount,
+    /// macOS: `"<db>\u{1f}<client>\u{1f}<service>"` -> allowed (`auth_value == 2`) in the last
+    /// readable TCC snapshot, for the three reported services only.
+    #[serde(default)]
+    tcc: BTreeMap<String, bool>,
+    /// A readable TCC snapshot has been taken (it was the silent baseline).
+    #[serde(default)]
+    tcc_baselined: bool,
 }
 
 /// Result of recording a tool sighting.
@@ -180,6 +187,19 @@ impl SeenState {
         }
         self.unsigned_unknown.count += 1;
         true
+    }
+
+    /// Whether the first readable TCC snapshot has been recorded.
+    pub fn tcc_baselined(&self) -> bool {
+        self.tcc_baselined
+    }
+
+    /// Replaces the stored TCC state with `current` and returns the previous one. The first call
+    /// is the baseline (the caller sends nothing for it).
+    pub fn swap_tcc(&mut self, current: BTreeMap<String, bool>) -> (bool, BTreeMap<String, bool>) {
+        let was_baselined = self.tcc_baselined;
+        self.tcc_baselined = true;
+        (was_baselined, std::mem::replace(&mut self.tcc, current))
     }
 
     pub fn tool_count(&self) -> usize {

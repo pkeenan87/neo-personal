@@ -1,0 +1,57 @@
+{
+  "name": "macos-unknown-screen-recording",
+  "description": "An unknown app is newly granted Screen Recording after enrollment.",
+  "lists": "../lists-macos.json",
+  "steps": [
+    {
+      "atSeconds": 0,
+      "discoveryPhase": true,
+      "snapshot": {
+        "env": {
+          "homes": [
+            "/Users/gran"
+          ]
+        },
+        "tcc": [
+          {
+            "db": "system",
+            "service": "kTCCServiceScreenCapture",
+            "client": "us.zoom.xos",
+            "client_type": 0,
+            "auth_value": 2
+          }
+        ]
+      },
+      "expect": []
+    },
+    {
+      "atSeconds": 60,
+      "snapshot": {
+        "env": {
+          "homes": [
+            "/Users/gran"
+          ]
+        },
+        "tcc": [
+          {
+            "db": "system",
+            "service": "kTCCServiceScreenCapture",
+            "client": "us.zoom.xos",
+            "client_type": 0,
+            "auth_value": 2
+          },
+          {
+            "db": "system",
+            "service": "kTCCServiceScreenCapture",
+            "client": "com.example.helper",
+            "client_type": 0,
+            "auth_value": 2
+          }
+        ]
+      },
+      "expect": [
+        "tcc_grant:screen_recording:com.example.helper"
+      ]
+    }
+  ]
+}

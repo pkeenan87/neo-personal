@@ -40,6 +40,9 @@ function dayStartOf(now: Date): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
+/** Built-in macOS tool (docs/contracts.md "Desktop agent, macOS"): agents report sessions for it, never installs. */
+const BUILT_IN_TOOL_ID = "apple_screen_sharing";
+
 function eventToolId(event: SignalEvent): string | undefined {
   return event.detector === "remote_tool_download" || event.detector === "remote_access_tool" || event.detector === "remote_access_session" ? event.toolId : undefined;
 }
@@ -134,6 +137,11 @@ export async function ingestSignals(session: NeoSession, deviceId: string, body:
     const toolId = eventToolId(event);
     if (toolId !== undefined && !findRemoteAccessTool(toolId)) {
       results.push(rejected("unknown_tool"));
+      continue;
+    }
+    // Apple Screen Sharing is built into macOS: only its sessions are reported, never an install or download.
+    if (toolId === BUILT_IN_TOOL_ID && event.detector !== "remote_access_session") {
+      results.push(rejected("invalid"));
       continue;
     }
 

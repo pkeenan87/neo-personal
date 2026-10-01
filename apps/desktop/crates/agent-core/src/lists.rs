@@ -28,6 +28,20 @@ pub struct RemoteAccessTool {
     pub name: String,
     #[serde(default)]
     pub windows: WindowsSignatures,
+    #[serde(default)]
+    pub macos: MacosSignatures,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MacosSignatures {
+    #[serde(default)]
+    pub bundle_ids: Vec<String>,
+    /// Developer ID Team IDs: the signer check (the Authenticode publisher equivalent).
+    #[serde(default)]
+    pub team_ids: Vec<String>,
+    #[serde(default)]
+    pub session_evidence: Vec<SessionEvidence>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -80,6 +94,18 @@ pub enum SessionEvidence {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         checked: Option<String>,
     },
+    /// macOS unified-log entries from `log show --predicate <predicate>` whose message matches
+    /// `pattern` (optional named group `peer`). `predicate` must be `process == "<name>"` or
+    /// `subsystem == "<name>"` (see [`valid_log_predicate`]).
+    #[serde(rename_all = "camelCase")]
+    Unifiedlog {
+        predicate: String,
+        pattern: String,
+        #[serde(default)]
+        verified: bool,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        checked: Option<String>,
+    },
     /// A kind from a newer server; ignored.
     #[serde(other)]
     Unknown,
@@ -91,7 +117,8 @@ impl SessionEvidence {
         match self {
             SessionEvidence::Log { verified, .. }
             | SessionEvidence::Eventlog { verified, .. }
-            | SessionEvidence::Process { verified, .. } => *verified,
+            | SessionEvidence::Process { verified, .. }
+            | SessionEvidence::Unifiedlog { verified, .. } => *verified,
             SessionEvidence::Unknown => false,
         }
     }
@@ -115,6 +142,13 @@ pub struct CompiledLog {
     pub pattern: Regex,
 }
 
+/// A verified unified-log evidence entry.
+#[derive(Debug, Clone)]
+pub struct CompiledUnifiedLog {
+    pub predicate: String,
+    pub pattern: Regex,
+}
+
 /// A verified event-log evidence entry.
 #[derive(Debug, Clone)]
 pub struct CompiledEventLog {
@@ -134,6 +168,11 @@ pub struct CompiledTool {
     pub process_names: Vec<String>,
     pub log_evidence: Vec<CompiledLog>,
     pub eventlog_evidence: Vec<CompiledEventLog>,
+    /// macOS `CFBundleIdentifier`s, matched case-insensitively.
+    pub bundle_ids: Vec<String>,
+    /// macOS Developer ID Team IDs, matched case-insensitively.
+    pub team_ids: Vec<String>,
+    pub unifiedlog_evidence: Vec<CompiledUnifiedLog>,
     /// Names of processes that exist only during a session.
     pub process_evidence: Vec<String>,
 }
@@ -193,6 +232,33 @@ impl CompiledLists {
         out
     }
 
+    /// The unified-log predicates to query: one per verified `unifiedlog` evidence entry.
+    pub fn unifiedlog_targets(&self) -> Vec<UnifiedLogTarget> {
+        let mut out = Vec::new();
+        for t in &self.tools {
+            for (i, e) in t.unifiedlog_evidence.iter().enumerate() {
+                out.push(UnifiedLogTarget {
+                    tool_id: t.id.clone(),
+                    evidence_index: i,
+                    predicate: e.predicate.clone(),
+                });
+            }
+        }
+        out
+    }
+
+    /// The macOS log files to tail. Same as [`CompiledLists::log_targets`] (macOS and Windows log
+    /// evidence share one list; a template whose token does not exist on the OS expands to
+    /// nothing), so a macOS service passes a `PathEnv` with `homes` filled.
+    pub fn macos_log_targets(&self, env: &PathEnv) -> Vec<LogTarget> {
+        self.log_targets(env)
+    }
+
+    /// Every Team ID of every tool (used for the renamed-binary signer check).
+    pub fn all_team_ids(&self) -> impl Iterator<Item = &str> {
+        self.tools.iter().flat_map(|t| t.team_ids.iter().map(String::as_str))
+    }
+
     /// The event-log channels to query: `(tool id, channel, event ids)` for verified evidence.
     pub fn eventlog_targets(&self) -> Vec<(&str, &str, &[u32])> {
         self.tools
@@ -214,6 +280,25 @@ pub struct LogTarget {
     pub path: String,
 }
 
+/// A unified-log query the service should run (and hand back as `UnifiedLogRecord`s with this
+/// `predicate`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnifiedLogTarget {
+    pub tool_id: String,
+    pub evidence_index: usize,
+    pub predicate: String,
+}
+
+/// Whether `p` is exactly `process == "<name>"` or `subsystem == "<name>"`, with `<name>` 1-64
+/// characters of `[A-Za-z0-9._-]`. A list update can therefore never inject another `log` predicate.
+pub fn valid_log_predicate(p: &str) -> bool {
+    let rest = p.strip_prefix("process == \"").or_else(|| p.strip_prefix("subsystem == \""));
+    let Some(name) = rest.and_then(|r| r.strip_suffix('"')) else {
+        return false;
+    };
+    (1..=64).contains(&name.len()) && name.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
 fn compile_tool(t: &RemoteAccessTool, warnings: &mut Vec<String>) -> CompiledTool {
     let w = &t.windows;
     let mut display_name_patterns = Vec::new();
@@ -226,7 +311,9 @@ fn compile_tool(t: &RemoteAccessTool, warnings: &mut Vec<String>) -> CompiledToo
     let mut log_evidence = Vec::new();
     let mut eventlog_evidence = Vec::new();
     let mut process_evidence = Vec::new();
-    for e in w.session_evidence.iter().filter(|e| e.is_verified()) {
+    let mut unifiedlog_evidence = Vec::new();
+    let all_evidence = w.session_evidence.iter().chain(t.macos.session_evidence.iter());
+    for e in all_evidence.filter(|e| e.is_verified()) {
         match e {
             SessionEvidence::Log { path, pattern, .. } => match Regex::new(pattern) {
                 Ok(r) => log_evidence.push(CompiledLog {
@@ -235,6 +322,22 @@ fn compile_tool(t: &RemoteAccessTool, warnings: &mut Vec<String>) -> CompiledToo
                 }),
                 Err(_) => warnings.push(format!("skipped uncompilable session log pattern for tool {}", t.id)),
             },
+            SessionEvidence::Unifiedlog { predicate, pattern, .. } => {
+                if !valid_log_predicate(predicate) {
+                    warnings.push(format!(
+                        "skipped unified-log evidence with a disallowed predicate for tool {}",
+                        t.id
+                    ));
+                } else {
+                    match Regex::new(pattern) {
+                        Ok(r) => unifiedlog_evidence.push(CompiledUnifiedLog {
+                            predicate: predicate.clone(),
+                            pattern: r,
+                        }),
+                        Err(_) => warnings.push(format!("skipped uncompilable unified-log pattern for tool {}", t.id)),
+                    }
+                }
+            }
             SessionEvidence::Eventlog { channel, event_ids, .. } if !event_ids.is_empty() => {
                 eventlog_evidence.push(CompiledEventLog {
                     channel: channel.clone(),
@@ -254,12 +357,15 @@ fn compile_tool(t: &RemoteAccessTool, warnings: &mut Vec<String>) -> CompiledToo
         process_names: w.process_names.clone(),
         log_evidence,
         eventlog_evidence,
+        bundle_ids: t.macos.bundle_ids.clone(),
+        team_ids: t.macos.team_ids.clone(),
+        unifiedlog_evidence,
         process_evidence,
     }
 }
 
 /// Environment for expanding `%ProgramData%`, `%ProgramFiles%`, `%ProgramFiles(x86)%` and
-/// `%AppData%` in session-log paths. The service fills it from the OS.
+/// `%AppData%` (Windows) and `%Home%` (macOS) in session-log paths. The service fills it from the OS.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PathEnv {
     /// Machine tokens, keyed by name without percent signs (`ProgramData`, `ProgramFiles`,
@@ -269,10 +375,13 @@ pub struct PathEnv {
     /// Each loaded profile's `%AppData%` (one entry per user).
     #[serde(default)]
     pub app_data: Vec<String>,
+    /// macOS: each local user's home directory, for `%Home%`.
+    #[serde(default)]
+    pub homes: Vec<String>,
 }
 
 impl PathEnv {
-    /// Expands `template`. `%AppData%` yields one path per profile; a template whose token is
+    /// Expands `template`. `%AppData%` yields one path per profile and `%Home%` one per home directory; a template whose token is
     /// unknown (or `%AppData%` with no profiles) yields nothing. Duplicates are removed.
     pub fn expand(&self, template: &str) -> Vec<String> {
         let mut results = vec![String::new()];
@@ -287,6 +396,8 @@ impl PathEnv {
                     let token = &tail[1..1 + end];
                     let values: Vec<&str> = if token.eq_ignore_ascii_case("AppData") {
                         self.app_data.iter().map(String::as_str).collect()
+                    } else if token.eq_ignore_ascii_case("Home") {
+                        self.homes.iter().map(String::as_str).collect()
                     } else {
                         self.vars
                             .iter()
@@ -300,7 +411,7 @@ impl PathEnv {
                     }
                     results = results
                         .iter()
-                        .flat_map(|r| values.iter().map(move |v| format!("{r}{}", v.trim_end_matches('\\'))))
+                        .flat_map(|r| values.iter().map(move |v| format!("{r}{}", v.trim_end_matches(['\\', '/']))))
                         .collect();
                     rest = &tail[end + 2..];
                 }

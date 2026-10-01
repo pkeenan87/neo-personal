@@ -55,6 +55,7 @@ impl FakeProbe {
         p.snap.lock().unwrap().env = PathEnv {
             vars: HashMap::from([("ProgramData".to_string(), r"C:\ProgramData".to_string())]),
             app_data: vec![r"C:\Users\Gran\AppData\Roaming".to_string()],
+            ..Default::default()
         };
         p
     }
@@ -374,6 +375,7 @@ pub fn process(name: &str, signer: Option<&str>) -> ProcessInfo {
         image_name: name.into(),
         image_path: format!(r"C:\Users\Gran\Downloads\{name}"),
         signer: signer.map(str::to_string),
+        ..Default::default()
     }
 }
 

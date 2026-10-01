@@ -36,6 +36,8 @@ describe("privacy policy page", () => {
     expect(screen.getByText(/domain of a page that looked like a scam \(never the/)).toBeInTheDocument();
     expect(screen.getByText(/remote peer ID during a remote-access session/)).toBeInTheDocument();
     expect(screen.getByText(/screen-recording or accessibility permission grants/)).toBeInTheDocument();
+    expect(screen.getByText(/On a Mac, with your permission \(Full Disk Access\), Neo\s+also checks which apps were newly allowed to record your screen/)).toBeInTheDocument();
+    expect(screen.getByText(/sends only the app's name and which permission changed/)).toBeInTheDocument();
     expect(screen.getByText("Signal records")).toBeInTheDocument();
     expect(screen.getByText(/a protected device reports are kept for 30 days\./)).toBeInTheDocument();
     expect(screen.getByText(/mark a remote-access tool as expected on a device/)).toBeInTheDocument();
