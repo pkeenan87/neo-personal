@@ -259,7 +259,7 @@ jobs:
           set -euo pipefail
           n="${{ steps.setup.outputs.n }}"
           cargo build --release --locked -p neo-agent
-          export NEO_AGENT_EXE="$(cygpath -w "$PWD/target/release/neo-agent.exe")"
+          export TAURI_NEO_AGENT_EXE="$(cygpath -w "$PWD/target/release/neo-agent.exe")"
           pnpm exec tauri build --bundles msi --config "{\"version\":\"$n\"}"
           cp "target/release/bundle/msi/Neo_${n}_x64_en-US.msi" "$RUNNER_TEMP/msi/neo-$n.msi"
           ls -la "$RUNNER_TEMP/msi"
@@ -340,7 +340,7 @@ jobs:
           n1="${{ steps.setup.outputs.n1 }}"
           sed -i "0,/^version = \".*\"/s//version = \"$n1\"/" Cargo.toml
           cargo build --release -p neo-agent
-          export NEO_AGENT_EXE="$(cygpath -w "$PWD/target/release/neo-agent.exe")"
+          export TAURI_NEO_AGENT_EXE="$(cygpath -w "$PWD/target/release/neo-agent.exe")"
           pnpm exec tauri build --bundles msi --config "{\"version\":\"$n1\"}"
           cp "target/release/bundle/msi/Neo_${n1}_x64_en-US.msi" "$RUNNER_TEMP/serve/neo-update.msi"
           cp "target/release/bundle/msi/Neo_${n1}_x64_en-US.msi" "$RUNNER_TEMP/msi/neo-$n1.msi"

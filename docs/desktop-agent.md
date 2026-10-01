@@ -111,7 +111,7 @@ Set these when building; none is read at run time, so a local user cannot redire
 | `NEO_DESKTOP_UPDATE_URL` | `neo-agent` | the `desktop-latest` release's `latest.json` |
 | `NEO_DESKTOP_UPDATE_PUBKEY` | `neo-agent` | unset: updates are off. The base64 of the `.pub` file (the same value as `plugins.updater.pubkey` in a Tauri config). |
 | `NEO_ALLOW_UNSIGNED_UPDATE` | `neo-agent` | unset. CI only. |
-| `NEO_AGENT_EXE` | the WiX fragment | none; **required** to build the MSI: the absolute path of `neo-agent.exe`. |
+| `TAURI_NEO_AGENT_EXE` | the WiX fragment | none; **required** to build the MSI: the absolute path of `neo-agent.exe`. |
 
 ## Developing on Linux
 
@@ -188,7 +188,7 @@ is easiest to watch on a VM.
    pnpm install
    cd apps\desktop
    cargo build --release -p neo-agent
-   $env:NEO_AGENT_EXE = (Resolve-Path target\release\neo-agent.exe).Path
+   $env:TAURI_NEO_AGENT_EXE = (Resolve-Path target\release\neo-agent.exe).Path
    pnpm exec tauri build --bundles msi
    ```
    The MSI is in `apps\desktop\target\release\bundle\msi\`. It is unsigned, so SmartScreen and Defender may warn: that is

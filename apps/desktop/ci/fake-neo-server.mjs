@@ -56,7 +56,7 @@ createServer((req, res) => {
   const chunks = [];
   req.on("data", (c) => chunks.push(c));
   req.on("end", () => {
-    if (!route) {
+    if (typeof route !== "function") {
       res.writeHead(404, { "content-type": "application/json" });
       return res.end(JSON.stringify({ error: "no such route", code: "not_found" }));
     }

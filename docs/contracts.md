@@ -775,4 +775,4 @@ type SessionEvidence =
   - `subscribe` makes the connection push-only; clients use a second connection for requests. Blank lines are keep-alives.
   - A warning may be pushed twice with the same `eventId`: first `ownerTold: false`, then `ownerTold: true` once the server accepted it at `medium`+.
   - Error codes: `request_too_large`, `invalid_json`, `invalid_request`, `unknown_op`, `not_enrolled`, `already_enrolled`, `invalid_code`, `invalid_server_url`, `server_unreachable`, `rate_limited`, `device_limit`, `disconnected`, `no_sign_in`, `storage_failed`, `server_error` (tray adds `agent_unavailable`). At most 32 connections; an oversize request is answered once and the connection closed.
-- The MSI installs `neo-agent.exe` through its own WiX component (not Tauri `externalBin`); build-time `NEO_AGENT_EXE` points at it. Build-time `NEO_DESKTOP_UPDATE_PUBKEY` (unset = updates off) and CI-only `NEO_ALLOW_UNSIGNED_UPDATE`.
+- The MSI installs `neo-agent.exe` through its own WiX component (not Tauri `externalBin`); build-time `TAURI_NEO_AGENT_EXE` points at it. Build-time `NEO_DESKTOP_UPDATE_PUBKEY` (unset = updates off) and CI-only `NEO_ALLOW_UNSIGNED_UPDATE`.

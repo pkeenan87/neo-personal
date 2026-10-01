@@ -4,7 +4,8 @@
   Tauri bundler together with its own main.wxs (`bundle.windows.wix.fragmentPaths`); the Components
   are pulled into the product by `componentRefs` in tauri.conf.json.
 
-  The service executable comes from the environment: set NEO_AGENT_EXE to the absolute path of the
+  The service executable comes from the environment: set TAURI_NEO_AGENT_EXE (the bundler clears the
+  environment before running candle and keeps only TAURI*-prefixed variables, hence the prefix) to the absolute path of the
   built (and, for a release, signed) neo-agent.exe before running `tauri build`. It is not a Tauri
   externalBin because WiX needs the service executable to be the key file of the Component that
   carries ServiceInstall, and the bundler's generated Components cannot be extended.
@@ -16,7 +17,7 @@
   <Fragment>
     <DirectoryRef Id="INSTALLDIR">
       <Component Id="NeoAgentService" Guid="b3c1f7a0-5d42-4c6e-8a19-0f2e7d9b4a61" Win64="yes">
-        <File Id="NeoAgentExe" Name="neo-agent.exe" Source="$(env.NEO_AGENT_EXE)" KeyPath="yes" Checksum="yes" />
+        <File Id="NeoAgentExe" Name="neo-agent.exe" Source="$(env.TAURI_NEO_AGENT_EXE)" KeyPath="yes" Checksum="yes" />
         <ServiceInstall
           Id="NeoAgentServiceInstall"
           Name="NeoAgent"

@@ -146,7 +146,7 @@ jobs:
         working-directory: apps/desktop
         run: |
           set -euo pipefail
-          export NEO_AGENT_EXE="$(cygpath -w "$PWD/target/release/neo-agent.exe")"
+          export TAURI_NEO_AGENT_EXE="$(cygpath -w "$PWD/target/release/neo-agent.exe")"
           pnpm exec tauri bundle --bundles msi
           ls -la target/release/bundle/msi
 
