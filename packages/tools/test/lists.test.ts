@@ -12,6 +12,28 @@ import {
   detectionLists,
 } from "../src/lists.js";
 
+/** Returns why `source` is outside the JS/Rust `regex` shared subset, or null. Skips escaped characters. */
+function violatesSharedRegexSubset(source: string): string | null {
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i];
+    if (c === "\\") {
+      const next = source[i + 1] ?? "";
+      if (/[1-9]/.test(next)) return "backreference";
+      if (next === "k") return "named backreference";
+      i++;
+      continue;
+    }
+    if (c === "(" && source[i + 1] === "?") {
+      const rest = source.slice(i + 2);
+      if (rest.startsWith(":")) continue;
+      const named = /^<([A-Za-z_][A-Za-z0-9_]*)>/.exec(rest);
+      if (named) continue;
+      return "lookaround, inline flag or unsupported group";
+    }
+  }
+  return null;
+}
+
 const TOOL_ID_RE = /^[a-z0-9_-]+$/;
 
 // A handful of domains (e.g. "gov.uk") are themselves a full public suffix in tldts's
@@ -56,6 +78,56 @@ describe("remote-access-tools.json", () => {
       for (const pattern of tool.installerPatterns) expect(() => new RegExp(pattern, "i")).not.toThrow();
       for (const pattern of tool.windows.displayNamePatterns) expect(() => new RegExp(pattern, "i")).not.toThrow();
     }
+  });
+
+  it("keeps every regex in the JS/Rust shared subset", () => {
+    const patterns: string[] = [];
+    for (const tool of REMOTE_ACCESS_TOOLS) {
+      patterns.push(...tool.installerPatterns, ...tool.windows.displayNamePatterns);
+      for (const ev of tool.windows.sessionEvidence) if (ev.kind === "log") patterns.push(ev.pattern);
+    }
+    expect(patterns.length).toBeGreaterThan(0);
+    for (const pattern of patterns) {
+      expect(() => new RegExp(pattern, "i"), pattern).not.toThrow();
+      expect(violatesSharedRegexSubset(pattern), pattern).toBeNull();
+    }
+  });
+
+  it("the shared-subset check rejects what Rust regex cannot compile", () => {
+    for (const bad of ["a(?=b)", "a(?!b)", "(?<=a)b", "(?<!a)b", "(a)\\1", "(?<x>a)\\k<x>", "(?i)abc", "(?P<x>a)", "(?P=x)", "(?s:a)"]) {
+      expect(violatesSharedRegexSubset(bad), bad).not.toBeNull();
+    }
+    expect(violatesSharedRegexSubset("^Incoming\\s.*?\\s(?<peer>\\d{6,12})\\s")).toBeNull();
+    expect(violatesSharedRegexSubset("(?:a|b)\\\\1")).toBeNull();
+  });
+
+  it("validates sessionEvidence shape", () => {
+    const allowedTokens = new Set(["%ProgramData%", "%ProgramFiles%", "%ProgramFiles(x86)%", "%AppData%"]);
+    for (const tool of REMOTE_ACCESS_TOOLS) {
+      expect(Array.isArray(tool.windows.sessionEvidence), tool.id).toBe(true);
+      for (const ev of tool.windows.sessionEvidence) {
+        expect(typeof ev.verified, tool.id).toBe("boolean");
+        if (ev.checked !== undefined) expect(ev.checked).toMatch(/\S+ \d{4}-\d{2}-\d{2}$/);
+        if (ev.kind === "log") {
+          expect(ev.path.length).toBeGreaterThan(0);
+          for (const token of ev.path.match(/%[^%]*%/g) ?? []) expect(allowedTokens.has(token), `${tool.id}: ${token}`).toBe(true);
+          expect(typeof ev.pattern).toBe("string");
+        } else if (ev.kind === "eventlog") {
+          expect(ev.channel.length).toBeGreaterThan(0);
+          expect(Array.isArray(ev.eventIds) && ev.eventIds.every((n) => Number.isInteger(n))).toBe(true);
+        } else if (ev.kind === "process") {
+          expect(ev.name.length).toBeGreaterThan(0);
+        } else {
+          throw new Error(`${tool.id}: unknown sessionEvidence kind`);
+        }
+      }
+    }
+  });
+
+  it("ships every sessionEvidence candidate unverified until the VM task", () => {
+    for (const tool of REMOTE_ACCESS_TOOLS) for (const ev of tool.windows.sessionEvidence) expect(ev.verified, tool.id).toBe(false);
+    expect(findRemoteAccessTool("anydesk")?.windows.sessionEvidence).toHaveLength(2);
+    expect(findRemoteAccessTool("rustdesk")?.windows.sessionEvidence).toEqual([]);
   });
 
   it("every vendorDomain equals its own registrable domain", () => {

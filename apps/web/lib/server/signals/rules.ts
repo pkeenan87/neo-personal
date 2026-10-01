@@ -128,6 +128,16 @@ export function evaluateEvent(event: SignalEvent, ctx: RuleContext): RuleOutcome
 
     case "remote_access_tool": {
       const expected = ctx.expectedTools.some((t) => t.toolId === event.toolId);
+      if (event.discovery === "baseline") {
+        // Already installed when the desktop agent enrolled: surface it so the owner can mark it expected, but not as a fresh install.
+        return {
+          outcome: "alerted",
+          severity: expected ? "low" : "medium",
+          alertKind: "remote_access",
+          verdictLabel: "suspicious",
+          reasonCodes: [expected ? "expected_remote_tool" : "baseline_remote_tool"],
+        };
+      }
       return {
         outcome: "alerted",
         severity: expected ? "low" : "high",

@@ -1,0 +1,19 @@
+What Neo does
+
+Neo protects this computer from remote-access scams. In a typical scam, someone calls you, gets you to install a program such as AnyDesk or to open Quick Assist, and then takes control of the computer.
+
+Neo watches for that and does two things:
+  1. It tells the person at the keyboard, at once and in plain words.
+  2. It tells the household owner who set Neo up, by email, within a minute.
+
+What Neo checks on this computer: the programs that are installed, the programs that are running, the services that are installed, and the log files that remote-access tools write when someone connects.
+
+What Neo sends: only the name of a remote-access tool or flagged program when one appears, a remote peer ID during an incoming session, and the fingerprint (SHA-256) of an unsigned new program so it can be checked. Neo never sends the list of your programs, your files or your browsing.
+
+How it works: a Windows service called "Neo Protection" runs in the background and holds the sign-in token for this computer. The Neo icon next to the clock shows that protection is on. You can stop protection from that icon; the household owner will be told.
+
+Neo does not block, remove or close anything. It warns.
+
+Neo is open source and MIT licensed: https://github.com/pkeenan87/neo-personal
+
+MIT License. Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software. The software is provided "as is", without warranty of any kind.

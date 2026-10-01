@@ -1,0 +1,237 @@
+name: Desktop release
+
+# Builds the Windows desktop agent (MSI) for a tagged release, signs it, and publishes it with the
+# update manifest. Nothing ships unsigned: if the signing configuration is missing, this workflow
+# fails before it builds anything. Setup, provider choice and the checklist: docs/desktop-agent.md
+# ("Releasing").
+#
+#   git tag desktop-v0.2.0 && git push origin desktop-v0.2.0
+#
+# The tag must match `version` in apps/desktop/Cargo.toml.
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+# Default to no token scopes; the job opts into exactly what it needs.
+permissions: {}
+
+jobs:
+  release:
+    name: Build, sign and publish
+    runs-on: windows-2025
+    timeout-minutes: 90
+    permissions:
+      contents: write # create the release and upload its assets
+    env:
+      CARGO_TERM_COLOR: always
+      TURBO_TELEMETRY_DISABLED: "1"
+      # Repository variables (public values): which signing service, and the public half of the
+      # update-signing key that is compiled into the agent.
+      SIGNING_PROVIDER: ${{ vars.DESKTOP_SIGNING_PROVIDER }}
+      NEO_DESKTOP_UPDATE_PUBKEY: ${{ vars.NEO_DESKTOP_UPDATE_PUBKEY }}
+      ARTIFACT_SIGNING_ENDPOINT: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+      ARTIFACT_SIGNING_ACCOUNT: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+      ARTIFACT_SIGNING_PROFILE: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+      # Repository secrets.
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.DESKTOP_UPDATE_SIGNING_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.DESKTOP_UPDATE_SIGNING_KEY_PASSWORD }}
+    steps:
+      # Secrets cannot be tested in `if:`, so the gate reads them from the environment. It runs
+      # first: a release with no way to sign must fail before it spends 20 minutes building.
+      - name: Require the signing configuration
+        shell: bash
+        run: |
+          missing=()
+          [[ -n "${NEO_DESKTOP_UPDATE_PUBKEY:-}" ]] || missing+=("variable NEO_DESKTOP_UPDATE_PUBKEY")
+          [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]] || missing+=("secret DESKTOP_UPDATE_SIGNING_KEY")
+          case "${SIGNING_PROVIDER:-}" in
+            azure)
+              [[ -n "${AZURE_TENANT_ID:-}" ]] || missing+=("secret AZURE_TENANT_ID")
+              [[ -n "${AZURE_CLIENT_ID:-}" ]] || missing+=("secret AZURE_CLIENT_ID")
+              [[ -n "${AZURE_CLIENT_SECRET:-}" ]] || missing+=("secret AZURE_CLIENT_SECRET")
+              [[ -n "${ARTIFACT_SIGNING_ENDPOINT:-}" ]] || missing+=("variable ARTIFACT_SIGNING_ENDPOINT")
+              [[ -n "${ARTIFACT_SIGNING_ACCOUNT:-}" ]] || missing+=("variable ARTIFACT_SIGNING_ACCOUNT")
+              [[ -n "${ARTIFACT_SIGNING_PROFILE:-}" ]] || missing+=("variable ARTIFACT_SIGNING_PROFILE")
+              ;;
+            "")
+              missing+=("variable DESKTOP_SIGNING_PROVIDER (azure)")
+              ;;
+            *)
+              echo "::error::DESKTOP_SIGNING_PROVIDER='${SIGNING_PROVIDER}' is not wired into this workflow yet. Only 'azure' is. See docs/desktop-agent.md (Releasing) for the SignPath steps."
+              exit 1
+              ;;
+          esac
+          if [[ -n "${NEO_ALLOW_UNSIGNED_UPDATE:-}" ]]; then
+            echo "::error::NEO_ALLOW_UNSIGNED_UPDATE is a CI-only build flag and must never be set for a release."
+            exit 1
+          fi
+          if (( ${#missing[@]} )); then
+            printf '::error::Nothing ships unsigned. Missing release configuration: %s\n' "${missing[*]}"
+            exit 1
+          fi
+          echo "Signing configuration present (provider: ${SIGNING_PROVIDER})."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: The tag must match the version in Cargo.toml
+        id: version
+        shell: bash
+        run: |
+          version="$(grep -m1 '^version = ' apps/desktop/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          if [[ "${GITHUB_REF_NAME}" != "desktop-v${version}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match apps/desktop/Cargo.toml version ${version}."
+            exit 1
+          fi
+          echo "version=${version}" >>"$GITHUB_OUTPUT"
+
+      # No `version:` input: the action reads `packageManager` from package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install JS dependencies
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Rust toolchain
+        shell: bash
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          rustc --version
+
+      - name: Test before shipping
+        shell: bash
+        run: |
+          pnpm turbo run typecheck lint test --filter=@neo/desktop...
+          cd apps/desktop && cargo test --locked --workspace
+
+      # Build the programs first, unbundled, so they can be signed before they go into the MSI.
+      - name: Build the agent, the tray app and the UI
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          cargo build --release --locked -p neo-agent
+          pnpm exec tauri build --no-bundle
+          ls -la target/release/neo-agent.exe target/release/neo.exe
+
+      - name: Sign the programs (Azure Artifact Signing)
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          files: |
+            ${{ github.workspace }}\apps\desktop\target\release\neo-agent.exe
+            ${{ github.workspace }}\apps\desktop\target\release\neo.exe
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      - name: Bundle the MSI from the signed programs
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          export TAURI_NEO_AGENT_EXE="$(cygpath -w "$PWD/target/release/neo-agent.exe")"
+          pnpm exec tauri bundle --bundles msi
+          ls -la target/release/bundle/msi
+
+      - name: Sign the MSI (Azure Artifact Signing)
+        uses: Azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ vars.ARTIFACT_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.ARTIFACT_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.ARTIFACT_SIGNING_PROFILE }}
+          files-folder: ${{ github.workspace }}\apps\desktop\target\release\bundle\msi
+          files-folder-filter: msi
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+
+      # The check that makes "nothing ships unsigned" true even if a signing step silently skipped
+      # a file: every program and the MSI must carry a valid Authenticode signature, and the
+      # signer of the MSI must be the signer of the agent (the service's update check needs that).
+      - name: Verify every signature
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem 'apps/desktop/target/release/bundle/msi/*.msi' | Select-Object -First 1
+          $files = @('apps/desktop/target/release/neo-agent.exe', 'apps/desktop/target/release/neo.exe', $msi.FullName)
+          $subjects = @()
+          foreach ($f in $files) {
+            $sig = Get-AuthenticodeSignature $f
+            Write-Host "$f : $($sig.Status) : $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne 'Valid') { throw "$f is not validly signed ($($sig.Status))" }
+            $subjects += $sig.SignerCertificate.Subject
+          }
+          if (($subjects | Select-Object -Unique).Count -ne 1) { throw 'the programs and the MSI have different signers' }
+          "MSI_PATH=$($msi.FullName)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+          "MSI_NAME=$($msi.Name)" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+
+      - name: Sign the update manifest entry (minisign) and write latest.json
+        shell: bash
+        working-directory: apps/desktop
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/release"
+          mkdir -p "$out"
+          cp "$MSI_PATH" "$out/$MSI_NAME"
+          # The signature is written next to the file as <name>.sig.
+          pnpm exec tauri signer sign "$out/$MSI_NAME"
+          node ci/make-latest-json.mjs \
+            --version "$VERSION" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${MSI_NAME}" \
+            --sig-file "$out/$MSI_NAME.sig" \
+            --notes "Neo desktop agent ${VERSION}" \
+            --out "$out/latest.json"
+          cat "$out/latest.json"
+          # The compiled-in public key must verify what the private key just signed; if the
+          # variable and the secret are from different key pairs, no installed agent could update.
+          node -e '
+            const fs = require("fs");
+            const m = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+            const sig = Buffer.from(m.platforms["windows-x86_64"].signature, "base64").toString();
+            const pub = Buffer.from(process.env.NEO_DESKTOP_UPDATE_PUBKEY, "base64").toString();
+            const keyId = (t) => Buffer.from(t.split("\n")[1], "base64").subarray(2, 10).toString("hex");
+            if (keyId(sig) !== keyId(pub)) { console.error("The update-signing secret and the public-key variable are not a pair."); process.exit(1); }
+            console.log("update key id matches:", keyId(pub));
+          ' "$out/latest.json"
+
+      - name: Publish the release and the update manifest
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/release"
+          gh release create "$TAG" \
+            --title "Neo for Windows ${TAG#desktop-v}" \
+            --generate-notes \
+            --latest=false \
+            "$out/$MSI_NAME" "$out/$MSI_NAME.sig" "$out/latest.json"
+          # The agent reads a fixed address, so the manifest is also kept on a rolling pre-release
+          # (`releases/latest` would point at whichever release, extension or desktop, is newest).
+          gh release view desktop-latest >/dev/null 2>&1 || gh release create desktop-latest \
+            --prerelease --title "Desktop update manifest" \
+            --notes "Rolling release holding latest.json, which installed agents check daily. Do not delete."
+          gh release upload desktop-latest "$out/latest.json" --clobber

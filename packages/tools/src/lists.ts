@@ -4,9 +4,9 @@ import pupPublishersData from "./data/pup-publishers.json" with { type: "json" }
 import scamPagePhrasesData from "./data/scam-page-phrases.json" with { type: "json" };
 import skipDomainsData from "./data/skip-domains.json" with { type: "json" };
 import { BRANDS, brandId } from "./brands.js";
-import type { DetectionListsPayload, ListBrand, PupPublisher, RemoteAccessTool, ScamPagePhrase, ScamPhraseKind } from "./listsTypes.js";
+import type { DetectionListsPayload, ListBrand, PupPublisher, RemoteAccessTool, ScamPagePhrase, ScamPhraseKind, SessionEvidence } from "./listsTypes.js";
 
-export type { DetectionListsPayload, ListBrand, PupPublisher, RemoteAccessTool, ScamPagePhrase, ScamPhraseKind };
+export type { DetectionListsPayload, ListBrand, PupPublisher, RemoteAccessTool, ScamPagePhrase, ScamPhraseKind, SessionEvidence };
 
 export const REMOTE_ACCESS_TOOLS: readonly RemoteAccessTool[] = remoteAccessToolsData.tools as RemoteAccessTool[];
 

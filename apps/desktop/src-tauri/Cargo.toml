@@ -1,0 +1,27 @@
+[package]
+name = "neo-desktop"
+description = "Neo: the tray app of the desktop agent (enrollment, status, warnings). It never holds the device token."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "neo"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = "=2.7.1"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tauri = { version = "=2.12.1", features = ["tray-icon", "image-png"] }
+tauri-plugin-notification = "=2.5.1"
+tauri-plugin-opener = "=2.7.0"
+tauri-plugin-single-instance = "=2.5.2"
+time.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

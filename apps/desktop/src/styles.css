@@ -1,0 +1,98 @@
+:root {
+  color-scheme: light;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  color: #1f2530;
+  background: #ffffff;
+}
+body {
+  margin: 0;
+}
+.page {
+  padding: 20px 24px;
+  font-size: 16px;
+  line-height: 1.45;
+}
+.page h1 {
+  font-size: 22px;
+  margin: 0 0 12px;
+}
+label {
+  display: block;
+  margin: 12px 0;
+  color: #4a5361;
+}
+input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 4px;
+  padding: 8px 10px;
+  font-size: 16px;
+}
+button {
+  font-size: 16px;
+  padding: 9px 16px;
+  margin: 6px 8px 6px 0;
+  border: 1px solid #b8bec8;
+  background: #f4f5f7;
+  border-radius: 6px;
+  cursor: pointer;
+}
+button.primary {
+  background: #1f4fd8;
+  border-color: #1f4fd8;
+  color: #fff;
+}
+button.danger {
+  background: #c0392b;
+  border-color: #c0392b;
+  color: #fff;
+}
+button.link {
+  border: none;
+  background: none;
+  color: #1f4fd8;
+  text-decoration: underline;
+  padding: 0;
+}
+button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.error {
+  color: #c0392b;
+}
+.muted {
+  color: #6b727c;
+}
+.code {
+  font-size: 28px;
+  letter-spacing: 3px;
+  font-weight: 600;
+}
+.result {
+  padding: 10px;
+  border-radius: 6px;
+  background: #f4f5f7;
+  margin-top: 12px;
+}
+/* The critical window: plain and large. */
+.warning {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: 28px 32px;
+  background: #fdecea;
+  border-top: 10px solid #c0392b;
+  font-size: 22px;
+  line-height: 1.4;
+}
+.warning h1 {
+  font-size: 30px;
+  margin: 0 0 16px;
+  color: #8f1d12;
+}
+.warning .big {
+  font-size: 22px;
+  padding: 12px 28px;
+  margin-top: 12px;
+}

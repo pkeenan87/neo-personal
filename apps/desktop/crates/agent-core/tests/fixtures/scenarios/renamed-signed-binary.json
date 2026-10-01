@@ -1,0 +1,39 @@
+{
+  "name": "renamed-signed-binary",
+  "description": "AnyDesk renamed to support.exe: the name does not match, the signer does.",
+  "lists": "../lists.json",
+  "steps": [
+    {
+      "atSeconds": 0,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "processes": [
+          {
+            "pid": 77,
+            "image_name": "support.exe",
+            "image_path": "C:\\Users\\Gran\\Downloads\\support.exe",
+            "signer": "AnyDesk Software GmbH"
+          },
+          {
+            "pid": 78,
+            "image_name": "notepad.exe",
+            "image_path": "C:\\Windows\\notepad.exe",
+            "signer": "Microsoft Windows"
+          }
+        ]
+      },
+      "expect": [
+        "remote_access_tool:anydesk:new"
+      ]
+    }
+  ]
+}

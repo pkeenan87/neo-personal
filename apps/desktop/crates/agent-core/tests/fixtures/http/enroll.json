@@ -1,0 +1,35 @@
+{
+  "status": 201,
+  "headers": {
+    "Cache-Control": "no-store"
+  },
+  "body": {
+    "token": "neo_dt_fixturetoken",
+    "tokenId": "t1",
+    "device": {
+      "id": "d0000000-0000-4000-8000-000000000001",
+      "userId": "u1",
+      "memberName": "Grandma",
+      "kind": "desktop_agent",
+      "platform": "windows",
+      "name": "GRANDMA-PC",
+      "clientVersion": "0.1.0",
+      "enrollment": "code",
+      "enrolledByName": "Pat",
+      "createdAt": "2026-10-01T09:00:00.000Z",
+      "lastSeenAt": null,
+      "status": "never_seen",
+      "expectedTools": [
+        {
+          "toolId": "anydesk",
+          "name": "AnyDesk",
+          "peerIds": [
+            "123456789"
+          ]
+        }
+      ]
+    },
+    "householdName": "The Keenans",
+    "memberName": "Grandma"
+  }
+}

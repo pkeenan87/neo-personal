@@ -16,6 +16,8 @@ paths = [
   '''(^|/)test/fixtures/''',
   '''(^|/)__fixtures__/''',
   '''(^|/)fixtures/.*\.(eml|json|txt|html)$''',
+  # Test-only minisign public keys and detached signatures (no private keys are committed).
+  '''(^|/)fixtures/.*\.(pub|sig)$''',
   # Lockfiles contain integrity hashes that look like high-entropy strings.
   '''(^|/)pnpm-lock\.yaml$''',
 ]

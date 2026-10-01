@@ -28,7 +28,7 @@ import {
   type DevicePublic,
   type HouseholdMember,
 } from "@neo/db";
-import type { Verdict } from "@neo/verdict";
+import type { SignalDetector, Verdict } from "@neo/verdict";
 import { inngest } from "@/inngest/client";
 import type { AlertItem, AlertListResponse, AlertThreshold } from "@/lib/alert-types";
 import { env, inboundEnv } from "@/lib/env";
@@ -241,8 +241,9 @@ export async function alertDeviceOffline(device: DevicePublic): Promise<boolean>
 export type SignalAlertKind = "scam_page" | "dangerous_site" | "remote_access" | "unwanted_software" | "permission_grant";
 
 /**
- * Raise a device-signal alert. Dedupe `<kind>:<deviceId>:<subject>:<UTC hour>`, so the same
- * tool/domain/app on the same device alerts at most once an hour. Owners' own devices alert
+ * Raise a device-signal alert. Dedupe `<kind>:<deviceId>:<detector>:<subject>:<UTC hour>`, so the
+ * same detector and tool/domain/app on the same device alerts at most once an hour (an install
+ * alert never swallows a later session alert for the same tool). Owners' own devices alert
  * like everyone else's (decided 2026-09-29, _specs/signals.md): no `alertableMember` gate here.
  */
 export async function alertSignal(input: {
@@ -250,6 +251,8 @@ export async function alertSignal(input: {
   userId: string;
   deviceId: string;
   kind: SignalAlertKind;
+  /** The event's detector (`SignalEvent.detector`), part of the dedupe key. */
+  detector: SignalDetector;
   /** The domain, toolId or app name the event is about (device_signals.subject). */
   subject: string;
   verdictId?: string | null;
@@ -265,7 +268,7 @@ export async function alertSignal(input: {
     title: input.text.title,
     body: input.text.body,
     ...(input.verdictId ? { verdictId: input.verdictId } : {}),
-    dedupeKey: `${input.kind}:${input.deviceId}:${input.subject}:${hourBucket(input.now)}`,
+    dedupeKey: `${input.kind}:${input.deviceId}:${input.detector}:${input.subject}:${hourBucket(input.now)}`,
   });
 }
 

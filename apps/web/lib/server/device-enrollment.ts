@@ -40,7 +40,7 @@ import { renderDeviceEnrolledEmail } from "./email/household-email";
 import { getMailer } from "./email/resend";
 import type { Outcome } from "./household";
 import { takeRateSlot } from "./rate-limit";
-import { expectedToolsByDevice } from "./signals/expected-tools";
+import { expectedToolsByDevice, expectedToolsForDevice } from "./signals/expected-tools";
 import { uninstallUrl, verifyDeviceSignature } from "./uninstall";
 import { household } from "./verdict-data";
 
@@ -244,7 +244,7 @@ export async function heartbeat(
   return {
     ok: true,
     value: {
-      device: toDeviceItem(device),
+      device: toDeviceItem(device, new Date(), await expectedToolsForDevice(session.tenantId, deviceId)),
       householdName: (await household(session)).name,
       memberName: device.memberName,
       heartbeatSeconds: HEARTBEAT_SECONDS,

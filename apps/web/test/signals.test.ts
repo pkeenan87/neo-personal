@@ -244,6 +244,20 @@ describe("expected tools + remote-access sessions", () => {
   });
 });
 
+describe("expected tool installs", () => {
+  it("an install of a tool marked expected raises a low alert, not high", async () => {
+    const { token, deviceId } = await enrollDevice(GRAN.userId);
+    as(OWNER);
+    await expectedToolsPUT(post(`/api/household/devices/${deviceId}/expected-tools`, { tools: [{ toolId: "anydesk", peerIds: [] }] }), params({ id: deviceId }));
+    const install = { id: uuid(), type: "software", detector: "remote_access_tool", observedAt: iso(), toolId: "anydesk", name: "AnyDesk" };
+    const r = await sendSignals(token, [install]);
+    expect(r.body.results[0]).toMatchObject({ status: "accepted", severity: "low" });
+    const remote = memoryAlertRows().filter((a) => a.kind === "remote_access");
+    expect(remote).toHaveLength(1);
+    expect(remote[0]).toMatchObject({ severity: "low" });
+  });
+});
+
 describe("expected-tools route by role", () => {
   it("owner can set it; unknown toolId → 400 unknown_tool; member → 403 forbidden; unknown device → 404", async () => {
     const { deviceId } = await enrollDevice(GRAN.userId);
@@ -323,6 +337,48 @@ describe("scam-in-progress correlation", () => {
   });
 });
 
+describe("device-signal alert dedupe includes the detector (_specs/desktop-agent.md)", () => {
+  it("an install alert then a session alert for the same tool in the same hour raise two alerts; the session one is critical and emailed", async () => {
+    const { token } = await enrollDevice(GRAN.userId);
+    const install = remoteAccessToolEvent({ observedAt: iso(new Date(NOW.getTime() - 3 * 60_000)) });
+    const session = { id: uuid(), type: "remote_session", detector: "remote_access_session", observedAt: iso(), toolId: "anydesk", direction: "incoming" };
+    const r = await sendSignals(token, [install, session]);
+    expect(r.body.results[0]).toMatchObject({ status: "accepted", severity: "high" });
+    expect(r.body.results[1]).toMatchObject({ status: "accepted", severity: "critical" });
+
+    const rows = memoryAlertRows().filter((a) => a.tenantId === TENANT && a.kind === "remote_access");
+    expect(rows.map((a) => a.severity).sort()).toEqual(["critical", "high"]);
+    expect(new Set(rows.map((a) => a.dedupeKey)).size).toBe(2);
+    const critical = rows.find((a) => a.severity === "critical")!;
+    expect(memorySentEmails().some((m) => m.to === OWNER.email && m.subject.includes(critical.title))).toBe(true);
+
+    // The same detector, tool and device in the same hour still dedupes.
+    await sendSignals(token, [remoteAccessToolEvent()]);
+    expect(memoryAlertRows().filter((a) => a.tenantId === TENANT && a.kind === "remote_access")).toHaveLength(2);
+  });
+});
+
+describe("baseline remote_access_tool (_specs/desktop-agent.md)", () => {
+  it("alerts medium as '<device>: <tool> is installed' and never counts toward scam_in_progress", async () => {
+    const { token } = await enrollDevice(GRAN.userId, "Gran PC");
+    const scam = techSupportScamEvent({ observedAt: iso(NOW) });
+    const baseline = remoteAccessToolEvent({ discovery: "baseline", observedAt: iso(new Date(NOW.getTime() + 5 * 60_000)) });
+    const r = await sendSignals(token, [scam, baseline]);
+    expect(r.body.results[1]).toMatchObject({ status: "accepted", severity: "medium" });
+    const remote = memoryAlertRows().filter((a) => a.tenantId === TENANT && a.kind === "remote_access");
+    expect(remote).toHaveLength(1);
+    expect(remote[0]).toMatchObject({ severity: "medium", title: "Gran PC: AnyDesk is installed" });
+    expect(memoryAlertRows().filter((a) => a.tenantId === TENANT && a.kind === "scam_in_progress")).toHaveLength(0);
+  });
+
+  it("rejects a baseline unsigned_unknown unwanted_software as invalid", async () => {
+    const { token } = await enrollDevice(GRAN.userId);
+    const bad = { id: uuid(), type: "software", detector: "unwanted_software", observedAt: iso(), name: "Foo", reason: "unsigned_unknown", sha256: "0".repeat(64), discovery: "baseline" };
+    const r = await sendSignals(token, [bad]);
+    expect(r.body.results[0]).toMatchObject({ status: "rejected", reason: "invalid" });
+  });
+});
+
 describe("GET /api/signals/lists", () => {
   it("returns an ETag and 304s a matching If-None-Match", async () => {
     const { token } = await enrollDevice(GRAN.userId);
@@ -399,6 +455,22 @@ describe("GET /api/signals/status", () => {
     for (let i = 0; i < 120; i++) takeRateSlot("signals-status", deviceId, 120, 60 * 60 * 1000);
     const res = await statusOf(token, [uuid()]);
     expect(res.status).toBe(429);
+  });
+});
+
+describe("heartbeat device item", () => {
+  it("carries the device's real expectedTools", async () => {
+    const { token, deviceId } = await enrollDevice(GRAN.userId);
+    bearer(token);
+    const empty = (await (await heartbeatPOST(post("/api/devices/heartbeat", {}))).json()) as HeartbeatResponse;
+    expect(empty.device.expectedTools).toEqual([]);
+
+    as(OWNER);
+    const put = await expectedToolsPUT(post(`/api/household/devices/${deviceId}/expected-tools`, { tools: [{ toolId: "anydesk", peerIds: ["owner-peer-1"] }] }), params({ id: deviceId }));
+    expect(put.status).toBe(200);
+    bearer(token);
+    const body = (await (await heartbeatPOST(post("/api/devices/heartbeat", {}))).json()) as HeartbeatResponse;
+    expect(body.device.expectedTools).toEqual([{ toolId: "anydesk", name: "AnyDesk", peerIds: ["owner-peer-1"] }]);
   });
 });
 

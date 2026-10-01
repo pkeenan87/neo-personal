@@ -1,0 +1,50 @@
+{
+  "name": "pup-publisher",
+  "description": "A new program from a publisher on the PUP list.",
+  "lists": "../lists.json",
+  "steps": [
+    {
+      "atSeconds": 0,
+      "discoveryPhase": true,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        }
+      },
+      "expect": []
+    },
+    {
+      "atSeconds": 90,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "uninstall_entries": [
+          {
+            "display_name": "Fun Search Toolbar",
+            "publisher": "Mindspark Interactive Network",
+            "version": "3.2",
+            "hive": "HKLM32"
+          }
+        ]
+      },
+      "expect": [
+        "unwanted_software:publisher_list:new"
+      ]
+    }
+  ]
+}

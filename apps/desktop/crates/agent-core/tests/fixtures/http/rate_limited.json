@@ -1,0 +1,10 @@
+{
+  "status": 429,
+  "headers": {
+    "Retry-After": "120"
+  },
+  "body": {
+    "error": "Too many requests.",
+    "code": "rate_limited"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Neo",
+  "mainBinaryName": "neo",
+  "identifier": "dev.neoshield.desktop",
+  "build": {
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [],
+    "withGlobalTauri": false,
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["msi"],
+    "publisher": "Neo",
+    "copyright": "Copyright (c) Neo contributors. MIT licensed.",
+    "category": "Utility",
+    "shortDescription": "Neo warns you about remote-access scams",
+    "longDescription": "Neo watches for remote-access scam tools on this computer, warns the person at the keyboard at once, and tells the household owner by email.",
+    "licenseFile": "wix/what-neo-does.txt",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/icon.ico"],
+    "windows": {
+      "allowDowngrades": false,
+      "wix": {
+        "upgradeCode": "6a1f0a52-3b8d-4f0e-9c58-2d7b61c4a9e3",
+        "language": "en-US",
+        "fragmentPaths": ["wix/neo-agent.wxs"],
+        "componentRefs": ["NeoAgentService", "NeoTrayAutostart"]
+      }
+    }
+  }
+}

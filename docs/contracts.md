@@ -680,7 +680,7 @@ JSON errors `{ error, code }`.
 - **Escalation:** Inngest event `neo/signal.escalate { signalId, tenantId }` → function `signal-escalate` (concurrency 1 per tenant, 3 retries; inline in MOCK_MODE without `INNGEST_EVENT_KEY`).
 - **Verdicts:** saved with `source: "device"`. `saveVerdict` does not call `alertForVerdict` for `device`.
 - **Alerts:**
-  - Dedupe key `<kind>:<deviceId>:<subject>:<UTC hour>`, except `scam_in_progress:<userId>:<30-min bucket>` and `bypass:<relatesTo>`.
+  - Dedupe key `<kind>:<deviceId>:<detector>:<subject>:<UTC hour>` (amended by the desktop agent, see the last section), except `scam_in_progress:<userId>:<30-min bucket>` and `bypass:<relatesTo>`.
   - Owners' own devices alert and email like members'.
 - **Shared reputation cache:** with a database, `PostgresReputationCache` backs the shared URL cache (chat and signals); in-memory otherwise.
 - **Retention:** the daily retention job calls `purgeOldDeviceSignals` and `purgeExpiredReputationCache`.
@@ -733,3 +733,46 @@ type DetectionListsPayload;                                              // the 
 ## apps/extension (spec `_specs/browser-extension.md`)
 
 WXT MV3 package `@neo/extension`; scripts `dev`, `build` (chrome-mv3 and firefox-mv3), `zip`, `typecheck`, `lint`, `test`. Build-time `WXT_NEO_BASE_URL` (default `https://www.neoshield.dev`). Consumes only the HTTP contracts above and `@neo/verdict`, `@neo/tools/browser`.
+
+## Desktop agent (spec `_specs/desktop-agent.md`)
+
+`@neo/verdict`:
+- `remote_access_tool` and `unwanted_software` events accept optional `discovery: "baseline" | "new"` (absent = `"new"`); still `.strict()`. `DISCOVERY_VALUES = ["baseline", "new"] as const`.
+
+`@neo/tools`:
+- `RemoteAccessTool.windows` gains `sessionEvidence: SessionEvidence[]`:
+
+```ts
+type SessionEvidence =
+  | { kind: "log"; path: string; pattern: string; verified: boolean; checked?: string }       // path may use %ProgramData% %ProgramFiles% %ProgramFiles(x86)% %AppData%; pattern may capture (?<peer>…)
+  | { kind: "eventlog"; channel: string; eventIds: number[]; verified: boolean; checked?: string }
+  | { kind: "process"; name: string; verified: boolean; checked?: string };                    // exists only during a session
+// checked: "<vendor version> <YYYY-MM-DD>" recorded by the VM verification task
+```
+
+- Every regex string in the lists (`installerPatterns`, `displayNamePatterns`, `sessionEvidence[].pattern`) uses the JS/Rust shared subset: no lookaround, no backreferences, named groups only as `(?<name>…)`, no inline flags. Enforced by `packages/tools/test/lists.test.ts`.
+- `detectionLists()` includes `sessionEvidence`; `version` covers it.
+
+`apps/web`:
+- **Baseline rule:** `remote_access_tool` with `discovery: "baseline"` → `suspicious` verdict, `medium` (or `low` when expected); template title `<device>: <tool> is installed`. `unwanted_software` baseline follows the normal rule (agents never send baseline `unsigned_unknown`; the server rejects it as `invalid`).
+- **Correlation:** baseline events never count toward `scam_in_progress`.
+- **Device-signal alert dedupe:** `<kind>:<deviceId>:<detector>:<subject>:<UTC hour>` (was without `<detector>`), so an install alert and a session alert for the same tool are separate. `scam_in_progress` and `bypass:` keys unchanged.
+- **Heartbeat:** `device: DeviceItem` carries the device's real `expectedTools` (was always `[]`).
+- **Add a device:** Windows link from `NEXT_PUBLIC_WINDOWS_AGENT_URL` (optional); unset → "coming soon".
+
+`apps/desktop` (Tauri v2 + Rust; not a turbo task for Rust):
+- `@neo/desktop` (pnpm, React UI only): `typecheck`, `lint`, `test`, `build`.
+- Cargo workspace `apps/desktop/Cargo.toml`: `src-tauri` (tray app `neo-desktop`), `crates/agent-core` (pure, cross-platform, tested on Linux), `crates/agent-service` (`neo-agent.exe`, Windows service `NeoAgent`, display name "Neo Protection").
+- Named pipe `\\.\pipe\neo-agent`, newline-delimited JSON, ≤ 16 KB per request:
+  - Requests: `{ "op": "status" | "enroll_preview" | "enroll" | "self_enroll_start" | "self_enroll_poll" | "check_url" | "unenroll" | "subscribe", ...args }` → `{ "ok": true, ...result }` or `{ "ok": false, "code", "error" }`.
+  - Pushes after `subscribe`: `{ "push": "warning", eventId, kind: "tool" | "session" | "unwanted", toolName, peerId?, severity, ownerName, ownerTold }`, `{ "push": "status_changed" }`.
+- Data dir `C:\ProgramData\Neo\`: `device.bin` (DPAPI machine scope), `seen.json`, `queue.json`, `cursors.json`, `lists.json`, `logs\`.
+- Updates: Tauri-format `latest.json` (`version`, `notes`, `pub_date`, `platforms["windows-x86_64"].{url, signature}`), minisign public key compiled in, MSI Authenticode signer checked, `msiexec /i <msi> /qn`. Build-time `NEO_DESKTOP_UPDATE_URL`, `NEO_BASE_URL`.
+- Pipe protocol as built (detail in `docs/desktop-agent.md` "Pipe protocol details"):
+  - `status` → `{ ok, state: "not_enrolled" | "enrolled" | "disconnected", version, serverUrl, computerName, deviceName, memberName, householdName, ownerName, lastCheckIn, lastWarningAt, updateAvailable }`.
+  - `enroll_preview`, `enroll`, `self_enroll_start` accept optional `serverUrl` (`https://`, or loopback `http://`); refused once enrolled.
+  - `self_enroll_start` → `{ userCode, verificationUri, verificationUriComplete, expiresIn, interval }` (device code stays in the service); `self_enroll_poll` → `{ status: "pending" | "approved" | "denied" | "expired" }`.
+  - `subscribe` makes the connection push-only; clients use a second connection for requests. Blank lines are keep-alives.
+  - A warning may be pushed twice with the same `eventId`: first `ownerTold: false`, then `ownerTold: true` once the server accepted it at `medium`+.
+  - Error codes: `request_too_large`, `invalid_json`, `invalid_request`, `unknown_op`, `not_enrolled`, `already_enrolled`, `invalid_code`, `invalid_server_url`, `server_unreachable`, `rate_limited`, `device_limit`, `disconnected`, `no_sign_in`, `storage_failed`, `server_error` (tray adds `agent_unavailable`). At most 32 connections; an oversize request is answered once and the connection closed.
+- The MSI installs `neo-agent.exe` through its own WiX component (not Tauri `externalBin`); build-time `TAURI_NEO_AGENT_EXE` points at it. Build-time `NEO_DESKTOP_UPDATE_PUBKEY` (unset = updates off) and CI-only `NEO_ALLOW_UNSIGNED_UPDATE`.

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Neo Protection service, the tray autostart and the uninstall unenroll action. Compiled by the
+  Tauri bundler together with its own main.wxs (`bundle.windows.wix.fragmentPaths`); the Components
+  are pulled into the product by `componentRefs` in tauri.conf.json.
+
+  The service executable comes from the environment: set TAURI_NEO_AGENT_EXE (the bundler clears the
+  environment before running candle and keeps only TAURI*-prefixed variables, hence the prefix) to the absolute path of the
+  built (and, for a release, signed) neo-agent.exe before running `tauri build`. It is not a Tauri
+  externalBin because WiX needs the service executable to be the key file of the Component that
+  carries ServiceInstall, and the bundler's generated Components cannot be extended.
+
+  The bundler renders fragments as Handlebars templates, so this file must not contain double
+  curly braces.
+-->
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi" xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  <Fragment>
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="NeoAgentService" Guid="b3c1f7a0-5d42-4c6e-8a19-0f2e7d9b4a61" Win64="yes">
+        <File Id="NeoAgentExe" Name="neo-agent.exe" Source="$(env.TAURI_NEO_AGENT_EXE)" KeyPath="yes" Checksum="yes" />
+        <ServiceInstall
+          Id="NeoAgentServiceInstall"
+          Name="NeoAgent"
+          DisplayName="Neo Protection"
+          Description="Warns the people on this computer, and the household owner, when a remote-access scam tool appears. Part of Neo."
+          Type="ownProcess"
+          Start="auto"
+          ErrorControl="normal"
+          Account="LocalSystem"
+          Vital="yes">
+          <util:ServiceConfig
+            FirstFailureActionType="restart"
+            SecondFailureActionType="restart"
+            ThirdFailureActionType="restart"
+            RestartServiceDelayInSeconds="30"
+            ResetPeriodInDays="1" />
+        </ServiceInstall>
+        <ServiceControl Id="NeoAgentServiceControl" Name="NeoAgent" Start="install" Stop="both" Remove="uninstall" Wait="yes" />
+      </Component>
+
+      <!-- The tray app starts at login for every user. -->
+      <Component Id="NeoTrayAutostart" Guid="e8a4d2b6-91c3-4f57-b0d8-3a6c5e1f7924" Win64="yes">
+        <RegistryValue Root="HKLM" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="Neo" Type="string" Value="&quot;[INSTALLDIR]neo.exe&quot;" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <!--
+      Uninstall (Settings, Apps): tell the server this device is gone so the owner is alerted at once,
+      before the files are removed. Not on an upgrade, and never fatal (Return="ignore").
+    -->
+    <CustomAction
+      Id="NeoUnenroll"
+      Directory="INSTALLDIR"
+      ExeCommand="&quot;[INSTALLDIR]neo-agent.exe&quot; --unenroll"
+      Execute="deferred"
+      Impersonate="no"
+      Return="ignore" />
+    <InstallExecuteSequence>
+      <Custom Action="NeoUnenroll" Before="RemoveFiles"><![CDATA[REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE]]></Custom>
+    </InstallExecuteSequence>
+  </Fragment>
+</Wix>

@@ -1,0 +1,197 @@
+{
+  "status": 200,
+  "headers": {
+    "ETag": "\"fixture0000000001\"",
+    "Cache-Control": "private, max-age=3600"
+  },
+  "body": {
+    "version": "fixture0000000001",
+    "remoteAccessTools": [
+      {
+        "id": "anydesk",
+        "name": "AnyDesk",
+        "vendorDomains": [
+          "anydesk.com"
+        ],
+        "installerPatterns": [
+          "^AnyDesk.*\\.exe$"
+        ],
+        "windows": {
+          "publishers": [
+            "AnyDesk Software GmbH"
+          ],
+          "displayNamePatterns": [
+            "^AnyDesk$"
+          ],
+          "serviceNames": [
+            "AnyDesk"
+          ],
+          "processNames": [
+            "AnyDesk.exe"
+          ],
+          "sessionEvidence": [
+            {
+              "kind": "log",
+              "path": "%ProgramData%\\AnyDesk\\connection_trace.txt",
+              "pattern": "^\\s*Incoming\\s+\\S+\\s+\\S+\\s+\\S+\\s+(?<peer>[0-9]{9,10})\\s*$",
+              "verified": true,
+              "checked": "fixture 2026-01-01"
+            },
+            {
+              "kind": "log",
+              "path": "%AppData%\\AnyDesk\\connection_trace.txt",
+              "pattern": "^\\s*Incoming\\s+\\S+\\s+\\S+\\s+\\S+\\s+(?<peer>[0-9]{9,10})\\s*$",
+              "verified": true,
+              "checked": "fixture 2026-01-01"
+            },
+            {
+              "kind": "log",
+              "path": "%AppData%\\AnyDesk\\unverified.txt",
+              "pattern": "Incoming",
+              "verified": false
+            },
+            {
+              "kind": "log",
+              "path": "%AppData%\\AnyDesk\\broken.txt",
+              "pattern": "(?<=x)Incoming(",
+              "verified": true
+            }
+          ]
+        },
+        "sessionHints": [
+          "AnyDesk.exe"
+        ]
+      },
+      {
+        "id": "teamviewer",
+        "name": "TeamViewer",
+        "vendorDomains": [
+          "teamviewer.com"
+        ],
+        "installerPatterns": [
+          "^TeamViewer.*\\.exe$"
+        ],
+        "windows": {
+          "publishers": [
+            "TeamViewer Germany GmbH"
+          ],
+          "displayNamePatterns": [
+            "^TeamViewer.*$"
+          ],
+          "serviceNames": [
+            "TeamViewer"
+          ],
+          "processNames": [
+            "TeamViewer.exe"
+          ],
+          "sessionEvidence": []
+        },
+        "sessionHints": [
+          "TeamViewer.exe"
+        ]
+      },
+      {
+        "id": "screenconnect",
+        "name": "ScreenConnect (ConnectWise Control)",
+        "vendorDomains": [
+          "screenconnect.com"
+        ],
+        "installerPatterns": [],
+        "windows": {
+          "publishers": [
+            "ConnectWise, LLC"
+          ],
+          "displayNamePatterns": [
+            "^ScreenConnect Client.*$"
+          ],
+          "serviceNames": [],
+          "processNames": [],
+          "sessionEvidence": [
+            {
+              "kind": "process",
+              "name": "ScreenConnect.WindowsClient.exe",
+              "verified": true
+            }
+          ]
+        },
+        "sessionHints": []
+      },
+      {
+        "id": "splashtop",
+        "name": "Splashtop",
+        "vendorDomains": [
+          "splashtop.com"
+        ],
+        "installerPatterns": [],
+        "windows": {
+          "publishers": [
+            "Splashtop Inc."
+          ],
+          "displayNamePatterns": [
+            "^Splashtop Streamer$"
+          ],
+          "serviceNames": [
+            "SplashtopRemoteService"
+          ],
+          "processNames": [],
+          "sessionEvidence": [
+            {
+              "kind": "eventlog",
+              "channel": "Splashtop-Splashtop Streamer-Remote Session/Operational",
+              "eventIds": [
+                1000
+              ],
+              "verified": true
+            },
+            {
+              "kind": "futurekind",
+              "whatever": 1,
+              "verified": true
+            }
+          ]
+        },
+        "sessionHints": []
+      },
+      {
+        "id": "rustdesk",
+        "name": "RustDesk",
+        "vendorDomains": [
+          "rustdesk.com"
+        ],
+        "installerPatterns": [],
+        "windows": {
+          "publishers": [],
+          "displayNamePatterns": [
+            "^RustDesk$"
+          ],
+          "serviceNames": [
+            "RustDesk"
+          ],
+          "processNames": [
+            "rustdesk.exe"
+          ]
+        },
+        "sessionHints": []
+      }
+    ],
+    "pupPublishers": [
+      {
+        "publisher": "Mindspark Interactive Network",
+        "reason": "Bundled toolbars and search hijackers."
+      },
+      {
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "reason": "Known bad hash (fixture)."
+      }
+    ],
+    "scamPagePhrases": [
+      {
+        "phrase": "ignored",
+        "kind": "fake_scan",
+        "lang": "en"
+      }
+    ],
+    "skipDomains": [],
+    "brands": []
+  }
+}

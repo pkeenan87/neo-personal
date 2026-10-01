@@ -141,6 +141,13 @@ describe("remote_access_tool", () => {
     const r = evaluateEvent(base, ctx({ expectedTools: [expectedTool("anydesk")] }));
     expect(r).toMatchObject({ outcome: "alerted", severity: "low" });
   });
+
+  it("baseline → suspicious/medium, low when expected (_specs/desktop-agent.md)", () => {
+    const baseline = { ...base, discovery: "baseline" as const };
+    expect(evaluateEvent(baseline, ctx())).toMatchObject({ outcome: "alerted", severity: "medium", verdictLabel: "suspicious", alertKind: "remote_access" });
+    expect(evaluateEvent(baseline, ctx({ expectedTools: [expectedTool("anydesk")] }))).toMatchObject({ outcome: "alerted", severity: "low" });
+    expect(evaluateEvent({ ...base, discovery: "new" }, ctx())).toMatchObject({ severity: "high" });
+  });
 });
 
 describe("unwanted_software", () => {

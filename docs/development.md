@@ -117,6 +117,12 @@ Never bypass the hook with `--no-verify` to commit a real credential.
 2. Make the code work when it is unset (mock or skip), so CI and fresh clones still pass.
 3. If it is a secret, add it to the table in `docs/self-hosting.md` and to Vercel per environment.
 
+## Windows desktop agent
+
+`apps/desktop` is a Tauri (Rust) app: a Windows service, a tray app and a pure detection crate, with a React UI package
+(`@neo/desktop`) that is part of the normal `pnpm` pipeline. The Rust crates are not a turbo task; development on Linux,
+the Windows VM setup, list verification, releasing and troubleshooting are in [desktop-agent.md](desktop-agent.md).
+
 ## Browser extension
 
 `apps/extension` (`@neo/extension`) is a separate WXT package: development against this same MOCK_MODE server,

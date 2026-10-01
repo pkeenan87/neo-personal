@@ -1,0 +1,8 @@
+{
+  "status": 202,
+  "headers": {},
+  "body": {
+    "status": "pending",
+    "interval": 5
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "status": 403,
+  "headers": {},
+  "body": {
+    "error": "Only a device's own token can do that.",
+    "code": "insufficient_scope"
+  }
+}

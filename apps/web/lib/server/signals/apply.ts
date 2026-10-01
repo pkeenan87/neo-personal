@@ -16,6 +16,7 @@ import {
   deviceLabel,
   displayName,
   permissionGrantAlertText,
+  remoteAccessBaselineAlertText,
   remoteAccessInstallAlertText,
   remoteAccessSessionAlertText,
   scamPageAlertText,
@@ -60,7 +61,9 @@ export function alertTextFor(event: SignalEvent, ctx: { memberName: string; devi
     case "remote_tool_download":
       return remoteAccessInstallAlertText(deviceLbl, toolDisplayName(event.toolId, event.fileName), event.domain);
     case "remote_access_tool":
-      return remoteAccessInstallAlertText(deviceLbl, toolDisplayName(event.toolId, event.name), null);
+      return event.discovery === "baseline"
+        ? remoteAccessBaselineAlertText(deviceLbl, toolDisplayName(event.toolId, event.name), severity)
+        : remoteAccessInstallAlertText(deviceLbl, toolDisplayName(event.toolId, event.name), null, severity);
     case "unwanted_software":
       return unwantedSoftwareAlertText(deviceLbl, event.name, event.reason === "unsigned_unknown");
     case "remote_access_session":
@@ -115,7 +118,7 @@ export async function applyAlertedSignal(input: AlertedSignalInput): Promise<Ale
         verdictId: verdictId ?? input.bypassOf.relatedVerdictId,
         text,
       })
-    : await alertSignal({ tenantId: device.tenantId, userId: device.userId, deviceId: device.id, kind: alertKind, subject: input.subject, verdictId, text, now: input.now });
+    : await alertSignal({ tenantId: device.tenantId, userId: device.userId, deviceId: device.id, kind: alertKind, detector: event.detector, subject: input.subject, verdictId, text, now: input.now });
 
   await updateDeviceSignal(device.tenantId, input.rowId, { severity, outcome: "alerted", verdictId: verdictId ?? null, alertId: alertRow?.id ?? null });
   await checkScamInProgress(device.tenantId, device.userId, input.now);
@@ -149,6 +152,8 @@ export async function checkScamInProgress(tenantId: string, userId: string, now 
   for (const r of rows) {
     const kind = correlationKind(r.detector as SignalEvent["detector"]);
     if (!kind || !r.severity) continue;
+    // A tool already installed at enrollment is not evidence of a call happening now.
+    if (r.detector === "remote_access_tool" && r.payload.discovery === "baseline") continue;
     events.push({ id: r.id, deviceId: r.deviceId, kind, severity: r.severity, observedAt: r.observedAt });
   }
   const found = findScamInProgress(events);

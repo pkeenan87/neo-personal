@@ -123,6 +123,9 @@ describe("HouseholdSettingsView devices (owner)", () => {
     expect(await screen.findByLabelText("Enrollment code")).toHaveTextContent("ABCD-EFGH-JKLM");
     expect(screen.getByText(/Expires in 24 hours/)).toBeInTheDocument();
     expect(screen.getByText(/I have an enrollment code/)).toBeInTheDocument();
+    expect(screen.getByText(/Windows \(coming soon\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Install the Windows app in person/)).toBeInTheDocument();
+    expect(screen.getByText(/over the phone/)).toBeInTheDocument();
     expect(await screen.findByRole("list", { name: "Pending enrollment codes for Grandma" })).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Done" }));
@@ -263,6 +266,7 @@ describe("HouseholdSettingsView expected remote-access tools (_specs/signals.md)
     expect(screen.getByText(/Your household owner marked these as expected\./)).toBeInTheDocument();
     expect(screen.getByText("AnyDesk")).toBeInTheDocument();
     expect(screen.getByText(/Pat-ID/)).toBeInTheDocument();
+    expect(screen.getByText(/Quick Assist never shows who connected, so Neo still alerts you about every Quick Assist session\./)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
     expect(screen.queryByLabelText("Add an expected tool")).toBeNull();
   });

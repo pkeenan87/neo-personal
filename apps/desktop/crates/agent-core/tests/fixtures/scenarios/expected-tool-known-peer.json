@@ -1,0 +1,75 @@
+{
+  "name": "expected-tool-known-peer",
+  "description": "The owner marked AnyDesk expected with their own id. The events still go out (the server rates them low); no local warning is shown for the session.",
+  "lists": "../lists.json",
+  "expectedTools": [
+    {
+      "toolId": "anydesk",
+      "peerIds": [
+        "123456789"
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "atSeconds": 0,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "processes": [
+          {
+            "pid": 4120,
+            "image_name": "AnyDesk.exe",
+            "image_path": "C:\\Users\\Gran\\Downloads\\AnyDesk.exe",
+            "signer": "AnyDesk Software GmbH"
+          }
+        ]
+      },
+      "expect": [
+        "remote_access_tool:anydesk:new"
+      ]
+    },
+    {
+      "atSeconds": 60,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "processes": [
+          {
+            "pid": 4120,
+            "image_name": "AnyDesk.exe",
+            "image_path": "C:\\Users\\Gran\\Downloads\\AnyDesk.exe",
+            "signer": "AnyDesk Software GmbH"
+          }
+        ],
+        "log_chunks": [
+          {
+            "path": "C:\\ProgramData\\AnyDesk\\connection_trace.txt",
+            "lines": [
+              "Incoming    2026-10-01, 10:03    Owner    123456789"
+            ]
+          }
+        ]
+      },
+      "expect": [
+        "remote_access_session:anydesk:peer=123456789"
+      ]
+    }
+  ]
+}
