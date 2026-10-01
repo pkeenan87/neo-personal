@@ -74,7 +74,7 @@ fn a_new_grant_after_enrollment_is_sent_and_warns_for_a_remote_access_tool() {
 
     h.probe.set_tcc(snap(vec![
         row("us.zoom.xos", "kTCCServiceScreenCapture", 2),
-        row("com.philandro.anydesk", "kTCCServiceAccessibility", 2),
+        row("com.anydesk.anydesk", "kTCCServiceAccessibility", 2),
     ]));
     h.clock.advance(31);
     h.agent.tick();
@@ -82,7 +82,7 @@ fn a_new_grant_after_enrollment_is_sent_and_warns_for_a_remote_access_tool() {
     let grants: Vec<Value> = posted(&h).into_iter().filter(|e| e["detector"] == "tcc_grant").collect();
     assert_eq!(grants.len(), 1);
     assert_eq!(grants[0]["type"], "permission");
-    assert_eq!(grants[0]["bundleId"], "com.philandro.anydesk");
+    assert_eq!(grants[0]["bundleId"], "com.anydesk.anydesk");
     assert_eq!(grants[0]["service"], "accessibility");
 
     let pushes = drain(&rx);
@@ -98,7 +98,7 @@ fn with_nobody_subscribed_the_console_fallback_carries_the_spec_copy() {
     let h = mac_after_baseline();
     h.probe.set_tcc(snap(vec![
         row("us.zoom.xos", "kTCCServiceScreenCapture", 2),
-        row("com.philandro.anydesk", "kTCCServiceScreenCapture", 2),
+        row("com.anydesk.anydesk", "kTCCServiceScreenCapture", 2),
     ]));
     h.clock.advance(31);
     h.agent.tick();
@@ -134,7 +134,7 @@ fn without_full_disk_access_the_database_is_not_read_and_nothing_is_sent() {
     let h = Harness::new();
     h.probe.set_fda(Some(false));
     h.probe
-        .set_tcc(snap(vec![row("com.philandro.anydesk", "kTCCServiceAccessibility", 2)]));
+        .set_tcc(snap(vec![row("com.anydesk.anydesk", "kTCCServiceAccessibility", 2)]));
     assert_eq!(h.enroll()["ok"], true);
     h.agent.tick();
     h.clock.advance(31);
@@ -225,7 +225,7 @@ fn an_installed_remote_access_bundle_is_reported_like_a_program() {
     h.agent.tick(); // baseline: nothing installed
     h.probe.set_bundles(vec![AppBundle {
         path: "/Applications/AnyDesk.app".into(),
-        bundle_id: Some("com.philandro.anydesk".into()),
+        bundle_id: Some("com.anydesk.anydesk".into()),
         name: "AnyDesk".into(),
         version: Some("8.0.0".into()),
         team_id: Some("ABCDE12345".into()),

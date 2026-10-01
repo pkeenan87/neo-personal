@@ -40,11 +40,11 @@
         "app_bundles": [
           {
             "path": "/Applications/AnyDesk.app",
-            "bundle_id": "com.philandro.anydesk",
+            "bundle_id": "com.anydesk.anydesk",
             "name": "AnyDesk",
             "version": "9.0.1",
             "team_id": "TEAMANYD01",
-            "signing_id": "com.philandro.anydesk",
+            "signing_id": "com.anydesk.anydesk",
             "signer": "Philandro Software GmbH"
           }
         ],
@@ -78,11 +78,11 @@
         "app_bundles": [
           {
             "path": "/Applications/AnyDesk.app",
-            "bundle_id": "com.philandro.anydesk",
+            "bundle_id": "com.anydesk.anydesk",
             "name": "AnyDesk",
             "version": "9.0.1",
             "team_id": "TEAMANYD01",
-            "signing_id": "com.philandro.anydesk",
+            "signing_id": "com.anydesk.anydesk",
             "signer": "Philandro Software GmbH"
           }
         ],
@@ -101,7 +101,7 @@
             {
               "db": "system",
               "service": "kTCCServiceAccessibility",
-              "client": "com.philandro.anydesk",
+              "client": "com.anydesk.anydesk",
               "client_type": 0,
               "auth_value": 2
             }
@@ -109,7 +109,7 @@
         }
       },
       "expect": [
-        "tcc_grant:accessibility:com.philandro.anydesk"
+        "tcc_grant:accessibility:com.anydesk.anydesk"
       ]
     },
     {
@@ -123,11 +123,11 @@
         "app_bundles": [
           {
             "path": "/Applications/AnyDesk.app",
-            "bundle_id": "com.philandro.anydesk",
+            "bundle_id": "com.anydesk.anydesk",
             "name": "AnyDesk",
             "version": "9.0.1",
             "team_id": "TEAMANYD01",
-            "signing_id": "com.philandro.anydesk",
+            "signing_id": "com.anydesk.anydesk",
             "signer": "Philandro Software GmbH"
           }
         ],
@@ -146,7 +146,7 @@
             {
               "db": "system",
               "service": "kTCCServiceAccessibility",
-              "client": "com.philandro.anydesk",
+              "client": "com.anydesk.anydesk",
               "client_type": 0,
               "auth_value": 2
             }

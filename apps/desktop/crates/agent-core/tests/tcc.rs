@@ -160,16 +160,16 @@ fn bundle_and_path_clients() {
     };
     let bundles = [AppBundle {
         path: "/Applications/AnyDesk.app".into(),
-        bundle_id: Some("com.philandro.anydesk".into()),
+        bundle_id: Some("com.anydesk.anydesk".into()),
         name: "AnyDesk".into(),
         ..Default::default()
     }];
-    let rows = [row("com.philandro.anydesk", AX, 2), path_row, row("com.unknown.app", FDA, 2)];
+    let rows = [row("com.anydesk.anydesk", AX, 2), path_row, row("com.unknown.app", FDA, 2)];
     let evs = detect_tcc(&mut seen, Some(&snap(&rows)), &bundles, t0());
     assert_eq!(
         grants(&evs),
         [
-            ("AnyDesk".into(), Some("com.philandro.anydesk".into()), TccService::Accessibility),
+            ("AnyDesk".into(), Some("com.anydesk.anydesk".into()), TccService::Accessibility),
             ("helper".into(), None, TccService::ScreenRecording),
             ("com.unknown.app".into(), Some("com.unknown.app".into()), TccService::FullDiskAccess),
         ]
@@ -188,7 +188,7 @@ fn same_client_in_two_databases_is_one_event() {
 
 #[test]
 fn event_shape_matches_the_wire_schema() {
-    let e = SignalEvent::tcc_grant(t0(), "AnyDesk", Some("com.philandro.anydesk"), TccService::FullDiskAccess);
+    let e = SignalEvent::tcc_grant(t0(), "AnyDesk", Some("com.anydesk.anydesk"), TccService::FullDiskAccess);
     let v = serde_json::to_value(&e).unwrap();
     let keys: std::collections::BTreeSet<_> = v.as_object().unwrap().keys().cloned().collect();
     let want: std::collections::BTreeSet<_> = ["id", "type", "detector", "observedAt", "app", "bundleId", "service"]

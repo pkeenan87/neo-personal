@@ -55,7 +55,7 @@ fn bundle_id_match_baseline_new_and_weekly_resend() {
     let l = lists_macos();
     let mut seen = SeenState::default();
     let mut s = snap();
-    s.app_bundles = vec![bundle("AnyDesk", Some("com.philandro.anydesk"), None)];
+    s.app_bundles = vec![bundle("AnyDesk", Some("com.anydesk.anydesk"), None)];
     let evs = detect(&l, &mut seen, &s, t0(), true);
     assert_eq!(tools(&evs), [("anydesk".into(), Some(Discovery::Baseline))]);
     assert!(detect(&l, &mut seen, &s, t0() + Duration::days(1), false).is_empty());
@@ -78,7 +78,7 @@ fn running_process_matches_by_bundle_id_and_by_team_id_only() {
     let mut s = snap();
     s.processes = vec![mac_proc(
         "/Volumes/AnyDesk/AnyDesk.app/Contents/MacOS/AnyDesk",
-        Some("com.philandro.anydesk"),
+        Some("com.anydesk.anydesk"),
         None,
     )];
     let evs = detect(&l, &mut SeenState::default(), &s, t0(), false);
@@ -269,7 +269,7 @@ fn unsigned_unknown_for_new_unsigned_bundles_only() {
         ..bundle("Spoof", Some("com.spoof.app"), Some("SPOOF00001"))
     };
     let signed = bundle("Signed", Some("com.signed.app"), Some("GOOD000001"));
-    let tool = bundle("AnyDesk", Some("com.philandro.anydesk"), None);
+    let tool = bundle("AnyDesk", Some("com.anydesk.anydesk"), None);
     s.app_bundles = vec![unsigned.clone(), adhoc_apple.clone(), spoof.clone(), signed.clone(), tool.clone()];
     // First the service is asked what to examine.
     let hints = bundle_exe_hints(&seen, &s.app_bundles);
@@ -352,9 +352,9 @@ fn tcc_through_detect_uses_snapshot_and_none_is_inert() {
 fn tcc_grant_warning_rules() {
     let l = lists_macos();
     let grant = |app: &str, id: Option<&str>| SignalEvent::tcc_grant(t0(), app, id, TccService::Accessibility);
-    let any = grant("AnyDesk", Some("com.philandro.anydesk"));
+    let any = grant("AnyDesk", Some("com.anydesk.anydesk"));
     assert_eq!(decide_with_lists(&any, &[], &l), Some(WarningKind::Permission));
-    let case = grant("AnyDesk", Some("COM.Philandro.AnyDesk"));
+    let case = grant("AnyDesk", Some("COM.AnyDesk.ANYDESK"));
     assert_eq!(decide_with_lists(&case, &[], &l), Some(WarningKind::Permission));
     // Expected on this device: no window.
     let expected = vec![ExpectedTool {

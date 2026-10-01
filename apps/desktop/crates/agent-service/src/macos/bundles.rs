@@ -263,9 +263,9 @@ mod tests {
     #[test]
     fn reads_bundle_info_and_the_main_executable() {
         let tmp = tempfile::tempdir().unwrap();
-        let app = make_app(tmp.path(), "AnyDesk", "com.philandro.anydesk", "AnyDesk");
+        let app = make_app(tmp.path(), "AnyDesk", "com.anydesk.anydesk", "AnyDesk");
         let info = read_bundle_info(&app).unwrap();
-        assert_eq!(info.bundle_id.as_deref(), Some("com.philandro.anydesk"));
+        assert_eq!(info.bundle_id.as_deref(), Some("com.anydesk.anydesk"));
         assert_eq!(info.name, "AnyDesk");
         assert_eq!(info.version.as_deref(), Some("1.2.3"));
         assert_eq!(main_executable(&app, Some(&info)).unwrap(), app.join("Contents/MacOS/AnyDesk"));
