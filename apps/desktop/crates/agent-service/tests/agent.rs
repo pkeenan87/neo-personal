@@ -74,7 +74,7 @@ fn preview_then_enroll_stores_the_token_and_reports_status() {
         .unwrap();
     let body: serde_json::Value = serde_json::from_str(req.body.as_deref().unwrap()).unwrap();
     assert_eq!(body["kind"], "desktop_agent");
-    assert_eq!(body["platform"], "windows");
+    assert_eq!(body["platform"], if cfg!(target_os = "macos") { "macos" } else { "windows" });
     assert_eq!(body["name"], "GRANDMA-PC");
     // Neither the status nor the state files contain the token.
     let meta = std::fs::read_to_string(h.dir.root().join(META_FILE)).unwrap();
