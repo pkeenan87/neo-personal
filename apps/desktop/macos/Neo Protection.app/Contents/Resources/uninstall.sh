@@ -29,10 +29,18 @@ main() {
 		"$AGENT" --unenroll >/dev/null 2>&1 || true
 	fi
 
-	# 2. Stop the daemon and take it out of launchd, so it cannot be relaunched.
+	# 2. Stop the daemon and take it out of launchd, so it cannot be relaunched. `bootout` returns
+	#    before the daemon has exited, and the daemon saves its state on the way out, so wait for
+	#    the process to be gone before deleting its data (or it recreates the data folder).
 	/bin/launchctl bootout system/dev.neoshield.agent >/dev/null 2>&1 || true
 	/bin/rm -f /Library/LaunchDaemons/dev.neoshield.agent.plist
 	/bin/rm -f /Library/LaunchAgents/dev.neoshield.tray.plist
+	i=0
+	while /usr/bin/pgrep -f "^$AGENT" >/dev/null 2>&1 && [ "$i" -lt 20 ]; do
+		/bin/sleep 0.5
+		i=$((i + 1))
+	done
+	/usr/bin/pkill -9 -f "^$AGENT" >/dev/null 2>&1 || true
 
 	# 3. Remove the bundles, the data and the socket.
 	/bin/rm -rf "$BASE"
