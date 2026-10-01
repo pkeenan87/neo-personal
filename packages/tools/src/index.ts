@@ -52,6 +52,7 @@ export {
   type PupPublisher,
   type ScamPagePhrase,
   type ScamPhraseKind,
+  type SessionEvidence,
   type DetectionLists,
 } from "./lists.js";
 // Browser-extension additions (_specs/browser-extension.md): shared list-shape types

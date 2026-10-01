@@ -5,6 +5,16 @@
  */
 import type { Brand } from "./types.js";
 
+/**
+ * Where a remote session leaves evidence on Windows (`_specs/desktop-agent.md`). `log` paths may use
+ * `%ProgramData%`, `%ProgramFiles%`, `%ProgramFiles(x86)%` and `%AppData%`; `pattern` may capture `(?<peer>...)`.
+ * Only `verified: true` entries ship to agents; `checked` is "<vendor version> <YYYY-MM-DD>" from the VM task.
+ */
+export type SessionEvidence =
+  | { kind: "log"; path: string; pattern: string; verified: boolean; checked?: string }
+  | { kind: "eventlog"; channel: string; eventIds: number[]; verified: boolean; checked?: string }
+  | { kind: "process"; name: string; verified: boolean; checked?: string };
+
 /** One remote-access tool's install/session signatures (`_specs/signals.md`, Detection lists). */
 export interface RemoteAccessTool {
   id: string;
@@ -17,6 +27,8 @@ export interface RemoteAccessTool {
     displayNamePatterns: string[];
     serviceNames: string[];
     processNames: string[];
+    /** Session evidence candidates; empty when none is known. */
+    sessionEvidence: SessionEvidence[];
   };
   macos: {
     bundleIds: string[];

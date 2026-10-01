@@ -1,0 +1,10 @@
+{
+  "status": 200,
+  "headers": {},
+  "body": {
+    "householdName": "The Keenans",
+    "memberName": "Grandma",
+    "ownerName": "Pat",
+    "expiresAt": "2026-10-02T09:00:00.000Z"
+  }
+}

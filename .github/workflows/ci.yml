@@ -98,12 +98,338 @@ jobs:
               --no-banner \
               --exit-code 1
 
+  # The desktop agent (apps/desktop, spec _specs/desktop-agent.md). Rust, so it is not a turbo
+  # task. Both desktop jobs ALWAYS start: the aggregator below treats a skipped job as a failure.
+  # Each decides in its first step (apps/desktop/ci/changed.sh) whether anything it covers
+  # changed, and when nothing did, every later step is skipped and the job succeeds.
+  desktop-core:
+    name: Desktop agent (Linux Rust checks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the merge base for the changed-paths check
+          persist-credentials: false
+
+      - name: Did anything the desktop agent depends on change?
+        id: changes
+        working-directory: .
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: apps/desktop/ci/changed.sh
+
+      # The runner's preinstalled rustup, no extra action. rust-version in Cargo.toml is 1.90.
+      - name: Rust toolchain
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+          rustup default stable
+          rustc --version
+
+      - name: Format
+        if: steps.changes.outputs.run == 'true'
+        run: cargo fmt --all --check
+
+      # The pure crates need no system libraries: the dependable core of this job.
+      - name: Clippy (agent-core, agent-service)
+        if: steps.changes.outputs.run == 'true'
+        run: cargo clippy --locked -p neo-agent-core -p neo-agent --all-targets -- -D warnings
+
+      - name: Test (agent-core, agent-service)
+        if: steps.changes.outputs.run == 'true'
+        run: cargo test --locked -p neo-agent-core -p neo-agent
+
+      # The tray crate (Tauri) builds on Linux too; it needs WebKitGTK and the built UI's folder.
+      - name: System libraries for the tray crate
+        if: steps.changes.outputs.run == 'true'
+        working-directory: .
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libsoup-3.0-dev libxdo-dev
+
+      - name: Clippy and test (tray crate)
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          # tauri::generate_context!() reads the frontend folder at compile time; the UI itself is
+          # built and tested by the `checks` job, so a placeholder is enough here.
+          mkdir -p dist
+          [ -f dist/index.html ] || echo '<!doctype html><title>Neo</title>' > dist/index.html
+          cargo clippy --locked -p neo-desktop --all-targets -- -D warnings
+          cargo test --locked -p neo-desktop
+
+  desktop-windows:
+    name: Desktop agent (Windows MSI install, upgrade, uninstall)
+    runs-on: windows-2025
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the merge base for the changed-paths check
+          persist-credentials: false
+
+      - name: Did anything the desktop agent depends on change?
+        id: changes
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: apps/desktop/ci/changed.sh
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: steps.changes.outputs.run == 'true'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.changes.outputs.run == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install JS dependencies
+        if: steps.changes.outputs.run == 'true'
+        shell: bash
+        run: pnpm install --frozen-lockfile
+
+      - name: Rust toolchain
+        if: steps.changes.outputs.run == 'true'
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component clippy
+          rustup default stable
+          rustc --version
+
+      - name: Build the UI
+        if: steps.changes.outputs.run == 'true'
+        shell: bash
+        run: pnpm --filter @neo/desktop build
+
+      # The first real compile of the Windows-only code (service, WinTrust, event log, pipe, DPAPI).
+      - name: Clippy and test (whole workspace, on Windows)
+        if: steps.changes.outputs.run == 'true'
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo test --locked --workspace
+
+      - name: Versions and a throwaway update-signing key
+        if: steps.changes.outputs.run == 'true'
+        id: setup
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          n="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          IFS=. read -r a b c <<<"$n"
+          n1="$a.$b.$((c + 1))"
+          echo "n=$n" >>"$GITHUB_OUTPUT"
+          echo "n1=$n1" >>"$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/keys" "$RUNNER_TEMP/serve" "$RUNNER_TEMP/msi"
+          pnpm exec tauri signer generate --ci -w "$RUNNER_TEMP/keys/test.key" -p ""
+          # The compile-time settings of the agent under test: a local update manifest, the
+          # throwaway public key, and permission to accept an unsigned MSI (this build is unsigned).
+          {
+            echo "NEO_DESKTOP_UPDATE_URL=http://127.0.0.1:8000/latest.json"
+            echo "NEO_DESKTOP_UPDATE_PUBKEY=$(cat "$RUNNER_TEMP/keys/test.key.pub")"
+            echo "NEO_ALLOW_UNSIGNED_UPDATE=1"
+          } >>"$GITHUB_ENV"
+
+      - name: Build the MSI, version N
+        if: steps.changes.outputs.run == 'true'
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          n="${{ steps.setup.outputs.n }}"
+          cargo build --release --locked -p neo-agent
+          export NEO_AGENT_EXE="$(cygpath -w "$PWD/target/release/neo-agent.exe")"
+          pnpm exec tauri build --bundles msi --config "{\"version\":\"$n\"}"
+          cp "target/release/bundle/msi/Neo_${n}_x64_en-US.msi" "$RUNNER_TEMP/msi/neo-$n.msi"
+          ls -la "$RUNNER_TEMP/msi"
+
+      - name: Start a fake Neo server and the update file server
+        if: steps.changes.outputs.run == 'true'
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP 'neo-requests.log'
+          Start-Process node -WindowStyle Hidden -ArgumentList @(
+            'apps/desktop/ci/fake-neo-server.mjs', '--port', '3007', '--log', $log,
+            '--static-dir', (Join-Path $env:RUNNER_TEMP 'serve'), '--static-port', '8000')
+          Start-Sleep -Seconds 3
+          (Invoke-WebRequest -UseBasicParsing -Uri 'http://127.0.0.1:8000/' -SkipHttpErrorCheck).StatusCode
+
+      - name: Install N, find the service running and answering on the pipe
+        if: steps.changes.outputs.run == 'true'
+        shell: pwsh
+        run: |
+          $n = '${{ steps.setup.outputs.n }}'
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/i `"$env:RUNNER_TEMP\msi\neo-$n.msi`" /qn /norestart /l*v `"$env:RUNNER_TEMP\install-$n.log`""
+          if ($p.ExitCode -ne 0) { throw "msiexec /i exited with $($p.ExitCode)" }
+
+          $svc = $null
+          foreach ($i in 1..30) {
+            $svc = Get-Service NeoAgent -ErrorAction SilentlyContinue
+            if ($svc -and $svc.Status -eq 'Running') { break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not $svc -or $svc.Status -ne 'Running') { throw "NeoAgent is not running: $($svc.Status)" }
+          $cfg = Get-CimInstance Win32_Service -Filter "Name='NeoAgent'"
+          Write-Host "service: $($cfg.DisplayName), start mode $($cfg.StartMode), account $($cfg.StartName), path $($cfg.PathName)"
+          if ($cfg.DisplayName -ne 'Neo Protection') { throw 'wrong display name' }
+          if ($cfg.StartMode -ne 'Auto') { throw 'the service is not automatic' }
+          if ($cfg.StartName -ne 'LocalSystem') { throw 'the service does not run as LocalSystem' }
+
+          $reply = & ./apps/desktop/ci/pipe-request.ps1 -Request '{"op":"status"}' | ConvertFrom-Json
+          Write-Host "status: $($reply | ConvertTo-Json -Compress)"
+          if (-not $reply.ok -or $reply.state -ne 'not_enrolled' -or $reply.version -ne $n) { throw 'unexpected status reply' }
+
+          # An oversize request is refused and a bad one gets an error code, not a crash.
+          $bad = & ./apps/desktop/ci/pipe-request.ps1 -Request '{"op":"nope"}' | ConvertFrom-Json
+          if ($bad.ok -or $bad.code -ne 'unknown_op') { throw 'unknown op was not refused' }
+
+          # The data directory is for SYSTEM and Administrators only.
+          $acl = (Get-Acl 'C:\ProgramData\Neo').Access | ForEach-Object { $_.IdentityReference.ToString() }
+          Write-Host "ACL: $($acl -join ', ')"
+          if ($acl | Where-Object { $_ -match 'Users|Everyone|Authenticated' }) { throw 'the data directory is readable by ordinary users' }
+
+          # The tray app starts at login for every user.
+          $run = Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name Neo
+          if ($run.Neo -notmatch 'neo\.exe') { throw 'the HKLM Run entry is missing' }
+
+      - name: Enroll through the pipe; the token exists only in the DPAPI file
+        if: steps.changes.outputs.run == 'true'
+        shell: pwsh
+        run: |
+          $req = '{"op":"enroll","code":"CI-CODE","name":"CI computer","serverUrl":"http://127.0.0.1:3007"}'
+          $reply = & ./apps/desktop/ci/pipe-request.ps1 -Request $req | ConvertFrom-Json
+          Write-Host "enroll: $($reply | ConvertTo-Json -Compress)"
+          if (-not $reply.ok -or $reply.state -ne 'enrolled') { throw 'enrollment failed' }
+          $bytes = [System.IO.File]::ReadAllBytes('C:\ProgramData\Neo\device.bin')
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+          if ($text -match 'neo_dt_') { throw 'device.bin holds the token in the clear' }
+          if ($bytes.Length -lt 100) { throw 'device.bin is suspiciously small' }
+          foreach ($i in 1..30) {
+            if ((Get-Content "$env:RUNNER_TEMP\neo-requests.log") -contains 'POST /api/devices/heartbeat') { break }
+            Start-Sleep -Seconds 2
+          }
+          if (-not ((Get-Content "$env:RUNNER_TEMP\neo-requests.log") -contains 'POST /api/devices/heartbeat')) { throw 'no heartbeat reached the server' }
+
+      - name: Build the MSI, version N+1 (a rebuild with the next version number)
+        if: steps.changes.outputs.run == 'true'
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          n1="${{ steps.setup.outputs.n1 }}"
+          sed -i "0,/^version = \".*\"/s//version = \"$n1\"/" Cargo.toml
+          cargo build --release -p neo-agent
+          export NEO_AGENT_EXE="$(cygpath -w "$PWD/target/release/neo-agent.exe")"
+          pnpm exec tauri build --bundles msi --config "{\"version\":\"$n1\"}"
+          cp "target/release/bundle/msi/Neo_${n1}_x64_en-US.msi" "$RUNNER_TEMP/serve/neo-update.msi"
+          cp "target/release/bundle/msi/Neo_${n1}_x64_en-US.msi" "$RUNNER_TEMP/msi/neo-$n1.msi"
+          # Sign it with the throwaway minisign key, the way the release does.
+          pnpm exec tauri signer sign -f "$RUNNER_TEMP/keys/test.key" -p "" "$RUNNER_TEMP/serve/neo-update.msi"
+          # A valid signature of a different file, for the "bad signature is refused" check.
+          echo 'not the msi' >"$RUNNER_TEMP/keys/other.bin"
+          pnpm exec tauri signer sign -f "$RUNNER_TEMP/keys/test.key" -p "" "$RUNNER_TEMP/keys/other.bin"
+          git checkout -- Cargo.toml || true
+          git checkout -- Cargo.lock || true
+
+      - name: The service refuses an update whose signature does not verify
+        if: steps.changes.outputs.run == 'true'
+        shell: pwsh
+        run: |
+          $n = '${{ steps.setup.outputs.n }}'
+          $n1 = '${{ steps.setup.outputs.n1 }}'
+          $serve = Join-Path $env:RUNNER_TEMP 'serve'
+          # A valid signature, but of a different file (signed in the build step).
+          node apps/desktop/ci/make-latest-json.mjs --version $n1 --url 'http://127.0.0.1:8000/neo-update.msi' `
+            --sig-file "$env:RUNNER_TEMP\keys\other.bin.sig" --out "$serve\latest.json"
+          Restart-Service NeoAgent   # the update check runs when the service starts
+          Start-Sleep -Seconds 30
+          $reply = & ./apps/desktop/ci/pipe-request.ps1 -Request '{"op":"status"}' | ConvertFrom-Json
+          if ($reply.version -ne $n) { throw "the service updated despite a bad signature: $($reply.version)" }
+          if ($reply.state -ne 'enrolled') { throw 'enrollment was lost' }
+          $logs = Get-Content 'C:\ProgramData\Neo\logs\*.log' -Raw
+          if ($logs -notmatch 'signature is not valid') { Write-Host $logs; throw 'the refusal is not in the log' }
+
+      - name: The service applies a good update itself, and keeps the enrollment
+        if: steps.changes.outputs.run == 'true'
+        shell: pwsh
+        run: |
+          $n = '${{ steps.setup.outputs.n }}'
+          $n1 = '${{ steps.setup.outputs.n1 }}'
+          $serve = Join-Path $env:RUNNER_TEMP 'serve'
+          node apps/desktop/ci/make-latest-json.mjs --version $n1 --url 'http://127.0.0.1:8000/neo-update.msi' `
+            --sig-file "$serve\neo-update.msi.sig" --out "$serve\latest.json"
+          Restart-Service NeoAgent
+          $now = $null
+          foreach ($i in 1..72) {
+            Start-Sleep -Seconds 5
+            try { $now = & ./apps/desktop/ci/pipe-request.ps1 -Request '{"op":"status"}' -TimeoutSeconds 20 | ConvertFrom-Json } catch { $now = $null; continue }
+            if ($now -and $now.version -eq $n1) { break }
+          }
+          if (-not $now -or $now.version -ne $n1) { throw "the service did not come back on $n1 (last: $($now | ConvertTo-Json -Compress))" }
+          if ($now.state -ne 'enrolled') { throw 'the upgrade lost the enrollment' }
+          if ((Get-Service NeoAgent).Status -ne 'Running') { throw 'NeoAgent is not running after the upgrade' }
+          if (-not (Test-Path 'C:\ProgramData\Neo\device.bin')) { throw 'device.bin is gone after the upgrade' }
+          if ((Get-Content "$env:RUNNER_TEMP\neo-requests.log") -contains 'DELETE /api/devices/self') { throw 'an upgrade must not unenroll' }
+          Write-Host "upgraded $n -> $n1, still enrolled"
+
+      - name: Uninstall; the service is gone and the owner is told
+        if: steps.changes.outputs.run == 'true'
+        shell: pwsh
+        run: |
+          $n1 = '${{ steps.setup.outputs.n1 }}'
+          $p = Start-Process msiexec.exe -Wait -PassThru -ArgumentList "/x `"$env:RUNNER_TEMP\msi\neo-$n1.msi`" /qn /norestart /l*v `"$env:RUNNER_TEMP\uninstall-$n1.log`""
+          if ($p.ExitCode -ne 0) { throw "msiexec /x exited with $($p.ExitCode)" }
+          if (Get-Service NeoAgent -ErrorAction SilentlyContinue) { throw 'NeoAgent still exists after the uninstall' }
+          if (Test-Path 'C:\Program Files\Neo') { throw 'the program folder is still there' }
+          $deletes = @(Get-Content "$env:RUNNER_TEMP\neo-requests.log" | Where-Object { $_ -eq 'DELETE /api/devices/self' }).Count
+          if ($deletes -ne 1) { throw "expected exactly one DELETE /api/devices/self from the uninstall, saw $deletes" }
+          if (Get-ItemProperty 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run' -Name Neo -ErrorAction SilentlyContinue) { throw 'the Run entry is still there' }
+          Write-Host 'uninstalled cleanly'
+
+      - name: Keep the installer and service logs
+        if: always() && steps.changes.outputs.run == 'true'
+        shell: pwsh
+        run: |
+          $keep = Join-Path $env:RUNNER_TEMP 'keep'
+          New-Item -ItemType Directory -Force -Path $keep | Out-Null
+          Get-ChildItem $env:RUNNER_TEMP -Filter '*.log' | Copy-Item -Destination $keep
+          if (Test-Path 'C:\ProgramData\Neo\logs') { Copy-Item 'C:\ProgramData\Neo\logs\*' -Destination $keep -ErrorAction SilentlyContinue }
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.changes.outputs.run == 'true'
+        with:
+          name: desktop-windows-logs
+          path: ${{ runner.temp }}/keep
+          if-no-files-found: ignore
+          retention-days: 7
+
   # Single required status check for branch protection. Runs even when an
   # upstream job fails or is cancelled, and fails unless every job succeeded.
   all-checks-passed:
     name: All checks passed
     runs-on: ubuntu-latest
-    needs: [checks, codeql, gitleaks]
+    needs: [checks, codeql, gitleaks, desktop-core, desktop-windows]
     if: always()
     permissions: {}
     steps:
@@ -112,12 +438,16 @@ jobs:
           CHECKS: ${{ needs.checks.result }}
           CODEQL: ${{ needs.codeql.result }}
           GITLEAKS: ${{ needs.gitleaks.result }}
+          DESKTOP_CORE: ${{ needs.desktop-core.result }}
+          DESKTOP_WINDOWS: ${{ needs.desktop-windows.result }}
         run: |
           echo "checks:   $CHECKS"
           echo "codeql:   $CODEQL"
           echo "gitleaks: $GITLEAKS"
+          echo "desktop-core:    $DESKTOP_CORE"
+          echo "desktop-windows: $DESKTOP_WINDOWS"
           failed=0
-          for pair in "checks=$CHECKS" "codeql=$CODEQL" "gitleaks=$GITLEAKS"; do
+          for pair in "checks=$CHECKS" "codeql=$CODEQL" "gitleaks=$GITLEAKS" "desktop-core=$DESKTOP_CORE" "desktop-windows=$DESKTOP_WINDOWS"; do
             if [[ "${pair#*=}" != "success" ]]; then
               echo "::error::${pair%%=*} did not pass (${pair#*=})"
               failed=1

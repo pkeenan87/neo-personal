@@ -40,7 +40,7 @@ A zod schema, `SignalEventSchema`, is the single source of truth for clients and
 | `page` | `dangerous_site` | `domain`, `source`: `safe_browsing_prefix` |
 | `page` | `remote_tool_download` | `domain`, `toolId`, `fileName` (≤ 128, basename only) |
 | `page` | `warning_bypassed` | `relatesTo` (the id of the event whose warning was dismissed), `domain` |
-| `software` | `remote_access_tool` | `toolId`, `name`, `publisher?`, `version?` |
+| `software` | `remote_access_tool` | `toolId`, `name`, `publisher?`, `version?`, `discovery?` |
 | `software` | `unwanted_software` | `name`, `publisher?`, `version?`, `sha256?`, `reason`: `publisher_list` \| `hash_list` \| `unsigned_unknown` |
 | `remote_session` | `remote_access_session` | `toolId`, `direction`: `incoming` \| `outgoing`, `peerId?` (the other side's tool ID, ≤ 64, `[A-Za-z0-9 _.@-]`) |
 | `permission` | `tcc_grant` | `app` (≤ 128), `bundleId?`, `service`: `screen_recording` \| `accessibility` \| `full_disk_access` |
@@ -103,6 +103,7 @@ idempotency, correlation, and "what did this device report" debugging through th
 | `remote_tool_download` from a domain not in the tool's `vendorDomains` | `suspicious` `page` verdict | `medium` | `remote_access` |
 | `warning_bypassed` | the related event's severity is raised one step (max `critical`) and a new alert is raised | +1 | same as related |
 | `remote_access_tool` installed | `suspicious` `software` verdict | `high`, or `low` when expected on the device | `remote_access` |
+| `remote_access_tool` with `discovery: "baseline"` (already installed at agent enrollment) | `suspicious` `software` verdict | `medium`, or `low` when expected; title "<device>: <tool> is installed"; never counts toward `scam_in_progress` | `remote_access` |
 | `remote_access_session` incoming | `malicious` `remote_session` verdict | `critical`; `low` when the tool is expected **and** `peerId` is in the expected list; `high` when expected but the peer is unknown or missing | `remote_access` |
 | `remote_access_session` outgoing | recorded, no verdict | — | — |
 | `unwanted_software` (`publisher_list` or `hash_list`) | `suspicious` `software` verdict | `medium` | `unwanted_software` |
@@ -138,8 +139,9 @@ concurrency 1 per tenant, 3 retries):
 - **New kinds** (added to the check constraint): `scam_page`, `dangerous_site`, `remote_access`,
   `unwanted_software`, `permission_grant`, `scam_in_progress`.
 - **Alert fields:** `deviceId` and `verdictId` are set.
-- **Dedupe key** `<kind>:<deviceId>:<subject>:<UTC hour>`, so the same tool on the same device alerts at most once
-  an hour. Exceptions:
+- **Dedupe key** `<kind>:<deviceId>:<detector>:<subject>:<UTC hour>`, so the same detector and tool on the same
+  device alerts at most once an hour. The detector is part of the key so a `high` install alert never swallows the
+  `critical` session alert for the same tool minutes later (amended by `_specs/desktop-agent.md`). Exceptions:
   - `scam_in_progress` uses the key given under Correlation.
   - A `warning_bypassed` alert uses `bypass:<relatesTo>`.
 - **Templates** (`alerts/templates.ts`) produce titles and bodies:

@@ -1,0 +1,27 @@
+[package]
+name = "neo-agent-core"
+description = "Pure, OS-independent detection logic for the Neo desktop agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["http"]
+# The `ureq` (rustls) implementation of `api::Transport`.
+http = ["dep:ureq"]
+
+[dependencies]
+log.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+time.workspace = true
+ureq = { workspace = true, optional = true }
+uuid.workspace = true
+
+[[example]]
+name = "simulate"
+required-features = ["http"]

@@ -1,0 +1,6 @@
+target/
+dist/
+node_modules/
+# Tauri's generated schemas and capability manifests.
+src-tauri/gen/
+*.tmp

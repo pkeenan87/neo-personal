@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_SIGNAL_BATCH, SignalEventSchema, isTechSupportScamHit, parseSignalEvent, type SignalEvent } from "../src/index.js";
+import { DISCOVERY_VALUES, MAX_SIGNAL_BATCH, SignalEventSchema, isTechSupportScamHit, parseSignalEvent, type SignalEvent } from "../src/index.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const RELATES_TO = "22222222-2222-4222-8222-222222222222";
@@ -146,6 +146,24 @@ describe("SignalEventSchema", () => {
     expect(SignalEventSchema.safeParse(upper).success).toBe(false);
     const ok = { ...validEvents.unwanted_software, reason: "unsigned_unknown", sha256: "0".repeat(64) };
     expect(SignalEventSchema.safeParse(ok).success).toBe(true);
+  });
+
+  it("accepts optional discovery on remote_access_tool and unwanted_software only", () => {
+    expect(DISCOVERY_VALUES).toEqual(["baseline", "new"]);
+    for (const discovery of DISCOVERY_VALUES) {
+      expect(SignalEventSchema.safeParse({ ...validEvents.remote_access_tool, discovery }).success).toBe(true);
+      expect(SignalEventSchema.safeParse({ ...validEvents.unwanted_software, discovery }).success).toBe(true);
+    }
+    expect(SignalEventSchema.safeParse({ ...validEvents.remote_access_tool, discovery: "old" }).success).toBe(false);
+    expect(SignalEventSchema.safeParse({ ...validEvents.remote_access_session, discovery: "new" }).success).toBe(false);
+    expect(SignalEventSchema.safeParse({ ...validEvents.dangerous_site, discovery: "baseline" }).success).toBe(false);
+  });
+
+  it("rejects a baseline unsigned_unknown unwanted_software as invalid", () => {
+    const event = { ...validEvents.unwanted_software, reason: "unsigned_unknown", sha256: "0".repeat(64), discovery: "baseline" };
+    expect(parseSignalEvent(event)).toEqual({ ok: false, id: ID, reason: "invalid" });
+    expect(SignalEventSchema.safeParse({ ...event, discovery: "new" }).success).toBe(true);
+    expect(SignalEventSchema.safeParse({ ...event, reason: "hash_list", discovery: "baseline" }).success).toBe(true);
   });
 
   it("rejects a bad phone", () => {

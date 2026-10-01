@@ -1,0 +1,58 @@
+[package]
+name = "neo-agent"
+description = "Neo Protection: the Windows service of the Neo desktop agent"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["http"]
+# Real HTTP. Off only for compile-checking the Windows code without a C toolchain.
+http = ["dep:ureq", "neo-agent-core/http"]
+
+[lib]
+name = "neo_agent"
+
+[[bin]]
+name = "neo-agent"
+path = "src/main.rs"
+required-features = ["http"]
+
+[dependencies]
+base64.workspace = true
+log = { workspace = true, features = ["std"] }
+minisign-verify.workspace = true
+neo-agent-core = { path = "../agent-core", default-features = false }
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+thiserror.workspace = true
+time = { workspace = true, features = ["macros"] }
+ureq = { workspace = true, optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-service = "=0.8.1"
+windows-registry = "=0.6.1"
+windows = { version = "=0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Security_Cryptography_Catalog",
+    "Win32_Security_Cryptography_Sip",
+    "Win32_Security_WinTrust",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_EventLog",
+    "Win32_System_IO",
+    "Win32_System_Pipes",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_Threading",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true

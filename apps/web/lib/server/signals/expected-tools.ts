@@ -70,6 +70,12 @@ export async function setDeviceExpectedTools(session: NeoSession, deviceId: stri
   return { ok: true, value: { tools: rows.map(toItem) } };
 }
 
+/** One device's expected tools, for the heartbeat's `device` item. */
+export async function expectedToolsForDevice(tenantId: string, deviceId: string): Promise<ExpectedToolItem[]> {
+  const rows = await listExpectedTools(tenantId, { deviceId });
+  return rows.map(toItem);
+}
+
 /** For lib/server/devices.ts (GET /api/household), listing every device's expected tools without a PUT. */
 export async function expectedToolsByDevice(tenantId: string): Promise<Map<string, ExpectedToolItem[]>> {
   const rows = await listExpectedTools(tenantId);

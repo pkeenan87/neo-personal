@@ -1,0 +1,12 @@
+{
+  "status": 201,
+  "headers": {},
+  "body": {
+    "deviceCode": "dc-secret",
+    "userCode": "ABCD-EFGH",
+    "verificationUri": "https://neo.test/desktop/authorize",
+    "verificationUriComplete": "https://neo.test/desktop/authorize?code=ABCD-EFGH",
+    "expiresIn": 600,
+    "interval": 5
+  }
+}

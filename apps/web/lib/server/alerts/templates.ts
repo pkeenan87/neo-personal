@@ -151,8 +151,16 @@ export function dangerousSiteAlertText(memberName: string, deviceName: string, d
   };
 }
 
-export function remoteAccessInstallAlertText(deviceName: string, tool: string, offVendorDomain: string | null): AlertText {
+export function remoteAccessInstallAlertText(deviceName: string, tool: string, offVendorDomain: string | null, severity: SignalSeverity = "high"): AlertText {
   const t = toolLabel(tool);
+  if (!offVendorDomain && severity === "low") {
+    // Marked expected on this device (_specs/signals.md rules table): feed-only, no warning tone.
+    return {
+      severity,
+      title: `${deviceName}: ${t} was installed`,
+      body: `${t} was installed on ${deviceName}. It is marked as expected on this device, so Neo is only noting it.`,
+    };
+  }
   return offVendorDomain
     ? {
         severity: "medium",
@@ -164,6 +172,16 @@ export function remoteAccessInstallAlertText(deviceName: string, tool: string, o
         title: `${deviceName}: ${t} was installed`,
         body: `${t}, a remote-access tool, was installed on ${deviceName}. If someone you don't know asked for this, hang up and don't let them connect. Under Settings → Household you can mark a tool as expected if this was intentional.`,
       };
+}
+
+/** A remote-access tool that was already on the device when the desktop agent enrolled (`discovery: "baseline"`). */
+export function remoteAccessBaselineAlertText(deviceName: string, tool: string, severity: SignalSeverity): AlertText {
+  const t = toolLabel(tool);
+  return {
+    severity,
+    title: `${deviceName}: ${t} is installed`,
+    body: `${t}, a remote-access tool, was already installed on ${deviceName} when Neo was set up there. If it belongs there, mark it as expected under Settings → Household. If nobody remembers installing it, ask ${deviceName}'s user about it and consider uninstalling it.`,
+  };
 }
 
 export function remoteAccessSessionAlertText(deviceName: string, tool: string, peerId: string | null, severity: SignalSeverity): AlertText {

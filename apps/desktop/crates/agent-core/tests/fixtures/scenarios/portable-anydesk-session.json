@@ -1,0 +1,123 @@
+{
+  "name": "portable-anydesk-session",
+  "description": "Portable AnyDesk is run from Downloads, then an incoming session starts three minutes later. Expect a new tool event, then a session event with the peer id.",
+  "lists": "../lists.json",
+  "steps": [
+    {
+      "atSeconds": 0,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "processes": [
+          {
+            "pid": 4120,
+            "image_name": "AnyDesk.exe",
+            "image_path": "C:\\Users\\Gran\\Downloads\\AnyDesk.exe",
+            "signer": "AnyDesk Software GmbH"
+          }
+        ]
+      },
+      "expect": [
+        "remote_access_tool:anydesk:new"
+      ]
+    },
+    {
+      "atSeconds": 5,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "processes": [
+          {
+            "pid": 4120,
+            "image_name": "AnyDesk.exe",
+            "image_path": "C:\\Users\\Gran\\Downloads\\AnyDesk.exe",
+            "signer": "AnyDesk Software GmbH"
+          }
+        ]
+      },
+      "expect": []
+    },
+    {
+      "atSeconds": 180,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "processes": [
+          {
+            "pid": 4120,
+            "image_name": "AnyDesk.exe",
+            "image_path": "C:\\Users\\Gran\\Downloads\\AnyDesk.exe",
+            "signer": "AnyDesk Software GmbH"
+          }
+        ],
+        "log_chunks": [
+          {
+            "path": "C:\\Users\\Gran\\AppData\\Roaming\\AnyDesk\\connection_trace.txt",
+            "lines": [
+              "Incoming    2026-10-01, 10:03    User    123456789"
+            ]
+          }
+        ]
+      },
+      "expect": [
+        "remote_access_session:anydesk:peer=123456789"
+      ]
+    },
+    {
+      "atSeconds": 600,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "processes": [
+          {
+            "pid": 4120,
+            "image_name": "AnyDesk.exe",
+            "image_path": "C:\\Users\\Gran\\Downloads\\AnyDesk.exe",
+            "signer": "AnyDesk Software GmbH"
+          }
+        ],
+        "log_chunks": [
+          {
+            "path": "C:\\Users\\Gran\\AppData\\Roaming\\AnyDesk\\connection_trace.txt",
+            "lines": [
+              "Incoming    2026-10-01, 10:03    User    123456789"
+            ]
+          }
+        ]
+      },
+      "expect": []
+    }
+  ]
+}

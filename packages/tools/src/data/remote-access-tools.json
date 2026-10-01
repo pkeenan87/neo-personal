@@ -1,5 +1,5 @@
 {
-  "$comment": "Remote-access tool signatures used to detect installs and sessions (_specs/signals.md). installerPatterns are JavaScript regular expression sources matched case-insensitively against the downloaded filename (no flags stored; clients/servers apply the 'i' flag). windows.publishers are code-signing certificate subject (CN) names as best known; windows.serviceNames/processNames are Windows service and process names; macos.bundleIds are best-known application bundle identifiers. Fields left empty were not confirmed with enough confidence to ship rather than guessed at (see the implementation report). teamIds (Apple Developer Team IDs) are left empty throughout: they cannot be reliably recalled and a wrong one is worse than none. sessionHints are process or log markers the desktop agent looks for to infer an active remote-control session, not just an install.",
+  "$comment": "windows.sessionEvidence lists where a session leaves evidence on Windows (_specs/desktop-agent.md): log (path with %ProgramData%/%ProgramFiles%/%ProgramFiles(x86)%/%AppData%, pattern with an optional (?<peer>...) group), eventlog (channel, eventIds) or process (name). Every entry is verified:false until it is checked on a Windows VM with the current vendor build (the list-verification task, which also records checked as \"<vendor version> <YYYY-MM-DD>\"); only verified:true entries ship to agents. Regexes (installerPatterns, displayNamePatterns, sessionEvidence pattern) stay in the JS/Rust shared subset: no lookaround, no backreferences, no inline flags, named groups only as (?<name>...). Remote-access tool signatures used to detect installs and sessions (_specs/signals.md). installerPatterns are JavaScript regular expression sources matched case-insensitively against the downloaded filename (no flags stored; clients/servers apply the 'i' flag). windows.publishers are code-signing certificate subject (CN) names as best known; windows.serviceNames/processNames are Windows service and process names; macos.bundleIds are best-known application bundle identifiers. Fields left empty were not confirmed with enough confidence to ship rather than guessed at (see the implementation report). teamIds (Apple Developer Team IDs) are left empty throughout: they cannot be reliably recalled and a wrong one is worse than none. sessionHints are process or log markers the desktop agent looks for to infer an active remote-control session, not just an install.",
   "tools": [
     {
       "id": "anydesk",
@@ -10,7 +10,8 @@
         "publishers": ["AnyDesk Software GmbH"],
         "displayNamePatterns": ["^AnyDesk$"],
         "serviceNames": ["AnyDesk"],
-        "processNames": ["AnyDesk.exe"]
+        "processNames": ["AnyDesk.exe"],
+        "sessionEvidence": [{"kind": "log", "path": "%ProgramData%\\AnyDesk\\connection_trace.txt", "pattern": "^Incoming\\s.*?\\s(?<peer>\\d{6,12})\\s", "verified": false}, {"kind": "log", "path": "%AppData%\\AnyDesk\\connection_trace.txt", "pattern": "^Incoming\\s.*?\\s(?<peer>\\d{6,12})\\s", "verified": false}]
       },
       "macos": {
         "bundleIds": ["com.anydesk.anydesk"],
@@ -27,7 +28,8 @@
         "publishers": ["TeamViewer Germany GmbH"],
         "displayNamePatterns": ["^TeamViewer.*$"],
         "serviceNames": ["TeamViewer"],
-        "processNames": ["TeamViewer.exe"]
+        "processNames": ["TeamViewer.exe"],
+        "sessionEvidence": [{"kind": "log", "path": "%ProgramFiles%\\TeamViewer\\Connections_incoming.txt", "pattern": "^(?<peer>\\d{6,12})\\t", "verified": false}]
       },
       "macos": {
         "bundleIds": ["com.teamviewer.TeamViewer"],
@@ -44,7 +46,8 @@
         "publishers": ["ConnectWise, LLC"],
         "displayNamePatterns": ["^ScreenConnect Client.*$"],
         "serviceNames": [],
-        "processNames": []
+        "processNames": [],
+        "sessionEvidence": [{"kind": "process", "name": "ScreenConnect.WindowsClient.exe", "verified": false}]
       },
       "macos": {
         "bundleIds": [],
@@ -61,7 +64,8 @@
         "publishers": [],
         "displayNamePatterns": ["^UltraViewer.*$"],
         "serviceNames": [],
-        "processNames": ["UltraViewer_Desktop.exe"]
+        "processNames": ["UltraViewer_Desktop.exe"],
+        "sessionEvidence": [{"kind": "log", "path": "%AppData%\\UltraViewer\\Connection_IN_Log.txt", "pattern": "(?<peer>\\d{6,12})", "verified": false}]
       },
       "macos": {
         "bundleIds": [],
@@ -78,7 +82,8 @@
         "publishers": [],
         "displayNamePatterns": ["^RustDesk$"],
         "serviceNames": ["RustDesk"],
-        "processNames": ["rustdesk.exe"]
+        "processNames": ["rustdesk.exe"],
+        "sessionEvidence": []
       },
       "macos": {
         "bundleIds": [],
@@ -95,7 +100,8 @@
         "publishers": ["Microsoft Corporation"],
         "displayNamePatterns": ["^Quick Assist$"],
         "serviceNames": [],
-        "processNames": ["QuickAssist.exe"]
+        "processNames": ["QuickAssist.exe"],
+        "sessionEvidence": [{"kind": "process", "name": "QuickAssist.exe", "verified": false}]
       },
       "macos": {
         "bundleIds": [],
@@ -112,7 +118,8 @@
         "publishers": ["Splashtop Inc."],
         "displayNamePatterns": ["^Splashtop Streamer$"],
         "serviceNames": ["SplashtopRemoteService"],
-        "processNames": ["SRServer.exe"]
+        "processNames": ["SRServer.exe"],
+        "sessionEvidence": [{"kind": "eventlog", "channel": "Splashtop-Splashtop Streamer-Remote Session/Operational", "eventIds": [], "verified": false}]
       },
       "macos": {
         "bundleIds": [],
@@ -129,7 +136,8 @@
         "publishers": ["LogMeIn, Inc."],
         "displayNamePatterns": ["^LogMeIn.*$"],
         "serviceNames": ["LogMeIn"],
-        "processNames": ["LogMeIn.exe"]
+        "processNames": ["LogMeIn.exe"],
+        "sessionEvidence": []
       },
       "macos": {
         "bundleIds": [],
@@ -146,7 +154,8 @@
         "publishers": ["Atera Networks Ltd"],
         "displayNamePatterns": ["^Atera Agent$"],
         "serviceNames": ["AteraAgent"],
-        "processNames": ["AteraAgent.exe"]
+        "processNames": ["AteraAgent.exe"],
+        "sessionEvidence": []
       },
       "macos": {
         "bundleIds": [],
@@ -163,7 +172,8 @@
         "publishers": ["NetSupport Ltd"],
         "displayNamePatterns": ["^NetSupport Manager$"],
         "serviceNames": [],
-        "processNames": ["client32.exe"]
+        "processNames": ["client32.exe"],
+        "sessionEvidence": []
       },
       "macos": {
         "bundleIds": [],
@@ -180,7 +190,8 @@
         "publishers": ["Nanosystems S.r.l."],
         "displayNamePatterns": ["^Supremo$"],
         "serviceNames": [],
-        "processNames": ["Supremo.exe"]
+        "processNames": ["Supremo.exe"],
+        "sessionEvidence": [{"kind": "log", "path": "%ProgramData%\\SupremoRemoteDesktop\\Log\\Supremo.00.Incoming.log", "pattern": "(?<peer>\\d{9})", "verified": false}]
       },
       "macos": {
         "bundleIds": [],
@@ -197,7 +208,8 @@
         "publishers": [],
         "displayNamePatterns": ["^AeroAdmin$"],
         "serviceNames": [],
-        "processNames": ["AeroAdmin.exe"]
+        "processNames": ["AeroAdmin.exe"],
+        "sessionEvidence": []
       },
       "macos": {
         "bundleIds": [],

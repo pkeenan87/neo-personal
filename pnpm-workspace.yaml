@@ -10,3 +10,18 @@ minimumReleaseAgeExclude:
   - '@ai-sdk/gateway@4.0.94'
   - '@ai-sdk/provider-utils@5.0.49'
   - ai@7.0.116
+  # Tauri 2.12.1 (npm side) was under a day old when the desktop agent landed; the Rust crates are pinned to the
+  # same release and must match. These exact-version entries can be deleted once the packages are a day old.
+  - '@tauri-apps/api@2.12.1'
+  - '@tauri-apps/cli@2.12.1'
+  - '@tauri-apps/cli-darwin-arm64@2.12.1'
+  - '@tauri-apps/cli-darwin-x64@2.12.1'
+  - '@tauri-apps/cli-linux-arm-gnueabihf@2.12.1'
+  - '@tauri-apps/cli-linux-arm64-gnu@2.12.1'
+  - '@tauri-apps/cli-linux-arm64-musl@2.12.1'
+  - '@tauri-apps/cli-linux-riscv64-gnu@2.12.1'
+  - '@tauri-apps/cli-linux-x64-gnu@2.12.1'
+  - '@tauri-apps/cli-linux-x64-musl@2.12.1'
+  - '@tauri-apps/cli-win32-arm64-msvc@2.12.1'
+  - '@tauri-apps/cli-win32-ia32-msvc@2.12.1'
+  - '@tauri-apps/cli-win32-x64-msvc@2.12.1'

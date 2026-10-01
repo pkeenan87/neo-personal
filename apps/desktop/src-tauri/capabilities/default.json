@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The tray app's windows only talk to the Rust side (agent_request, open_url, close_self, get_warning) and listen for events.",
+  "windows": ["*"],
+  "permissions": ["core:default"]
+}

@@ -1,0 +1,79 @@
+{
+  "name": "unsigned-new-program",
+  "description": "A program installs after enrolment and its main executable is unsigned: unsigned_unknown with the SHA-256. Programs present at enrolment are not hashed.",
+  "lists": "../lists.json",
+  "steps": [
+    {
+      "atSeconds": 0,
+      "discoveryPhase": true,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "uninstall_entries": [
+          {
+            "display_name": "Old Unsigned Tool",
+            "publisher": "Someone",
+            "install_location": "C:\\Tools\\Old",
+            "hive": "HKLM64"
+          }
+        ],
+        "exe_facts": [
+          {
+            "path": "C:\\Tools\\Old\\old.exe",
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "signed_trusted": false
+          }
+        ]
+      },
+      "expect": []
+    },
+    {
+      "atSeconds": 120,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "uninstall_entries": [
+          {
+            "display_name": "Old Unsigned Tool",
+            "publisher": "Someone",
+            "install_location": "C:\\Tools\\Old",
+            "hive": "HKLM64"
+          },
+          {
+            "display_name": "Free PDF Booster",
+            "publisher": "Booster Ltd",
+            "version": "1.0",
+            "display_icon": "\"C:\\Program Files\\Booster\\boost.exe\",0",
+            "hive": "HKLM64"
+          }
+        ],
+        "exe_facts": [
+          {
+            "path": "C:\\Program Files\\Booster\\boost.exe",
+            "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+            "signed_trusted": false
+          }
+        ]
+      },
+      "expect": [
+        "unwanted_software:unsigned_unknown:new"
+      ]
+    }
+  ]
+}

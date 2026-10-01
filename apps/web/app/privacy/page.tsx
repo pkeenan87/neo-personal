@@ -56,7 +56,10 @@ function sections(email: string): Section[] {
             grants. Signal records are kept for 30 days. When someone uses the browser extension&apos;s own link check
             (right-click a link, or paste one into the popup), Neo sends only that link, checks it the same way it
             checks a link you paste in chat, and does not save or alert on the result. The extension never sends
-            browsing history, page content, form contents, or passwords. The household owner can mark a tool as
+            browsing history, page content, form contents, or passwords. The Windows app checks programs and
+            remote-access tools on the computer. It sends Neo only the name of a remote-access tool or flagged program
+            when one appears, a remote peer ID during an incoming session, and the fingerprint (SHA-256) of an unsigned
+            new program so it can be checked. It never sends your list of programs, files or browsing. The household owner can mark a tool as
             expected on a device, such as one they use to help another member, so their own sessions with it
             don&apos;t raise an alert.
           </li>

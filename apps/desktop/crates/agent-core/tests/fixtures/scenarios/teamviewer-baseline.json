@@ -1,0 +1,67 @@
+{
+  "name": "teamviewer-baseline",
+  "description": "TeamViewer is already installed when the device enrols: reported once as baseline, not again.",
+  "lists": "../lists.json",
+  "steps": [
+    {
+      "atSeconds": 0,
+      "discoveryPhase": true,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "uninstall_entries": [
+          {
+            "display_name": "TeamViewer",
+            "publisher": "TeamViewer Germany GmbH",
+            "version": "15.50.5",
+            "install_location": "C:\\Program Files\\TeamViewer",
+            "hive": "HKLM64"
+          }
+        ],
+        "services": [
+          {
+            "name": "TeamViewer",
+            "display_name": "TeamViewer",
+            "binary_path": "C:\\Program Files\\TeamViewer\\TeamViewer_Service.exe"
+          }
+        ]
+      },
+      "expect": [
+        "remote_access_tool:teamviewer:baseline"
+      ]
+    },
+    {
+      "atSeconds": 60,
+      "snapshot": {
+        "env": {
+          "vars": {
+            "ProgramData": "C:\\ProgramData",
+            "ProgramFiles": "C:\\Program Files",
+            "ProgramFiles(x86)": "C:\\Program Files (x86)"
+          },
+          "app_data": [
+            "C:\\Users\\Gran\\AppData\\Roaming"
+          ]
+        },
+        "uninstall_entries": [
+          {
+            "display_name": "TeamViewer",
+            "publisher": "TeamViewer Germany GmbH",
+            "version": "15.50.5",
+            "install_location": "C:\\Program Files\\TeamViewer",
+            "hive": "HKLM64"
+          }
+        ]
+      },
+      "expect": []
+    }
+  ]
+}

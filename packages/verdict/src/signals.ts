@@ -53,6 +53,13 @@ export type LookalikeIndicator = (typeof LOOKALIKE_INDICATORS)[number];
 const UNWANTED_SOFTWARE_REASONS = ["publisher_list", "hash_list", "unsigned_unknown"] as const;
 export type UnwantedSoftwareReason = (typeof UNWANTED_SOFTWARE_REASONS)[number];
 
+/**
+ * `discovery` on `remote_access_tool` / `unwanted_software` (absent = `"new"`): `baseline` marks software
+ * already present when the desktop agent enrolled (`_specs/desktop-agent.md`, Baseline at enrollment).
+ */
+export const DISCOVERY_VALUES = ["baseline", "new"] as const;
+export type Discovery = (typeof DISCOVERY_VALUES)[number];
+
 const REMOTE_SESSION_DIRECTIONS = ["incoming", "outgoing"] as const;
 export type RemoteSessionDirection = (typeof REMOTE_SESSION_DIRECTIONS)[number];
 
@@ -194,6 +201,7 @@ const RemoteAccessToolEvent = z
     name: BoundedTextSchema,
     publisher: BoundedTextSchema.optional(),
     version: BoundedTextSchema.optional(),
+    discovery: z.enum(DISCOVERY_VALUES).optional(),
   })
   .strict();
 
@@ -208,8 +216,13 @@ const UnwantedSoftwareEvent = z
     version: BoundedTextSchema.optional(),
     sha256: Sha256Schema.optional(),
     reason: z.enum(UNWANTED_SOFTWARE_REASONS),
+    discovery: z.enum(DISCOVERY_VALUES).optional(),
   })
-  .strict();
+  .strict()
+  .refine((e) => !(e.discovery === "baseline" && e.reason === "unsigned_unknown"), {
+    message: "unsigned_unknown is never baseline",
+    path: ["discovery"],
+  });
 
 const RemoteAccessSessionEvent = z
   .object({
