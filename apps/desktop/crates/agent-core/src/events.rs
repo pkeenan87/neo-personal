@@ -1,6 +1,6 @@
 //! Wire events for `POST /api/signals` (`packages/verdict/src/signals.ts`).
 //!
-//! Only the three detectors a desktop agent can produce are modelled. The schema on the server is
+//! Only the four detectors a desktop agent can produce are modelled. The schema on the server is
 //! `.strict()`, so the key set here is exact: `id`, `type`, `detector`, `observedAt` plus the
 //! variant's own fields. Optional fields are omitted, never `null`.
 
@@ -43,6 +43,39 @@ pub enum UnwantedReason {
     UnsignedUnknown,
 }
 
+/// The `service` of a `tcc_grant` event (macOS permission that lets an app see or control the Mac).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TccService {
+    /// `kTCCServiceScreenCapture`.
+    ScreenRecording,
+    /// `kTCCServiceAccessibility`.
+    Accessibility,
+    /// `kTCCServiceSystemPolicyAllFiles`.
+    FullDiskAccess,
+}
+
+impl TccService {
+    /// The wire name (`screen_recording`, `accessibility`, `full_disk_access`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TccService::ScreenRecording => "screen_recording",
+            TccService::Accessibility => "accessibility",
+            TccService::FullDiskAccess => "full_disk_access",
+        }
+    }
+
+    /// Maps a raw TCC `service` string; `None` for every service the agent does not report.
+    pub fn from_tcc(service: &str) -> Option<Self> {
+        match service {
+            "kTCCServiceScreenCapture" => Some(TccService::ScreenRecording),
+            "kTCCServiceAccessibility" => Some(TccService::Accessibility),
+            "kTCCServiceSystemPolicyAllFiles" => Some(TccService::FullDiskAccess),
+            _ => None,
+        }
+    }
+}
+
 /// The detector-specific part of an event (the `detector` discriminant is the serde tag).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "detector", rename_all = "snake_case")]
@@ -79,6 +112,13 @@ pub enum EventBody {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         peer_id: Option<String>,
     },
+    #[serde(rename_all = "camelCase")]
+    TccGrant {
+        app: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bundle_id: Option<String>,
+        service: TccService,
+    },
 }
 
 impl EventBody {
@@ -87,6 +127,7 @@ impl EventBody {
         match self {
             EventBody::RemoteAccessTool { .. } | EventBody::UnwantedSoftware { .. } => "software",
             EventBody::RemoteAccessSession { .. } => "remote_session",
+            EventBody::TccGrant { .. } => "permission",
         }
     }
 }
@@ -216,11 +257,27 @@ impl SignalEvent {
         )
     }
 
+    /// `tcc_grant`. `app` is bounded to 1-128 characters (falling back to the bundle id, then
+    /// `Unknown app`); `bundle_id` is dropped unless it passes [`valid_bundle_id`].
+    pub fn tcc_grant(now: OffsetDateTime, app: &str, bundle_id: Option<&str>, service: TccService) -> Self {
+        let bundle_id = bundle_id.map(str::trim).filter(|b| valid_bundle_id(b)).map(str::to_string);
+        Self::new(
+            now,
+            EventBody::TccGrant {
+                app: bounded(app)
+                    .or_else(|| bundle_id.as_deref().and_then(bounded))
+                    .unwrap_or_else(|| "Unknown app".to_string()),
+                bundle_id,
+                service,
+            },
+        )
+    }
+
     /// The tool id, for tool and session events.
     pub fn tool_id(&self) -> Option<&str> {
         match &self.body {
             EventBody::RemoteAccessTool { tool_id, .. } | EventBody::RemoteAccessSession { tool_id, .. } => Some(tool_id),
-            EventBody::UnwantedSoftware { .. } => None,
+            EventBody::UnwantedSoftware { .. } | EventBody::TccGrant { .. } => None,
         }
     }
 }
@@ -251,4 +308,21 @@ pub fn clean_peer_id(raw: &str) -> Option<String> {
     let kept: String = kept.trim().chars().take(MAX_PEER_ID).collect();
     let kept = kept.trim().to_string();
     (!kept.is_empty()).then_some(kept)
+}
+
+/// The server's `BundleIdSchema`: `^[A-Za-z0-9]+(\.[A-Za-z0-9-]+)+$`, 1-255 characters.
+pub fn valid_bundle_id(s: &str) -> bool {
+    if s.is_empty() || s.len() > 255 {
+        return false;
+    }
+    let mut parts = s.split('.');
+    let first_ok = parts
+        .next()
+        .is_some_and(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_alphanumeric()));
+    let mut rest = 0;
+    let rest_ok = parts.all(|p| {
+        rest += 1;
+        !p.is_empty() && p.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    });
+    first_ok && rest_ok && rest >= 1
 }

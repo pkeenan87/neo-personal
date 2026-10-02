@@ -776,3 +776,48 @@ type SessionEvidence =
   - A warning may be pushed twice with the same `eventId`: first `ownerTold: false`, then `ownerTold: true` once the server accepted it at `medium`+.
   - Error codes: `request_too_large`, `invalid_json`, `invalid_request`, `unknown_op`, `not_enrolled`, `already_enrolled`, `invalid_code`, `invalid_server_url`, `server_unreachable`, `rate_limited`, `device_limit`, `disconnected`, `no_sign_in`, `storage_failed`, `server_error` (tray adds `agent_unavailable`). At most 32 connections; an oversize request is answered once and the connection closed.
 - The MSI installs `neo-agent.exe` through its own WiX component (not Tauri `externalBin`); build-time `TAURI_NEO_AGENT_EXE` points at it. Build-time `NEO_DESKTOP_UPDATE_PUBKEY` (unset = updates off) and CI-only `NEO_ALLOW_UNSIGNED_UPDATE`.
+
+## Desktop agent, macOS (spec `_specs/desktop-agent-macos.md`)
+
+`@neo/tools`:
+- `RemoteAccessTool.macos` gains `sessionEvidence: SessionEvidence[]` (same union as Windows) and the union gains:
+
+```ts
+| { kind: "unifiedlog"; predicate: string; pattern: string; verified: boolean; checked?: string }
+// predicate is exactly `process == "<name>"` or `subsystem == "<name>"` (name: [A-Za-z0-9._-]{1,64}); pattern follows the shared regex subset
+```
+
+- macOS log paths may use `%Home%` (expanded once per local user); Windows tokens stay as they are.
+- New tool id `apple_screen_sharing` ("Apple Screen Sharing / Remote Management"): no `vendorDomains`, no `installerPatterns`, no Windows signals; macOS session evidence only. Agents never send `remote_access_tool` for it.
+
+`agent-core` (Rust):
+- `snapshot::TccRow { db: String /* "system" | "user:<uid>" */, service: String, client: String, client_type: i64, auth_value: i64 }`; `snapshot::TccSnapshot { dbs_read: Vec<String>, rows: Vec<TccRow> }`; `Snapshot.tcc: Option<TccSnapshot>` (None = nothing readable / no Full Disk Access / schema not understood: state untouched). `dbs_read` lists the databases that were actually read this pass (a database that could not be read must not be listed).
+- `detect::detect_tcc(seen, Option<&TccSnapshot>, bundles, now)` compares and updates state only for the databases in `dbs_read`: a database not read this pass keeps its previous state (a user logging out is not a revoke, their return not a grant), and a database read for the first time is baselined silently even after other databases were baselined. Rows whose `db` is not in `dbs_read` are ignored. `SeenState` stores the set of baselined databases (`tcc_dbs`; `tcc_baselined()` = any; `swap_tcc(dbs_read, current)`).
+- `detect` emits `tcc_grant` (`type: "permission"`, `app`, `bundleId?`, `service: "screen_recording" | "accessibility" | "full_disk_access"`) only for transitions to `auth_value == 2` after that database's first read since enrollment; dedupe on `(client, service)`; Neo's own bundle ids ignored. Mapping: `kTCCServiceScreenCapture` → `screen_recording`, `kTCCServiceAccessibility` → `accessibility`, `kTCCServiceSystemPolicyAllFiles` → `full_disk_access`. `TccService::as_str()` is the wire name.
+- `warn::WarningKind` gains `Permission` (push `kind: "permission"`): a `tcc_grant` to a listed remote-access tool (matched on `bundleId`, not expected on the device) is `Permission`, no longer `Session`; any other grant never warns locally. The push carries `service`.
+- macOS matching uses `macos.bundleIds` and `macos.teamIds` (Team ID plays the role of the Authenticode publisher).
+
+Agent service (macOS):
+- Daemon bundle `/Library/Application Support/Neo/Neo Protection.app` (`CFBundleIdentifier` `dev.neoshield.agent`), executable `Contents/MacOS/neo-agent`, LaunchDaemon `dev.neoshield.agent` (root, `KeepAlive`). Tray `/Applications/Neo.app`, LaunchAgent `dev.neoshield.tray`. Pkg identifier `dev.neoshield.pkg`.
+- Data dir `/Library/Application Support/Neo/data` (root `0700`, created before contents): `device.json` (`0600`) plus the same state files as Windows.
+- IPC: Unix socket `/var/run/neo-agent.sock` (`0666`, root-owned; the daemon calls `getpeereid` on every connection and drops a peer it cannot verify, any local user is served), the same protocol as the Windows pipe; `status` adds `platform: "windows" | "macos" | "linux"` (`linux` = development build) and `fullDiskAccess: boolean | null` (null off a Mac); new op `probe_permissions` → `{ ok, fullDiskAccess: boolean | null, restarting: boolean }`.
+- Warning push `kind` is now `"tool" | "session" | "unwanted" | "permission"`; `permission` adds `service: "screen_recording" | "accessibility" | "full_disk_access"` (shown in the critical window with the spec copy, adapted by service). The tray's allowed web-view ops gain `probe_permissions`; the tray's own commands `open_full_disk_access`, `reveal_daemon` and `uninstall_mac` take no arguments (every address and path is hardcoded in Rust).
+- Updates: `latest.json` platform `darwin-universal`; minisign, then `pkgutil --check-signature` must show `Developer ID Installer: … (<TEAMID>)` equal to the daemon's own Team ID and a notarization line; `installer -pkg <pkg> -target /`.
+- Uninstall: `uninstall.sh` in the daemon bundle and the tray's Uninstall item; `/Applications/Neo.app` missing for 10 minutes (build-time override `NEO_TRASH_GRACE_SECS`) → unenroll and remove.
+
+`apps/web`: Add a device links `NEXT_PUBLIC_MAC_AGENT_URL` (optional; unset → "coming soon"); privacy page macOS paragraph.
+
+### As built (macOS), differences and additions
+
+- **`probe_permissions` restarts the daemon.** A Full Disk Access grant is only visible to a process started after it, so the first failed probe makes the daemon exit once (`restarting: true`; launchd `KeepAlive` relaunches it ~1 s after the reply is written). `agent.json` `fda_relaunch_at` (unix seconds) limits this to once per minute and is cleared by a successful probe; only this op ever restarts it (the 5-minute re-probe does not).
+- **Full Disk Access cache:** `status.fullDiskAccess` is the daemon's cached probe (probed on first `status`, every 5 minutes while missing, and on `probe_permissions`); a change pushes `status_changed`.
+- **Scheduling:** the unified-log query and the TCC read ride the existing 30-second `EventLog` task; app bundles and launchd items ride the 60-second `Slow` task; launchd items are reported as `ServiceInfo { name: label, binary_path: program }` so `service_names` matching is shared.
+- **TCC database reading** uses `immutable=1` only when no non-empty `-wal` exists; otherwise the database and its `-wal` are copied to `<data>/tmp/`, read and deleted (an immutable read ignores the WAL and would miss a fresh grant).
+- **Trash rule:** the check interval is a quarter of the grace period clamped to 5-60 s (60 s for the default 600 s). The daemon unenrolls (`DELETE /api/devices/self`) itself before running `uninstall.sh`, so the script's `--unenroll` sends nothing and the owner is told once; removal proceeds even if the server is unreachable or the device was not enrolled. `NEO_TRASH_GRACE_SECS` is compile-time and CI-only (the macOS release refuses it).
+- **Device platform:** a macOS build enrolls with `platform: "macos"` (the server already accepts it) and signs in as "Neo for Mac".
+- **Data directory modes:** `DataDir` creates directories `0700` and files `0600` on every unix; the daemon sets `umask 077`; `device.json` is re-tightened to `0600` whenever it is loaded.
+- **Installer trait:** `Installer::extension()` (default `msi`, `pkg` on macOS) names the staged file; `update::UPDATE_PLATFORM` is `darwin-universal` on macOS.
+- **`SystemProbe`** gains default methods `platform`, `app_bundles`, `bundle_exe_facts`, `unified_log`, `full_disk_access`, `tcc`; `Notifier` and the rest are unchanged. `FileSecretStore::named(dir, protector, file)` (macOS: `device.json`, `PlainProtector`).
+- **`latest.json`:** `ci/make-latest-json.mjs --platform <key> --merge-into <existing>`; `ci/publish-manifest.sh` merges and re-verifies on the rolling release (both release workflows use it).
+- **Packaging:** `apps/desktop/macos/` (`Neo Protection.app` skeleton, `launchd/`, `scripts/preinstall|postinstall`, `distribution.xml`, `build-pkg.sh`); the daemon plist sets `AbandonProcessGroup` and `AssociatedBundleIdentifiers`. `build-pkg.sh` marks the components non-relocatable (`pkgbuild --component-plist`), ad-hoc signs both bundles when no identity is given, and refuses to build when the daemon and the tray app are signed by different teams.
+- **Signer names and trust:** `AppBundle.signer` (for `pupPublishers`) is the leaf certificate's subject summary without the `Developer ID Application:` prefix and the Team ID; `AppBundle.team_id`, `signing_id` and `ExeFacts.signed_trusted` are set only for a signature that validates against the Developer ID requirement (Apple's own: `anchor apple`, identifier only), never from an ad-hoc or broken signature.

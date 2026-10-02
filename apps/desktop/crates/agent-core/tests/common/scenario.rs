@@ -91,5 +91,12 @@ pub fn describe(e: &SignalEvent) -> String {
             };
             format!("unwanted_software:{r}:{}", disc(discovery))
         }
+        EventBody::TccGrant { service, bundle_id, .. } => {
+            let svc = serde_json::to_value(service)
+                .ok()
+                .and_then(|v| v.as_str().map(str::to_string))
+                .unwrap_or_default();
+            format!("tcc_grant:{svc}:{}", bundle_id.as_deref().unwrap_or("none"))
+        }
     }
 }

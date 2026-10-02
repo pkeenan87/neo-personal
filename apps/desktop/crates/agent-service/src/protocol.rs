@@ -39,6 +39,8 @@ pub enum Request {
         url: String,
     },
     Unenroll,
+    /// macOS: re-check Full Disk Access now.
+    ProbePermissions,
     Subscribe,
 }
 
@@ -180,6 +182,7 @@ pub fn parse_request(line: &[u8]) -> Result<Request, ProtocolError> {
         "status" => Ok(Request::Status),
         "subscribe" => Ok(Request::Subscribe),
         "unenroll" => Ok(Request::Unenroll),
+        "probe_permissions" => Ok(Request::ProbePermissions),
         "self_enroll_poll" => Ok(Request::SelfEnrollPoll),
         "enroll_preview" => Ok(Request::EnrollPreview {
             code: req_string(&obj, "code", MAX_CODE_LEN)?,
@@ -220,6 +223,7 @@ mod tests {
         assert_eq!(parse(r#"{"op":"status"}"#), Ok(Request::Status));
         assert_eq!(parse(r#"{"op":"subscribe"}"#), Ok(Request::Subscribe));
         assert_eq!(parse(r#"{"op":"unenroll"}"#), Ok(Request::Unenroll));
+        assert_eq!(parse(r#"{"op":"probe_permissions"}"#), Ok(Request::ProbePermissions));
         assert_eq!(parse(r#"{"op":"self_enroll_poll"}"#), Ok(Request::SelfEnrollPoll));
     }
 

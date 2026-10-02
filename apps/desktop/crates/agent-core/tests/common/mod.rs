@@ -47,5 +47,11 @@ pub fn proc(name: &str, signer: Option<&str>) -> ProcessInfo {
         image_name: name.into(),
         image_path: format!("C:\\Users\\Gran\\Downloads\\{name}"),
         signer: signer.map(str::to_string),
+        ..Default::default()
     }
+}
+
+pub fn lists_macos() -> CompiledLists {
+    let l: DetectionLists = serde_json::from_str(&fixture_text("lists-macos.json")).unwrap();
+    CompiledLists::compile(&l)
 }

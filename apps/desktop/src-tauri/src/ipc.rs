@@ -1,5 +1,5 @@
-//! The client side of the service pipe: newline-delimited JSON over `\\.\pipe\neo-agent` (Windows)
-//! or a unix socket (Linux development, served by `neo-agent --dev-pipe`). The tray app talks to
+//! The client side of the service pipe: newline-delimited JSON over `\\.\pipe\neo-agent` (Windows),
+//! the daemon's unix socket (macOS) or a unix socket (Linux development, `neo-agent --dev-pipe`). The tray app talks to
 //! the service only through here and never sees the device token.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -36,8 +36,20 @@ pub fn connect() -> io::Result<Box<dyn Stream>> {
     Err(last)
 }
 
-/// Where the Linux development service listens (`NEO_AGENT_SOCKET`, else a fixed path in /tmp).
-#[cfg(unix)]
+/// Where the service listens. macOS: the daemon's fixed socket (`NEO_AGENT_SOCKET` is honoured
+/// only in debug builds, so a release tray cannot be pointed at another process). Linux development:
+/// `NEO_AGENT_SOCKET`, else a fixed path in /tmp.
+#[cfg(target_os = "macos")]
+pub fn socket_path() -> std::path::PathBuf {
+    if cfg!(debug_assertions)
+        && let Some(p) = std::env::var_os("NEO_AGENT_SOCKET")
+    {
+        return std::path::PathBuf::from(p);
+    }
+    std::path::PathBuf::from("/var/run/neo-agent.sock")
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
 pub fn socket_path() -> std::path::PathBuf {
     std::env::var_os("NEO_AGENT_SOCKET")
         .map(std::path::PathBuf::from)

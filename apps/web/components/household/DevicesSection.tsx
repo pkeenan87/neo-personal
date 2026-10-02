@@ -33,11 +33,13 @@ export interface RemoteAccessToolOption {
 /**
  * Store listing links (_specs/browser-extension.md "Store links"), inlined at build time.
  * Unset shows "coming soon" for that browser. The Windows app link works the same way
- * (`NEXT_PUBLIC_WINDOWS_AGENT_URL`, _specs/desktop-agent.md).
+ * (`NEXT_PUBLIC_WINDOWS_AGENT_URL`, _specs/desktop-agent.md), as does the Mac app
+ * (`NEXT_PUBLIC_MAC_AGENT_URL`, _specs/desktop-agent-macos.md).
  */
 const CHROME_EXTENSION_URL = process.env.NEXT_PUBLIC_CHROME_EXTENSION_URL;
 const FIREFOX_EXTENSION_URL = process.env.NEXT_PUBLIC_FIREFOX_EXTENSION_URL;
 const WINDOWS_AGENT_URL = process.env.NEXT_PUBLIC_WINDOWS_AGENT_URL;
+const MAC_AGENT_URL = process.env.NEXT_PUBLIC_MAC_AGENT_URL;
 
 const QUICK_ASSIST_NOTE = "Quick Assist never shows who connected, so Neo still alerts you about every Quick Assist session.";
 
@@ -357,11 +359,12 @@ export function DevicesSection({
         </div>
         <p className="mt-2 text-xs text-muted">
           {codeExpiry(r.expiresAt)} · single use. Install Neo — {extensionLink(CHROME_EXTENSION_URL, "Chrome")},{" "}
-          {extensionLink(FIREFOX_EXTENSION_URL, "Firefox")}, or the app for {extensionLink(WINDOWS_AGENT_URL, "Windows")} — choose{" "}
+          {extensionLink(FIREFOX_EXTENSION_URL, "Firefox")}, or the app for {extensionLink(WINDOWS_AGENT_URL, "Windows")} or{" "}
+          {extensionLink(MAC_AGENT_URL, "Mac")} — choose{" "}
           <em>I have an enrollment code</em>, and enter this code.
         </p>
         <p className="mt-2 text-xs text-muted">
-          Install the Windows app in person, on the computer itself. Don&apos;t ask a relative to download it over the phone:
+          Install the Windows or Mac app in person, on the computer itself. Don&apos;t ask a relative to download it over the phone:
           that is exactly what a scammer would ask them to do.
         </p>
         <button

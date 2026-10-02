@@ -15,6 +15,10 @@ export interface AgentStatus {
   lastCheckIn: string | null;
   lastWarningAt: string | null;
   updateAvailable: string | null;
+  /** `linux` only for development builds. */
+  platform: "windows" | "macos" | "linux";
+  /** macOS: whether the service can read the permissions database (Full Disk Access). null off a Mac or before the first probe. */
+  fullDiskAccess: boolean | null;
 }
 
 export interface AgentError {
@@ -51,7 +55,11 @@ export interface CheckUrlResult {
   checkedAt: string;
 }
 
-export type WarningKind = "tool" | "session" | "unwanted";
+/** `permission`: (macOS) a listed remote-access tool was just allowed to see or control the Mac. */
+export type WarningKind = "tool" | "session" | "unwanted" | "permission";
+
+/** Which permission a `permission` warning is about. */
+export type PermissionService = "screen_recording" | "accessibility" | "full_disk_access";
 
 /** The `warning` push. A repeat with the same `eventId` updates an open window (`ownerTold` flips to true). */
 export interface Warning {
@@ -59,6 +67,8 @@ export interface Warning {
   kind: WarningKind;
   toolName: string;
   peerId?: string;
+  /** `permission` warnings only. */
+  service?: PermissionService;
   severity: string;
   ownerName: string;
   ownerTold: boolean;
@@ -73,6 +83,13 @@ export interface AgentClient {
   selfEnrollPoll(): Promise<Reply<SignInPoll>>;
   checkUrl(url: string): Promise<Reply<CheckUrlResult>>;
   unenroll(): Promise<Reply<object>>;
+  /** macOS: look at Full Disk Access now. `restarting`: the service is restarting to pick up a new grant, so ask again in a moment. */
+  probePermissions(): Promise<Reply<PermissionProbe>>;
+}
+
+export interface PermissionProbe {
+  fullDiskAccess: boolean | null;
+  restarting: boolean;
 }
 
 /** The window-level actions only the Rust side can do. */
@@ -81,4 +98,10 @@ export interface Shell {
   openUrl(url: string): Promise<void>;
   /** Closes the window this view is in. */
   close(): Promise<void>;
+  /** macOS: opens the Full Disk Access pane of System Settings. */
+  openFullDiskAccess(): Promise<void>;
+  /** macOS: shows Neo Protection in a Finder window, to add it with the + button. */
+  showDaemonInFinder(): Promise<void>;
+  /** macOS: runs the uninstall with the administrator password prompt. Rejects if it was cancelled or failed. */
+  uninstallMac(): Promise<void>;
 }

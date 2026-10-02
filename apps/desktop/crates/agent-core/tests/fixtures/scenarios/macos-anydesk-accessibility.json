@@ -1,0 +1,159 @@
+{
+  "name": "macos-anydesk-accessibility",
+  "description": "AnyDesk appears on a Mac, then is granted Accessibility. Zoom already had Screen Recording at enrollment.",
+  "lists": "../lists-macos.json",
+  "steps": [
+    {
+      "atSeconds": 0,
+      "discoveryPhase": true,
+      "snapshot": {
+        "env": {
+          "homes": [
+            "/Users/gran"
+          ]
+        },
+        "tcc": {
+          "dbs_read": [
+            "system"
+          ],
+          "rows": [
+            {
+              "db": "system",
+              "service": "kTCCServiceScreenCapture",
+              "client": "us.zoom.xos",
+              "client_type": 0,
+              "auth_value": 2
+            }
+          ]
+        }
+      },
+      "expect": []
+    },
+    {
+      "atSeconds": 60,
+      "snapshot": {
+        "env": {
+          "homes": [
+            "/Users/gran"
+          ]
+        },
+        "app_bundles": [
+          {
+            "path": "/Applications/AnyDesk.app",
+            "bundle_id": "com.anydesk.anydesk",
+            "name": "AnyDesk",
+            "version": "9.0.1",
+            "team_id": "TEAMANYD01",
+            "signing_id": "com.anydesk.anydesk",
+            "signer": "Philandro Software GmbH"
+          }
+        ],
+        "tcc": {
+          "dbs_read": [
+            "system"
+          ],
+          "rows": [
+            {
+              "db": "system",
+              "service": "kTCCServiceScreenCapture",
+              "client": "us.zoom.xos",
+              "client_type": 0,
+              "auth_value": 2
+            }
+          ]
+        }
+      },
+      "expect": [
+        "remote_access_tool:anydesk:new"
+      ]
+    },
+    {
+      "atSeconds": 90,
+      "snapshot": {
+        "env": {
+          "homes": [
+            "/Users/gran"
+          ]
+        },
+        "app_bundles": [
+          {
+            "path": "/Applications/AnyDesk.app",
+            "bundle_id": "com.anydesk.anydesk",
+            "name": "AnyDesk",
+            "version": "9.0.1",
+            "team_id": "TEAMANYD01",
+            "signing_id": "com.anydesk.anydesk",
+            "signer": "Philandro Software GmbH"
+          }
+        ],
+        "tcc": {
+          "dbs_read": [
+            "system"
+          ],
+          "rows": [
+            {
+              "db": "system",
+              "service": "kTCCServiceScreenCapture",
+              "client": "us.zoom.xos",
+              "client_type": 0,
+              "auth_value": 2
+            },
+            {
+              "db": "system",
+              "service": "kTCCServiceAccessibility",
+              "client": "com.anydesk.anydesk",
+              "client_type": 0,
+              "auth_value": 2
+            }
+          ]
+        }
+      },
+      "expect": [
+        "tcc_grant:accessibility:com.anydesk.anydesk"
+      ]
+    },
+    {
+      "atSeconds": 120,
+      "snapshot": {
+        "env": {
+          "homes": [
+            "/Users/gran"
+          ]
+        },
+        "app_bundles": [
+          {
+            "path": "/Applications/AnyDesk.app",
+            "bundle_id": "com.anydesk.anydesk",
+            "name": "AnyDesk",
+            "version": "9.0.1",
+            "team_id": "TEAMANYD01",
+            "signing_id": "com.anydesk.anydesk",
+            "signer": "Philandro Software GmbH"
+          }
+        ],
+        "tcc": {
+          "dbs_read": [
+            "system"
+          ],
+          "rows": [
+            {
+              "db": "system",
+              "service": "kTCCServiceScreenCapture",
+              "client": "us.zoom.xos",
+              "client_type": 0,
+              "auth_value": 2
+            },
+            {
+              "db": "system",
+              "service": "kTCCServiceAccessibility",
+              "client": "com.anydesk.anydesk",
+              "client_type": 0,
+              "auth_value": 2
+            }
+          ]
+        }
+      },
+      "expect": []
+    }
+  ]
+}

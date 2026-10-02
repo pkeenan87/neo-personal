@@ -38,7 +38,12 @@ fn default_data_dir() -> PathBuf {
     neo_agent::bootstrap::windows_data_dir()
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn default_data_dir() -> PathBuf {
+    PathBuf::from(neo_agent::config::MACOS_DATA_DIR)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn default_data_dir() -> PathBuf {
     std::env::temp_dir().join("neo-agent-dev")
 }
@@ -74,9 +79,15 @@ fn run_service() -> ExitCode {
     }
 }
 
-#[cfg(not(windows))]
+/// Started by launchd with no arguments: the daemon, in the foreground.
+#[cfg(target_os = "macos")]
 fn run_service() -> ExitCode {
-    eprintln!("The Windows service only runs on Windows.\n\n{USAGE}");
+    neo_agent::macos::daemon::run(false, None)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
+fn run_service() -> ExitCode {
+    eprintln!("The Windows service and the macOS daemon only run on their own systems.\n\n{USAGE}");
     ExitCode::from(2)
 }
 
@@ -98,9 +109,14 @@ fn run_console(data_dir: Option<PathBuf>) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn run_console(data_dir: Option<PathBuf>) -> ExitCode {
+    neo_agent::macos::daemon::run(true, data_dir)
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn run_console(_data_dir: Option<PathBuf>) -> ExitCode {
-    eprintln!("--console runs the Windows agent. On Linux use --dev-pipe <socket>.");
+    eprintln!("--console runs the Windows or macOS agent. On Linux use --dev-pipe <socket>.");
     ExitCode::from(2)
 }
 
@@ -115,7 +131,19 @@ fn unenroll(data_dir: Option<PathBuf>) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "macos")]
+fn unenroll(data_dir: Option<PathBuf>) -> ExitCode {
+    // `uninstall.sh` runs this as root: tell the server, forget the token, never fail the uninstall.
+    neo_agent::macos::perms::private_umask();
+    let data_dir = data_dir_or_default(data_dir);
+    let dir = DataDir::new(&data_dir);
+    let _ = dir.ensure();
+    FileLogger::init(&dir.logs_dir(), true);
+    neo_agent::bootstrap::macos_agent(&data_dir).unenroll_for_uninstall();
+    ExitCode::SUCCESS
+}
+
+#[cfg(not(any(windows, target_os = "macos")))]
 fn unenroll(data_dir: Option<PathBuf>) -> ExitCode {
     let data_dir = data_dir_or_default(data_dir);
     neo_agent::bootstrap::dev_agent(&data_dir, None).unenroll_for_uninstall();

@@ -2,6 +2,7 @@
 //!
 //! ```text
 //! cargo run --example simulate -- tests/fixtures/scenarios/portable-anydesk-session.json
+//! cargo run --example simulate -- tests/fixtures/scenarios/macos-anydesk-accessibility.json
 //! cargo run --example simulate -- <scenario.json> --post http://localhost:3000 --code <enrollment code>
 //! ```
 //!
@@ -18,7 +19,7 @@ use std::process::ExitCode;
 
 use neo_agent_core::api::{ApiClient, UreqTransport};
 use neo_agent_core::queue::EventQueue;
-use neo_agent_core::warn::{ExpectedTool, decide};
+use neo_agent_core::warn::{ExpectedTool, decide_with_lists};
 use time::{Duration, OffsetDateTime};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -104,7 +105,7 @@ fn run() -> Result<(), String> {
         for e in &events {
             println!("  {}", scenario::describe(e));
             println!("    {}", serde_json::to_string(e).map_err(|e| e.to_string())?);
-            match decide(e, &expected) {
+            match decide_with_lists(e, &expected, &loaded.lists) {
                 Some(k) => println!("    local warning: {k:?}"),
                 None => println!("    local warning: none"),
             }

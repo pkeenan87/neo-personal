@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::events::{Discovery, EventBody, SignalEvent};
+use crate::lists::CompiledLists;
 
 /// A tool the owner marked expected on this device (heartbeat `device.expectedTools`).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,6 +23,9 @@ pub enum WarningKind {
     Tool,
     /// Critical window: someone is connected.
     Session,
+    /// Critical window (macOS): a listed remote-access tool was just granted Screen Recording,
+    /// Accessibility or Full Disk Access; see [`decide_with_lists`]. The push carries `service`.
+    Permission,
     /// Toast: known unwanted software.
     Unwanted,
 }
@@ -53,5 +57,33 @@ pub fn decide(event: &SignalEvent, expected: &[ExpectedTool]) -> Option<WarningK
             session_window(tool_id, peer_id.as_deref(), expected).then_some(WarningKind::Session)
         }
         EventBody::UnwantedSoftware { .. } => Some(WarningKind::Unwanted),
+        // Needs the lists to know the app is a remote-access tool; see `decide_with_lists`.
+        EventBody::TccGrant { .. } => None,
+    }
+}
+
+/// The tool id of the listed remote-access tool a `tcc_grant` event names (matched on `bundleId`,
+/// case-insensitively), if any.
+pub fn tcc_grant_tool<'a>(event: &SignalEvent, lists: &'a CompiledLists) -> Option<&'a str> {
+    let EventBody::TccGrant { bundle_id: Some(b), .. } = &event.body else {
+        return None;
+    };
+    lists
+        .tools
+        .iter()
+        .find(|t| t.bundle_ids.iter().any(|l| l.eq_ignore_ascii_case(b)))
+        .map(|t| t.id.as_str())
+}
+
+/// Like [`decide`], plus `tcc_grant`: a grant to a listed remote-access tool is a
+/// [`WarningKind::Permission`] (critical) unless the tool is expected on this device; a grant to any
+/// other app never warns locally (the event is still sent).
+pub fn decide_with_lists(event: &SignalEvent, expected: &[ExpectedTool], lists: &CompiledLists) -> Option<WarningKind> {
+    match &event.body {
+        EventBody::TccGrant { .. } => {
+            let tool = tcc_grant_tool(event, lists)?;
+            (!expected.iter().any(|e| e.tool_id == tool)).then_some(WarningKind::Permission)
+        }
+        _ => decide(event, expected),
     }
 }

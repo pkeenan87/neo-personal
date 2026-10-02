@@ -1,0 +1,247 @@
+name: Desktop release (macOS)
+
+# Builds the macOS desktop agent (a signed, notarized, stapled .pkg) for a tagged release and adds
+# its `darwin-universal` entry to the shared update manifest. Runs on the same tags as the Windows
+# workflow (desktop-release.yml); whichever finishes second merges its entry into `latest.json`.
+# Nothing ships unsigned: if any piece of the Apple signing configuration is missing, this workflow
+# fails before it builds anything. Setup and the checklist: docs/desktop-agent.md ("macOS").
+#
+#   git tag desktop-v0.2.0 && git push origin desktop-v0.2.0
+#
+# The tag must match `version` in apps/desktop/Cargo.toml.
+on:
+  push:
+    tags:
+      - "desktop-v*"
+
+# Default to no token scopes; the job opts into exactly what it needs.
+permissions: {}
+
+jobs:
+  release:
+    name: Build, sign, notarize and publish
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: write # create the release and upload its assets
+    env:
+      CARGO_TERM_COLOR: always
+      TURBO_TELEMETRY_DISABLED: "1"
+      # Public values (repository variables): the Developer ID team, and the public half of the
+      # update-signing key that is compiled into the agent. Secrets are given to the steps that need
+      # them and to no others.
+      APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+      NEO_DESKTOP_UPDATE_PUBKEY: ${{ vars.NEO_DESKTOP_UPDATE_PUBKEY }}
+    steps:
+      # Secrets cannot be tested in `if:`, so the gate reads them from the environment. It runs
+      # first: a release with no way to sign must fail before it spends 30 minutes building.
+      - name: Require the signing configuration
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_INSTALLER_CERTIFICATE: ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
+          APPLE_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.DESKTOP_UPDATE_SIGNING_KEY }}
+        run: |
+          missing=()
+          for s in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_INSTALLER_CERTIFICATE APPLE_INSTALLER_CERTIFICATE_PASSWORD APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_P8; do
+            [[ -n "${!s:-}" ]] || missing+=("secret $s")
+          done
+          [[ -n "${TAURI_SIGNING_PRIVATE_KEY:-}" ]] || missing+=("secret DESKTOP_UPDATE_SIGNING_KEY")
+          [[ -n "${APPLE_TEAM_ID:-}" ]] || missing+=("variable APPLE_TEAM_ID")
+          [[ -n "${NEO_DESKTOP_UPDATE_PUBKEY:-}" ]] || missing+=("variable NEO_DESKTOP_UPDATE_PUBKEY")
+          # Compile-time switches that exist only for CI builds: an agent built with them accepts
+          # an unsigned update or removes itself after seconds. They must never reach a release.
+          for flag in NEO_ALLOW_UNSIGNED_UPDATE NEO_TRASH_GRACE_SECS; do
+            if [[ -n "${!flag:-}" ]]; then
+              echo "::error::$flag is a CI-only build flag and must never be set for a release."
+              exit 1
+            fi
+          done
+          if (( ${#missing[@]} )); then
+            printf '::error::Nothing ships unsigned. Missing release configuration: %s\n' "${missing[*]}"
+            exit 1
+          fi
+          echo "Apple signing configuration present (team ${APPLE_TEAM_ID})."
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: The tag must match the version in Cargo.toml
+        id: version
+        run: |
+          version="$(grep -m1 '^version = ' apps/desktop/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          if [[ "${GITHUB_REF_NAME}" != "desktop-v${version}" ]]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match apps/desktop/Cargo.toml version ${version}."
+            exit 1
+          fi
+          echo "version=${version}" >>"$GITHUB_OUTPUT"
+
+      # No `version:` input: the action reads `packageManager` from package.json.
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install JS dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal
+          rustup default 1.98.1
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustc --version
+
+      - name: Test before shipping
+        run: |
+          pnpm turbo run typecheck lint test build --filter=@neo/desktop...
+          cd apps/desktop && cargo test --locked --workspace
+
+      # A throwaway keychain holds the two certificates (Developer ID Application for the programs,
+      # Developer ID Installer for the pkg) for this job only, and is deleted at the end.
+      - name: Import the signing certificates into a temporary keychain
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_INSTALLER_CERTIFICATE: ${{ secrets.APPLE_INSTALLER_CERTIFICATE }}
+          APPLE_INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          keychain="$RUNNER_TEMP/neo-signing.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          printf '%s' "$APPLE_CERTIFICATE" | base64 --decode >"$RUNNER_TEMP/application.p12"
+          printf '%s' "$APPLE_INSTALLER_CERTIFICATE" | base64 --decode >"$RUNNER_TEMP/installer.p12"
+          security import "$RUNNER_TEMP/application.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security import "$RUNNER_TEMP/installer.p12" -P "$APPLE_INSTALLER_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          rm -f "$RUNNER_TEMP/application.p12" "$RUNNER_TEMP/installer.p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" >/dev/null
+          # codesign and productbuild find identities through the search list.
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+
+          security find-identity -v "$keychain"
+          app_id="$(security find-identity -v "$keychain" | sed -n "s/.*\"\(Developer ID Application: .*(${APPLE_TEAM_ID})\)\".*/\1/p" | head -n 1)"
+          installer_id="$(security find-identity -v "$keychain" | sed -n "s/.*\"\(Developer ID Installer: .*(${APPLE_TEAM_ID})\)\".*/\1/p" | head -n 1)"
+          [[ -n "$app_id" ]] || { echo "::error::No 'Developer ID Application' identity for team ${APPLE_TEAM_ID} in APPLE_CERTIFICATE."; exit 1; }
+          [[ -n "$installer_id" ]] || { echo "::error::No 'Developer ID Installer' identity for team ${APPLE_TEAM_ID} in APPLE_INSTALLER_CERTIFICATE."; exit 1; }
+          {
+            echo "APPLE_KEYCHAIN=$keychain"
+            echo "APPLE_SIGNING_IDENTITY=$app_id"
+            echo "APPLE_INSTALLER_IDENTITY=$installer_id"
+          } >>"$GITHUB_ENV"
+          echo "Signing as: $app_id / $installer_id"
+
+      # Tauri signs the tray app with APPLE_SIGNING_IDENTITY (the hardened runtime comes from
+      # tauri.conf.json). The certificate secrets are not in this step's environment, so Tauri does
+      # not import them a second time; notarization is done on the pkg below.
+      - name: Build the tray app (signed)
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          pnpm exec tauri build --target universal-apple-darwin --bundles app --config "{\"version\":\"${{ steps.version.outputs.version }}\"}"
+          codesign --verify --deep --strict --verbose=2 target/universal-apple-darwin/release/bundle/macos/Neo.app
+
+      - name: Build and sign the pkg (the daemon is built, universal and signed, here)
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          macos/build-pkg.sh --version "${{ steps.version.outputs.version }}" --out "$RUNNER_TEMP/release"
+          ls -la "$RUNNER_TEMP/release"
+
+      - name: Notarize and staple
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          pkg="$RUNNER_TEMP/release/Neo-${{ steps.version.outputs.version }}.pkg"
+          key="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY}.p8"
+          printf '%s' "$APPLE_API_KEY_P8" >"$key"
+          chmod 600 "$key"
+          xcrun notarytool submit "$pkg" --key "$key" --key-id "$APPLE_API_KEY" --issuer "$APPLE_API_ISSUER" \
+            --wait --timeout 40m --output-format json >"$RUNNER_TEMP/notary.json" || true
+          rm -f "$key"
+          cat "$RUNNER_TEMP/notary.json"
+          status="$(node -e 'try { console.log(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).status || "") } catch { console.log("") }' "$RUNNER_TEMP/notary.json")"
+          if [[ "$status" != "Accepted" ]]; then
+            echo "::error::Notarization finished as '${status:-no status}', not Accepted."
+            exit 1
+          fi
+          xcrun stapler staple "$pkg"
+          xcrun stapler validate "$pkg"
+
+      # The check that makes "nothing ships unsigned" true even if a step silently skipped something:
+      # the pkg must be signed by Developer ID Installer of our team and notarized, and both programs
+      # inside must carry a valid signature of the same team (the daemon's update check and the
+      # Trash rule compare them).
+      - name: Verify every signature
+        run: |
+          set -euo pipefail
+          pkg="$RUNNER_TEMP/release/Neo-${{ steps.version.outputs.version }}.pkg"
+          out="$(pkgutil --check-signature "$pkg")"
+          echo "$out"
+          grep -q 'Notarization: trusted by the Apple notary service' <<<"$out" || { echo '::error::The pkg is not notarized.'; exit 1; }
+          grep -q "Developer ID Installer: .*(${APPLE_TEAM_ID})" <<<"$out" || { echo "::error::The pkg is not signed by Developer ID Installer of team ${APPLE_TEAM_ID}."; exit 1; }
+          spctl --assess --type install --verbose=2 "$pkg"
+          expand="$RUNNER_TEMP/expanded"
+          pkgutil --expand-full "$pkg" "$expand"
+          for app in "$(find "$expand" -type d -name 'Neo.app' | head -n 1)" "$(find "$expand" -type d -name 'Neo Protection.app' | head -n 1)"; do
+            [[ -d "$app" ]] || { echo '::error::A program is missing from the pkg.'; exit 1; }
+            codesign --verify --deep --strict --verbose=2 "$app"
+            team="$(codesign -dv --verbose=4 "$app" 2>&1 | sed -n 's/^TeamIdentifier=//p')"
+            echo "$app: team $team"
+            [[ "$team" == "$APPLE_TEAM_ID" ]] || { echo "::error::$app is signed by team '$team', not ${APPLE_TEAM_ID}."; exit 1; }
+            codesign -dv --verbose=4 "$app" 2>&1 | grep -q 'flags=.*runtime' || { echo "::error::$app is not signed with the hardened runtime."; exit 1; }
+          done
+
+      - name: Sign the update entry (minisign) and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.DESKTOP_UPDATE_SIGNING_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.DESKTOP_UPDATE_SIGNING_KEY_PASSWORD }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ github.ref_name }}
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/release"
+          pkg="Neo-${VERSION}.pkg"
+          # The signature is written next to the file as <name>.sig.
+          pnpm exec tauri signer sign "$out/$pkg"
+          # The compiled-in public key must verify what the private key just signed; if the variable
+          # and the secret are from different key pairs, no installed agent could update.
+          node -e '
+            const fs = require("fs");
+            const sig = Buffer.from(fs.readFileSync(process.argv[1], "utf8").trim(), "base64").toString();
+            const pub = Buffer.from(process.env.NEO_DESKTOP_UPDATE_PUBKEY, "base64").toString();
+            const keyId = (t) => Buffer.from(t.split("\n")[1], "base64").subarray(2, 10).toString("hex");
+            if (keyId(sig) !== keyId(pub)) { console.error("The update-signing secret and the public-key variable are not a pair."); process.exit(1); }
+            console.log("update key id matches:", keyId(pub));
+          ' "$out/$pkg.sig"
+
+          # The Windows workflow may have created this release already; either one creates it.
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" \
+            --title "Neo ${TAG#desktop-v}" --generate-notes --latest=false ||
+            gh release view "$TAG" >/dev/null
+          gh release upload "$TAG" "$out/$pkg" "$out/$pkg.sig" --clobber
+          ci/publish-manifest.sh --platform darwin-universal --version "$VERSION" \
+            --url "https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/${pkg}" \
+            --sig-file "$out/$pkg.sig" --notes "Neo desktop agent ${VERSION}" --dir "$RUNNER_TEMP/manifest"
+          # The same merged manifest, attached to the tagged release for reference.
+          gh release upload "$TAG" "$RUNNER_TEMP/manifest/latest.json" --clobber
+
+      - name: Delete the temporary keychain
+        if: always()
+        run: |
+          if [[ -n "${APPLE_KEYCHAIN:-}" ]]; then security delete-keychain "$APPLE_KEYCHAIN" || true; fi
+          rm -f "${RUNNER_TEMP:?}"/AuthKey_*.p8 "${RUNNER_TEMP:?}"/application.p12 "${RUNNER_TEMP:?}"/installer.p12

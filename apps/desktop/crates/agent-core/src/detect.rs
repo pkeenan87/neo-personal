@@ -7,10 +7,13 @@ use std::collections::BTreeMap;
 
 use time::OffsetDateTime;
 
-use crate::events::{Discovery, SignalEvent, UnwantedReason, clean_peer_id};
+use crate::events::{Discovery, SignalEvent, TccService, UnwantedReason, clean_peer_id};
 use crate::lists::{CompiledLists, CompiledTool, norm_path, publisher_matches, same_path};
-use crate::snapshot::{ExeFacts, Snapshot, UninstallEntry};
+use crate::snapshot::{AppBundle, ExeFacts, Snapshot, TccSnapshot, UninstallEntry};
 use crate::state::{MAX_LINE_BYTES, SeenState, ToolSighting};
+
+/// Bundle ids of Neo's own macOS apps (daemon bundle and tray); grants to them are never reported.
+pub const NEO_BUNDLE_IDS: [&str; 2] = ["dev.neoshield.agent", "dev.neoshield.desktop"];
 
 /// How to find a program's main executable (for [`ExeFacts`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +69,35 @@ fn icon_exe_path(icon: &str) -> Option<String> {
     };
     let path = path.trim();
     path.to_ascii_lowercase().ends_with(".exe").then(|| path.to_string())
+}
+
+/// macOS: the bundles whose main executable has not been examined yet (hash and signature). The
+/// service answers with [`ExeFacts`] whose `path` is the bundle path or its executable.
+pub fn bundle_exe_hints(seen: &SeenState, bundles: &[AppBundle]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for b in bundles {
+        if seen.program(&bundle_key(b)).is_some_and(|p| p.exe_checked) {
+            continue;
+        }
+        if !out.contains(&b.path) {
+            out.push(b.path.clone());
+        }
+    }
+    out
+}
+
+fn bundle_key(b: &AppBundle) -> String {
+    SeenState::program_key(&b.name, b.bundle_id.as_deref().or(b.team_id.as_deref()))
+}
+
+fn bundle_facts<'a>(b: &AppBundle, facts: &'a [ExeFacts]) -> Option<&'a ExeFacts> {
+    let prefix = format!("{}/", b.path.trim_end_matches('/'));
+    facts.iter().find(|f| f.path == b.path || f.path.starts_with(&prefix))
+}
+
+/// A macOS bundle id or Team ID names `t`.
+fn mac_match(t: &CompiledTool, bundle_id: Option<&str>, team_id: Option<&str>) -> bool {
+    bundle_id.is_some_and(|b| t.bundle_ids.iter().any(|l| eq_ci(l, b))) || team_id.is_some_and(|id| t.team_ids.iter().any(|l| eq_ci(l, id)))
 }
 
 fn find_facts<'a>(e: &UninstallEntry, facts: &'a [ExeFacts]) -> Option<&'a ExeFacts> {
@@ -154,10 +186,34 @@ pub fn detect(
         });
         // A renamed binary: the signer is some tool's publisher whatever the file is called.
         let by_signer = || signer.and_then(|s| lists.tools.iter().position(|t| listed_publisher(t, s).is_some()));
-        if let Some(ti) = by_name.or_else(by_signer) {
+        // macOS: bundle id, or the Team ID alone (a renamed copy keeps its signer).
+        let by_mac = || {
+            lists
+                .tools
+                .iter()
+                .position(|t| mac_match(t, p.bundle_id.as_deref(), p.team_id.as_deref()))
+        };
+        if let Some(ti) = by_name.or_else(by_signer).or_else(by_mac) {
             let f = found.entry(ti).or_default();
             if f.publisher.is_none() {
                 f.publisher = signer.and_then(|s| listed_publisher(&lists.tools[ti], s)).map(str::to_string);
+            }
+        }
+    }
+    let mut tool_bundles: Vec<bool> = vec![false; snapshot.app_bundles.len()];
+    for (bi, b) in snapshot.app_bundles.iter().enumerate() {
+        if let Some(ti) = lists
+            .tools
+            .iter()
+            .position(|t| mac_match(t, b.bundle_id.as_deref(), b.team_id.as_deref()))
+        {
+            tool_bundles[bi] = true;
+            let f = found.entry(ti).or_default();
+            if f.publisher.is_none() {
+                f.publisher = b.signer.clone().or_else(|| b.team_id.clone());
+            }
+            if f.version.is_none() {
+                f.version = b.version.clone();
             }
         }
     }
@@ -192,6 +248,24 @@ pub fn detect(
                 if seen.take_session_slot(&tool.id, peer.as_deref(), now) {
                     events.push(SignalEvent::remote_session(now, &tool.id, peer.as_deref()));
                 }
+            }
+        }
+    }
+    let ul_targets = lists.unifiedlog_targets();
+    for rec in &snapshot.unified_log_records {
+        if rec.message.len() > MAX_LINE_BYTES {
+            continue;
+        }
+        for target in ul_targets.iter().filter(|t| t.predicate == rec.predicate) {
+            let Some(tool) = lists.tools.iter().find(|t| t.id == target.tool_id) else {
+                continue;
+            };
+            let Some(caps) = tool.unifiedlog_evidence[target.evidence_index].pattern.captures(&rec.message) else {
+                continue;
+            };
+            let peer = caps.name("peer").and_then(|m| clean_peer_id(m.as_str()));
+            if seen.take_session_slot(&tool.id, peer.as_deref(), now) {
+                events.push(SignalEvent::remote_session(now, &tool.id, peer.as_deref()));
             }
         }
     }
@@ -273,6 +347,136 @@ pub fn detect(
                 Discovery::New,
             ));
         }
+    }
+
+    // ---- unwanted_software, macOS bundles ----
+    for (bi, b) in snapshot.app_bundles.iter().enumerate() {
+        let key = bundle_key(b);
+        if b.name.trim().is_empty() || !handled.insert(key.clone()) {
+            continue;
+        }
+        let is_new = seen.touch_program(&key, now, discovery_phase);
+        let Some(prog) = seen.program(&key).copied() else { continue };
+        let discovery = if prog.baseline { Discovery::Baseline } else { Discovery::New };
+        let publisher = b.signer.as_deref().or(b.team_id.as_deref());
+        if is_new {
+            let hit = lists.pup_publishers.iter().any(|l| {
+                l.publisher.as_deref().is_some_and(|lp| {
+                    b.team_id.as_deref().is_some_and(|id| eq_ci(id, lp)) || b.signer.as_deref().is_some_and(|s| publisher_matches(s, lp))
+                })
+            });
+            if hit {
+                events.push(SignalEvent::unwanted_software(
+                    now,
+                    &b.name,
+                    publisher,
+                    b.version.as_deref(),
+                    None,
+                    UnwantedReason::PublisherList,
+                    discovery,
+                ));
+            }
+        }
+        if prog.exe_checked {
+            continue;
+        }
+        let Some(f) = bundle_facts(b, &snapshot.exe_facts) else { continue };
+        seen.mark_exe_checked(&key);
+        let sha = f.sha256.trim().to_ascii_lowercase();
+        let hash_hit = lists
+            .pup_publishers
+            .iter()
+            .any(|l| l.sha256.as_deref().is_some_and(|h| eq_ci(h, &sha)));
+        if hash_hit {
+            events.push(SignalEvent::unwanted_software(
+                now,
+                &b.name,
+                publisher,
+                b.version.as_deref(),
+                Some(&sha),
+                UnwantedReason::HashList,
+                discovery,
+            ));
+        } else if !prog.baseline
+            && !tool_bundles[bi]
+            && !b.is_apple()
+            && (b.team_id.is_none() || !f.signed_trusted)
+            && seen.take_unsigned_slot(now)
+        {
+            events.push(SignalEvent::unwanted_software(
+                now,
+                &b.name,
+                publisher,
+                b.version.as_deref(),
+                Some(&sha),
+                UnwantedReason::UnsignedUnknown,
+                Discovery::New,
+            ));
+        }
+    }
+
+    // ---- tcc_grant ----
+    events.extend(detect_tcc(seen, snapshot.tcc.as_ref(), &snapshot.app_bundles, now));
+    events
+}
+
+/// macOS permission grants. `tcc` is the current TCC snapshot (`None` = unreadable: nothing
+/// happens and the stored state is kept).
+///
+/// - Only databases in `dbs_read` are compared and updated; a database not read this pass keeps its
+///   previous state (so a user logging out does not look like revoked grants, nor their return
+///   like new ones).
+/// - A database's first read is a silent baseline, even after other databases were baselined.
+/// - Afterwards a `(db, client, service)` that was absent or not allowed and now has
+///   `auth_value == 2` yields one `tcc_grant` (at most one per `(client, service)` per call).
+///   Rows that stay allowed (Sequoia re-approvals touch them) yield nothing; a revoke followed by a
+///   grant yields again. `last_modified` is deliberately not an input.
+/// - Only `kTCCServiceScreenCapture`, `kTCCServiceAccessibility` and
+///   `kTCCServiceSystemPolicyAllFiles` count; Neo's own bundle ids ([`NEO_BUNDLE_IDS`]) are ignored.
+/// - `client_type` 0 is a bundle id (`bundleId` set; `app` is the installed bundle's name when
+///   known, else the id); 1 is a path (`app` is its last component, no `bundleId`).
+pub fn detect_tcc(seen: &mut SeenState, tcc: Option<&TccSnapshot>, bundles: &[AppBundle], now: OffsetDateTime) -> Vec<SignalEvent> {
+    let Some(tcc) = tcc else { return Vec::new() };
+    let first_read: Vec<&String> = tcc.dbs_read.iter().filter(|d| !seen.tcc_db_baselined(d)).collect();
+    let mut current: BTreeMap<String, bool> = BTreeMap::new();
+    let mut allowed_rows: Vec<(String, &crate::snapshot::TccRow, TccService)> = Vec::new();
+    for r in tcc.rows.iter().filter(|r| tcc.dbs_read.contains(&r.db)) {
+        let Some(service) = TccService::from_tcc(&r.service) else {
+            continue;
+        };
+        if r.client_type == 0 && NEO_BUNDLE_IDS.iter().any(|n| eq_ci(n, &r.client)) {
+            continue;
+        }
+        let key = format!("{}\u{1f}{}\u{1f}{}", r.db, r.client, r.service);
+        let allowed = r.auth_value == 2;
+        let e = current.entry(key.clone()).or_insert(false);
+        *e |= allowed;
+        if allowed {
+            allowed_rows.push((key, r, service));
+        }
+    }
+    let prev = seen.swap_tcc(&tcc.dbs_read, current);
+    let mut events = Vec::new();
+    let mut emitted: Vec<(&str, TccService)> = Vec::new();
+    for (key, r, service) in allowed_rows {
+        if first_read.iter().any(|d| **d == r.db)
+            || prev.get(&key).copied().unwrap_or(false)
+            || emitted.contains(&(r.client.as_str(), service))
+        {
+            continue;
+        }
+        emitted.push((r.client.as_str(), service));
+        let (app, bundle_id) = if r.client_type == 0 {
+            let name = bundles
+                .iter()
+                .find(|b| b.bundle_id.as_deref().is_some_and(|id| eq_ci(id, &r.client)))
+                .map(|b| b.name.as_str())
+                .filter(|n| !n.trim().is_empty());
+            (name.unwrap_or(&r.client), Some(r.client.as_str()))
+        } else {
+            (r.client.trim_end_matches('/').rsplit('/').next().unwrap_or(&r.client), None)
+        };
+        events.push(SignalEvent::tcc_grant(now, app, bundle_id, service));
     }
     events
 }

@@ -6,6 +6,9 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
 
+/// The platform a build of agent-core enrolls as (macOS builds say "macos", every other build "windows").
+const BUILD_PLATFORM: &str = if cfg!(target_os = "macos") { "macos" } else { "windows" };
+
 use common::t0;
 use neo_agent_core::api::*;
 use neo_agent_core::events::SignalEvent;
@@ -100,7 +103,7 @@ fn enroll_preview_and_enroll_send_no_token() {
             b["name"].as_str(),
             b["clientVersion"].as_str()
         ),
-        (Some("desktop_agent"), Some("windows"), Some("GRANDMA-PC"), Some("0.1.0"))
+        (Some("desktop_agent"), Some(BUILD_PLATFORM), Some("GRANDMA-PC"), Some("0.1.0"))
     );
     assert!(m.last().header("authorization").is_none());
 }
@@ -114,7 +117,7 @@ fn device_flow_start_and_poll() {
     let r = m.last();
     assert_eq!(r.url, "https://neo.test/api/desktop/device");
     assert_eq!(body(&r)["device"]["kind"], "desktop_agent");
-    assert_eq!(body(&r)["device"]["platform"], "windows");
+    assert_eq!(body(&r)["device"]["platform"], BUILD_PLATFORM);
 
     assert_eq!(c.device_flow_poll(&s.device_code).unwrap(), DeviceFlowPoll::Pending { interval: 5 });
     assert_eq!(m.last().url, "https://neo.test/api/desktop/device/token");

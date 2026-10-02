@@ -124,7 +124,8 @@ describe("HouseholdSettingsView devices (owner)", () => {
     expect(screen.getByText(/Expires in 24 hours/)).toBeInTheDocument();
     expect(screen.getByText(/I have an enrollment code/)).toBeInTheDocument();
     expect(screen.getByText(/Windows \(coming soon\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Install the Windows app in person/)).toBeInTheDocument();
+    expect(screen.getByText(/Mac \(coming soon\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Install the Windows or Mac app in person/)).toBeInTheDocument();
     expect(screen.getByText(/over the phone/)).toBeInTheDocument();
     expect(await screen.findByRole("list", { name: "Pending enrollment codes for Grandma" })).toBeInTheDocument();
 

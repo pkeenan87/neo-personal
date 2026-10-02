@@ -34,6 +34,11 @@ function violatesSharedRegexSubset(source: string): string | null {
   return null;
 }
 
+/** The unifiedlog predicate form (`docs/contracts.md` "Desktop agent, macOS"). */
+function isValidUnifiedLogPredicate(predicate: string): boolean {
+  return /^(?:process|subsystem) == "[A-Za-z0-9._-]{1,64}"$/.test(predicate);
+}
+
 const TOOL_ID_RE = /^[a-z0-9_-]+$/;
 
 // A handful of domains (e.g. "gov.uk") are themselves a full public suffix in tldts's
@@ -47,8 +52,8 @@ function registrable(domain: string): string {
 }
 
 describe("remote-access-tools.json", () => {
-  it("has the 12 seeded tools", () => {
-    expect(REMOTE_ACCESS_TOOLS.length).toBe(12);
+  it("has the 13 seeded tools", () => {
+    expect(REMOTE_ACCESS_TOOLS.length).toBe(13);
   });
 
   it("has unique ids matching ^[a-z0-9_-]+$", () => {
@@ -69,6 +74,7 @@ describe("remote-access-tools.json", () => {
       expect(Array.isArray(tool.windows.processNames)).toBe(true);
       expect(Array.isArray(tool.macos.bundleIds)).toBe(true);
       expect(Array.isArray(tool.macos.teamIds)).toBe(true);
+      expect(Array.isArray(tool.macos.sessionEvidence), tool.id).toBe(true);
       expect(Array.isArray(tool.sessionHints)).toBe(true);
     }
   });
@@ -84,7 +90,9 @@ describe("remote-access-tools.json", () => {
     const patterns: string[] = [];
     for (const tool of REMOTE_ACCESS_TOOLS) {
       patterns.push(...tool.installerPatterns, ...tool.windows.displayNamePatterns);
-      for (const ev of tool.windows.sessionEvidence) if (ev.kind === "log") patterns.push(ev.pattern);
+      for (const ev of [...tool.windows.sessionEvidence, ...tool.macos.sessionEvidence]) {
+        if (ev.kind === "log" || ev.kind === "unifiedlog") patterns.push(ev.pattern);
+      }
     }
     expect(patterns.length).toBeGreaterThan(0);
     for (const pattern of patterns) {
@@ -117,6 +125,8 @@ describe("remote-access-tools.json", () => {
           expect(Array.isArray(ev.eventIds) && ev.eventIds.every((n) => Number.isInteger(n))).toBe(true);
         } else if (ev.kind === "process") {
           expect(ev.name.length).toBeGreaterThan(0);
+        } else if (ev.kind === "unifiedlog") {
+          throw new Error(`${tool.id}: unifiedlog is macOS-only`);
         } else {
           throw new Error(`${tool.id}: unknown sessionEvidence kind`);
         }
@@ -128,6 +138,75 @@ describe("remote-access-tools.json", () => {
     for (const tool of REMOTE_ACCESS_TOOLS) for (const ev of tool.windows.sessionEvidence) expect(ev.verified, tool.id).toBe(false);
     expect(findRemoteAccessTool("anydesk")?.windows.sessionEvidence).toHaveLength(2);
     expect(findRemoteAccessTool("rustdesk")?.windows.sessionEvidence).toEqual([]);
+  });
+
+  it("validates macos.sessionEvidence: %Home% only on macOS, predicate form, pattern subset", () => {
+    for (const tool of REMOTE_ACCESS_TOOLS) {
+      for (const ev of tool.windows.sessionEvidence) {
+        if (ev.kind === "log") expect(ev.path, tool.id).not.toContain("%Home%");
+      }
+      for (const ev of tool.macos.sessionEvidence) {
+        expect(typeof ev.verified, tool.id).toBe("boolean");
+        if (ev.kind === "log") {
+          for (const token of ev.path.match(/%[^%]*%/g) ?? []) expect(token, tool.id).toBe("%Home%");
+          expect(ev.path.startsWith("%Home%/") || ev.path.startsWith("/"), `${tool.id}: ${ev.path}`).toBe(true);
+          expect(() => new RegExp(ev.pattern, "i")).not.toThrow();
+        } else if (ev.kind === "unifiedlog") {
+          expect(isValidUnifiedLogPredicate(ev.predicate), `${tool.id}: ${ev.predicate}`).toBe(true);
+          expect(() => new RegExp(ev.pattern, "i")).not.toThrow();
+          expect(violatesSharedRegexSubset(ev.pattern)).toBeNull();
+        } else {
+          throw new Error(`${tool.id}: unexpected macOS sessionEvidence kind ${ev.kind}`);
+        }
+      }
+    }
+  });
+
+  it("the unifiedlog predicate check accepts only process/subsystem equality on a plain name", () => {
+    for (const good of ['process == "screensharingd"', 'subsystem == "com.apple.ScreenSharing"', 'process == "a_b-c.1"']) {
+      expect(isValidUnifiedLogPredicate(good), good).toBe(true);
+    }
+    for (const bad of [
+      'process == "x" OR 1',
+      'process == "x" OR process == "y"',
+      'eventMessage CONTAINS "x"',
+      'eventMessage CONTAINS',
+      'process == ""',
+      `process == "${"a".repeat(65)}"`,
+      'process == "a b"',
+      'process=="x"',
+      'sender == "x"',
+      'process == "x"\n',
+      ' process == "x"',
+      'process == "x" ',
+      'process == "x" && 1',
+    ]) {
+      expect(isValidUnifiedLogPredicate(bad), bad).toBe(false);
+    }
+  });
+
+  it("ships macOS candidates unverified; macos log candidates for AnyDesk and TeamViewer, none for RustDesk", () => {
+    for (const tool of REMOTE_ACCESS_TOOLS) for (const ev of tool.macos.sessionEvidence) expect(ev.verified, tool.id).toBe(false);
+    expect(findRemoteAccessTool("anydesk")?.macos.sessionEvidence.map((e) => (e.kind === "log" ? e.path : ""))).toEqual([
+      "%Home%/.anydesk/connection_trace.txt",
+      "/Library/Application Support/AnyDesk/connection_trace.txt",
+    ]);
+    expect(findRemoteAccessTool("teamviewer")?.macos.sessionEvidence).toHaveLength(2);
+    expect(findRemoteAccessTool("teamviewer")?.macos.teamIds).toEqual(["H7UGFBUGV6"]);
+    expect(findRemoteAccessTool("rustdesk")?.macos.sessionEvidence).toEqual([]);
+  });
+
+  it("apple_screen_sharing is built in: no installer patterns, vendor domains or Windows signals", () => {
+    const t = findRemoteAccessTool("apple_screen_sharing");
+    expect(t?.name).toBe("Apple Screen Sharing / Remote Management");
+    expect(t?.vendorDomains).toEqual([]);
+    expect(t?.installerPatterns).toEqual([]);
+    expect(t?.windows).toEqual({ publishers: [], displayNamePatterns: [], serviceNames: [], processNames: [], sessionEvidence: [] });
+    expect(t?.macos.bundleIds).toEqual([]);
+    expect(t?.macos.teamIds).toEqual([]);
+    expect(t?.macos.sessionEvidence).toEqual([
+      { kind: "unifiedlog", predicate: 'process == "screensharingd"', pattern: "Authentication: SUCCEEDED", verified: false },
+    ]);
   });
 
   it("every vendorDomain equals its own registrable domain", () => {

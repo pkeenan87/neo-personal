@@ -1,4 +1,4 @@
-import { OWNER_FALLBACK, SESSION_ADVICE, sessionHeadline, toolToast, unwantedToast } from "../lib/copy";
+import { OWNER_FALLBACK, PERMISSION_ADVICE, permissionHeadline, SESSION_ADVICE, sessionHeadline, toolToast, unwantedToast } from "../lib/copy";
 import type { Shell, Warning } from "../lib/types";
 
 interface Props {
@@ -15,6 +15,11 @@ export function WarningView({ warning, shell }: Props) {
         <>
           <h1 id="warning-headline">{sessionHeadline(warning)}</h1>
           <p>{SESSION_ADVICE}</p>
+        </>
+      ) : warning.kind === "permission" ? (
+        <>
+          <h1 id="warning-headline">{permissionHeadline(warning)}</h1>
+          <p>{PERMISSION_ADVICE}</p>
         </>
       ) : (
         <h1 id="warning-headline">{warning.kind === "tool" ? toolToast(warning.toolName) : unwantedToast(warning.toolName)}</h1>

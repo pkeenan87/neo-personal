@@ -1,0 +1,52 @@
+#!/bin/sh
+# Runs after the payload is copied, as root.
+
+DATA="/Library/Application Support/Neo/data"
+DAEMON_PLIST="/Library/LaunchDaemons/dev.neoshield.agent.plist"
+TRAY_PLIST="/Library/LaunchAgents/dev.neoshield.tray.plist"
+
+# 1. Create and lock down the data directory BEFORE anything else: the daemon puts the device token
+#    in it, and a secret must never be written into a directory that is briefly open to others.
+/bin/mkdir -p "$DATA" || exit 1
+/usr/sbin/chown root:wheel "$DATA" || exit 1
+/bin/chmod 700 "$DATA" || exit 1
+
+# Nothing the daemon runs as root may be writable by anyone else.
+/usr/sbin/chown -R root:wheel "/Library/Application Support/Neo/Neo Protection.app"
+/bin/chmod -R go-w "/Library/Application Support/Neo/Neo Protection.app"
+
+# launchd refuses a plist that is not owned by root or is writable by others.
+/usr/sbin/chown root:wheel "$DAEMON_PLIST" "$TRAY_PLIST"
+/bin/chmod 644 "$DAEMON_PLIST" "$TRAY_PLIST"
+
+# 2. Start the daemon (an upgrade booted the old one out in preinstall). `bootout` returns before
+#    launchd has finished removing the job, and a `bootstrap` that lands in that window fails, so
+#    wait for the old job to be gone, then retry the bootstrap until the daemon is loaded.
+/bin/launchctl bootout system/dev.neoshield.agent >/dev/null 2>&1 || true
+i=0
+while /bin/launchctl print system/dev.neoshield.agent >/dev/null 2>&1 && [ "$i" -lt 20 ]; do
+	/bin/sleep 0.5
+	i=$((i + 1))
+done
+i=0
+until /bin/launchctl print system/dev.neoshield.agent >/dev/null 2>&1; do
+	if [ "$i" -ge 10 ]; then
+		echo "neo postinstall: could not start dev.neoshield.agent" >&2
+		break
+	fi
+	/bin/launchctl bootstrap system "$DAEMON_PLIST" >/dev/null 2>&1 || /bin/sleep 1
+	i=$((i + 1))
+done
+/bin/launchctl kickstart system/dev.neoshield.agent >/dev/null 2>&1 || true
+
+# 3. Start the tray app for whoever is at the console, and 4. open it so the first-run window
+#    appears. Nobody may be logged in (a headless machine); that is not an error, because the tray
+#    LaunchAgent starts at the next login.
+CONSOLE_UID=$(/usr/bin/stat -f %u /dev/console 2>/dev/null)
+if [ -n "$CONSOLE_UID" ] && [ "$CONSOLE_UID" -ne 0 ] 2>/dev/null; then
+	/bin/launchctl bootout "gui/$CONSOLE_UID/dev.neoshield.tray" >/dev/null 2>&1 || true
+	/bin/launchctl bootstrap "gui/$CONSOLE_UID" "$TRAY_PLIST" >/dev/null 2>&1 || true
+	/bin/launchctl asuser "$CONSOLE_UID" /usr/bin/open /Applications/Neo.app >/dev/null 2>&1 || true
+fi
+
+exit 0

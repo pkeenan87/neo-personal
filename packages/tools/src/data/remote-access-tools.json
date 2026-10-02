@@ -1,5 +1,5 @@
 {
-  "$comment": "windows.sessionEvidence lists where a session leaves evidence on Windows (_specs/desktop-agent.md): log (path with %ProgramData%/%ProgramFiles%/%ProgramFiles(x86)%/%AppData%, pattern with an optional (?<peer>...) group), eventlog (channel, eventIds) or process (name). Every entry is verified:false until it is checked on a Windows VM with the current vendor build (the list-verification task, which also records checked as \"<vendor version> <YYYY-MM-DD>\"); only verified:true entries ship to agents. Regexes (installerPatterns, displayNamePatterns, sessionEvidence pattern) stay in the JS/Rust shared subset: no lookaround, no backreferences, no inline flags, named groups only as (?<name>...). Remote-access tool signatures used to detect installs and sessions (_specs/signals.md). installerPatterns are JavaScript regular expression sources matched case-insensitively against the downloaded filename (no flags stored; clients/servers apply the 'i' flag). windows.publishers are code-signing certificate subject (CN) names as best known; windows.serviceNames/processNames are Windows service and process names; macos.bundleIds are best-known application bundle identifiers. Fields left empty were not confirmed with enough confidence to ship rather than guessed at (see the implementation report). teamIds (Apple Developer Team IDs) are left empty throughout: they cannot be reliably recalled and a wrong one is worse than none. sessionHints are process or log markers the desktop agent looks for to infer an active remote-control session, not just an install.",
+  "$comment": "macos.sessionEvidence is the same for macOS (_specs/desktop-agent-macos.md): log paths may use %Home% (expanded once per local user) or be absolute, and a unifiedlog entry has a predicate that is exactly process == \"<name>\" or subsystem == \"<name>\" plus a pattern. The macOS candidates (AnyDesk, TeamViewer and Apple Screen Sharing, which is built in and so has no installer or vendor domain) are all verified:false until checked on a real Mac. windows.sessionEvidence lists where a session leaves evidence on Windows (_specs/desktop-agent.md): log (path with %ProgramData%/%ProgramFiles%/%ProgramFiles(x86)%/%AppData%, pattern with an optional (?<peer>...) group), eventlog (channel, eventIds) or process (name). Every entry is verified:false until it is checked on a Windows VM with the current vendor build (the list-verification task, which also records checked as \"<vendor version> <YYYY-MM-DD>\"); only verified:true entries ship to agents. Regexes (installerPatterns, displayNamePatterns, sessionEvidence pattern) stay in the JS/Rust shared subset: no lookaround, no backreferences, no inline flags, named groups only as (?<name>...). Remote-access tool signatures used to detect installs and sessions (_specs/signals.md). installerPatterns are JavaScript regular expression sources matched case-insensitively against the downloaded filename (no flags stored; clients/servers apply the 'i' flag). windows.publishers are code-signing certificate subject (CN) names as best known; windows.serviceNames/processNames are Windows service and process names; macos.bundleIds are best-known application bundle identifiers. Fields left empty were not confirmed with enough confidence to ship rather than guessed at (see the implementation report). teamIds (Apple Developer Team IDs) are left empty except where confirmed (TeamViewer): a wrong one is worse than none. sessionHints are process or log markers the desktop agent looks for to infer an active remote-control session, not just an install.",
   "tools": [
     {
       "id": "anydesk",
@@ -15,7 +15,8 @@
       },
       "macos": {
         "bundleIds": ["com.anydesk.anydesk"],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": [{"kind": "log", "path": "%Home%/.anydesk/connection_trace.txt", "pattern": "^Incoming\\s.*?\\s(?<peer>\\d{6,12})\\s", "verified": false}, {"kind": "log", "path": "/Library/Application Support/AnyDesk/connection_trace.txt", "pattern": "^Incoming\\s.*?\\s(?<peer>\\d{6,12})\\s", "verified": false}]
       },
       "sessionHints": ["AnyDesk.exe"]
     },
@@ -33,7 +34,8 @@
       },
       "macos": {
         "bundleIds": ["com.teamviewer.TeamViewer"],
-        "teamIds": []
+        "teamIds": ["H7UGFBUGV6"],
+        "sessionEvidence": [{"kind": "log", "path": "%Home%/Library/Logs/TeamViewer/Connections_incoming.txt", "pattern": "^(?<peer>\\d{6,12})\\t", "verified": false}, {"kind": "log", "path": "/Library/Logs/TeamViewer/Connections_incoming.txt", "pattern": "^(?<peer>\\d{6,12})\\t", "verified": false}]
       },
       "sessionHints": ["TeamViewer.exe"]
     },
@@ -51,7 +53,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": []
     },
@@ -69,7 +72,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": ["UltraViewer_Desktop.exe"]
     },
@@ -87,7 +91,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": ["rustdesk.exe"]
     },
@@ -105,7 +110,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": ["QuickAssist.exe"]
     },
@@ -123,7 +129,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": ["SRServer.exe"]
     },
@@ -141,7 +148,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": ["LogMeIn.exe"]
     },
@@ -159,7 +167,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": ["AteraAgent.exe"]
     },
@@ -177,7 +186,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": ["client32.exe"]
     },
@@ -195,7 +205,8 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": ["Supremo.exe"]
     },
@@ -213,9 +224,29 @@
       },
       "macos": {
         "bundleIds": [],
-        "teamIds": []
+        "teamIds": [],
+        "sessionEvidence": []
       },
       "sessionHints": ["AeroAdmin.exe"]
+    },
+    {
+      "id": "apple_screen_sharing",
+      "name": "Apple Screen Sharing / Remote Management",
+      "vendorDomains": [],
+      "installerPatterns": [],
+      "windows": {
+        "publishers": [],
+        "displayNamePatterns": [],
+        "serviceNames": [],
+        "processNames": [],
+        "sessionEvidence": []
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": [],
+        "sessionEvidence": [{"kind": "unifiedlog", "predicate": "process == \"screensharingd\"", "pattern": "Authentication: SUCCEEDED", "verified": false}]
+      },
+      "sessionHints": []
     }
   ]
 }

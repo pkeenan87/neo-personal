@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- The daemon is its own named, signed bundle: this is what the person selects in the Full
+	     Disk Access list, and what macOS shows under Login Items as "Neo Protection". The
+	     version strings are stamped by build-pkg.sh. -->
+	<key>CFBundleIdentifier</key>
+	<string>dev.neoshield.agent</string>
+	<key>CFBundleExecutable</key>
+	<string>neo-agent</string>
+	<key>CFBundleName</key>
+	<string>Neo Protection</string>
+	<key>CFBundleDisplayName</key>
+	<string>Neo Protection</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleVersion</key>
+	<string>0.0.0</string>
+	<key>CFBundleShortVersionString</key>
+	<string>0.0.0</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>13.0</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSHumanReadableCopyright</key>
+	<string>Copyright (c) Neo contributors. MIT licensed.</string>
+</dict>
+</plist>

@@ -319,6 +319,11 @@ pub enum ListsFetch {
 
 /// Device name and version sent at enrollment.
 const KIND: &str = "desktop_agent";
+/// What the server records as the device's platform. Everything but a real macOS build (including
+/// the Linux development build and its tests) reports `windows`.
+#[cfg(target_os = "macos")]
+const PLATFORM: &str = "macos";
+#[cfg(not(target_os = "macos"))]
 const PLATFORM: &str = "windows";
 
 /// Client for one server. Holds the Bearer token once enrolled.

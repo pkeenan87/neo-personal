@@ -452,12 +452,355 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # The macOS agent (spec _specs/desktop-agent-macos.md): the first real compile of the Mac-only code
+  # (libproc, Security framework, getpeereid, the daemon) and an install of the unsigned universal
+  # pkg on a real runner. GitHub's macOS minutes cost about ten times Linux minutes, and this job
+  # still boots a Mac to decide whether to skip, so keep the changed-paths filter tight.
+  desktop-macos:
+    name: Desktop agent (macOS pkg install, update, Trash, uninstall)
+    runs-on: macos-15
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_INCREMENTAL: "0"
+      TURBO_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the merge base for the changed-paths check
+          persist-credentials: false
+
+      - name: Did anything the desktop agent depends on change?
+        id: changes
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+        run: apps/desktop/ci/changed.sh
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        if: steps.changes.outputs.run == 'true'
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: steps.changes.outputs.run == 'true'
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install JS dependencies
+        if: steps.changes.outputs.run == 'true'
+        run: pnpm install --frozen-lockfile
+
+      # The runner's toolchain has only aarch64-apple-darwin; the universal build needs both.
+      - name: Rust toolchain
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          rustup toolchain install 1.98.1 --profile minimal --component clippy
+          rustup default 1.98.1
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          rustc --version
+
+      - name: Build the UI
+        if: steps.changes.outputs.run == 'true'
+        run: pnpm --filter @neo/desktop build
+
+      # The first compile of everything that is cfg(target_os = "macos").
+      - name: Clippy and test (whole workspace, on macOS)
+        if: steps.changes.outputs.run == 'true'
+        working-directory: apps/desktop
+        run: |
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          cargo test --locked --workspace
+
+      - name: Versions and a throwaway update-signing key
+        if: steps.changes.outputs.run == 'true'
+        id: setup
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          n="$(grep -m1 '^version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')"
+          IFS=. read -r a b c <<<"$n"
+          n1="$a.$b.$((c + 1))"
+          echo "n=$n" >>"$GITHUB_OUTPUT"
+          echo "n1=$n1" >>"$GITHUB_OUTPUT"
+          mkdir -p "$RUNNER_TEMP/keys" "$RUNNER_TEMP/serve" "$RUNNER_TEMP/pkg" "$RUNNER_TEMP/keep"
+          pnpm exec tauri signer generate --ci -w "$RUNNER_TEMP/keys/test.key" -p ""
+          # The compile-time settings of the agent under test: a local update manifest, the
+          # throwaway public key, permission to accept an unsigned pkg (this build is unsigned) and a
+          # 20-second Trash grace period instead of 10 minutes.
+          {
+            echo "NEO_DESKTOP_UPDATE_URL=http://127.0.0.1:8000/latest.json"
+            echo "NEO_DESKTOP_UPDATE_PUBKEY=$(cat "$RUNNER_TEMP/keys/test.key.pub")"
+            echo "NEO_ALLOW_UNSIGNED_UPDATE=1"
+            echo "NEO_TRASH_GRACE_SECS=20"
+          } >>"$GITHUB_ENV"
+
+      - name: Build the tray app and the unsigned universal pkg, version N
+        if: steps.changes.outputs.run == 'true'
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          n="${{ steps.setup.outputs.n }}"
+          pnpm exec tauri build --target universal-apple-darwin --bundles app --config "{\"version\":\"$n\"}"
+          macos/build-pkg.sh --version "$n" --out "$RUNNER_TEMP/pkg"
+          cp "$RUNNER_TEMP/pkg/Neo-$n.pkg" "$RUNNER_TEMP/pkg/keep-N.pkg"
+          ls -la "$RUNNER_TEMP/pkg"
+
+      - name: Start a fake Neo server and the update file server
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          nohup node apps/desktop/ci/fake-neo-server.mjs --port 3007 --log "$RUNNER_TEMP/neo-requests.log" \
+            --static-dir "$RUNNER_TEMP/serve" --static-port 8000 >"$RUNNER_TEMP/fake-server.out" 2>&1 &
+          sleep 3
+          curl -s -o /dev/null -w 'static server: %{http_code}\n' http://127.0.0.1:8000/
+
+      - name: Install N; the daemon runs as root, answers on the socket, and the data directory is locked down
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          source apps/desktop/ci/mac-lib.sh
+          n='${{ steps.setup.outputs.n }}'
+          sudo installer -pkg "$RUNNER_TEMP/pkg/Neo-$n.pkg" -target / -verbose
+
+          ok=""
+          for i in $(seq 1 30); do
+            if daemon_running; then ok=1; break; fi
+            sleep 2
+          done
+          daemon_print || true
+          [ -n "$ok" ] || fail 'dev.neoshield.agent is not running'
+          pid="$(daemon_pid)"
+          user="$(ps -o user= -p "$pid" | tr -d ' ')"
+          echo "daemon pid $pid runs as $user"
+          [ "$user" = root ] || fail "the daemon runs as $user, not root"
+
+          reply="$(wait_for_status 60)" || fail 'the socket never answered'
+          echo "status: $reply"
+          node -e '
+            const r = JSON.parse(process.argv[1]);
+            if (!r.ok || r.state !== "not_enrolled" || r.version !== process.argv[2] || r.platform !== "macos") { console.error("unexpected status reply"); process.exit(1); }
+            console.log("runner Full Disk Access as the daemon sees it:", r.fullDiskAccess);
+          ' "$reply" "$n"
+
+          bad="$(req '{"op":"nope"}')"
+          node -e 'const r = JSON.parse(process.argv[1]); if (r.ok || r.code !== "unknown_op") process.exit(1)' "$bad" || fail 'an unknown op was not refused'
+
+          # The socket is open to every local user (this runs as the unprivileged runner user).
+          sock="$(stat -f '%Sp %Su' /var/run/neo-agent.sock)"
+          echo "socket: $sock"
+          [ "$sock" = 'srw-rw-rw- root' ] || fail "unexpected socket mode/owner: $sock"
+
+          # The data directory is root-only, and was created before anything was put into it.
+          perms="$(sudo stat -f '%Sp %Su %Sg' "$data_dir")"
+          echo "data directory: $perms"
+          [ "$perms" = 'drwx------ root wheel' ] || fail "unexpected data directory permissions: $perms"
+          sudo ls -la "$data_dir"
+          if sudo -u nobody ls "$data_dir" >/dev/null 2>&1; then fail 'an ordinary user can list the data directory'; fi
+
+          # The packaging: bundle ids, the tray's LaunchAgent, the Login Items association.
+          [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' '/Library/Application Support/Neo/Neo Protection.app/Contents/Info.plist')" = dev.neoshield.agent ] || fail 'wrong daemon bundle id'
+          [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' /Applications/Neo.app/Contents/Info.plist)" = dev.neoshield.desktop ] || fail 'wrong tray bundle id'
+          plutil -lint /Library/LaunchAgents/dev.neoshield.tray.plist /Library/LaunchDaemons/dev.neoshield.agent.plist
+          pkgutil --pkg-info dev.neoshield.pkg
+          lipo -info '/Library/Application Support/Neo/Neo Protection.app/Contents/MacOS/neo-agent'
+          lipo -info /Applications/Neo.app/Contents/MacOS/neo
+          collect_logs after-install
+
+      - name: Enroll through the socket; the token exists only in the root-only file
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          source apps/desktop/ci/mac-lib.sh
+          reply="$(req '{"op":"enroll","code":"CI-CODE","name":"CI Mac","serverUrl":"http://127.0.0.1:3007"}' --timeout 60)"
+          echo "enroll: $reply"
+          node -e 'const r = JSON.parse(process.argv[1]); if (!r.ok || r.state !== "enrolled") process.exit(1)' "$reply" || fail 'enrollment failed'
+
+          f="$data_dir/device.json"
+          perms="$(sudo stat -f '%Sp %Su' "$f")"
+          echo "device.json: $perms"
+          [ "$perms" = '-rw------- root' ] || fail "unexpected device.json permissions: $perms"
+          sudo grep -q 'neo_dt_' "$f" || fail 'device.json does not hold the token'
+          if grep -r 'neo_dt_' "$RUNNER_TEMP/neo-requests.log" >/dev/null 2>&1; then fail 'a token reached the request log'; fi
+          sudo find "$data_dir" -type f -exec stat -f '%Sp %N' {} \;
+          loose="$(sudo find "$data_dir" -type f -exec stat -f '%Lp %N' {} \; | awk '$1 !~ /00$/')"
+          [ -z "$loose" ] || { echo "$loose"; fail 'a file in the data directory is accessible to others'; }
+
+          for i in $(seq 1 30); do
+            if grep -qx 'POST /api/devices/heartbeat' "$requests_log"; then break; fi
+            sleep 2
+          done
+          grep -qx 'POST /api/devices/heartbeat' "$requests_log" || fail 'no heartbeat reached the server'
+
+          # The real TCC reader against the runner's own database. Whether the runner lets the daemon
+          # read it is recorded, not asserted: the parser itself is tested on fixtures.
+          schema="$RUNNER_TEMP/keep/tcc-schema-$(sw_vers -productVersion).sql"
+          if sudo sqlite3 'file:/Library/Application%20Support/com.apple.TCC/TCC.db?mode=ro&immutable=1' '.schema access' >"$schema" 2>&1; then
+            echo "sudo sqlite3 can read the system TCC database on this runner"
+          else
+            echo "sudo sqlite3 cannot read the system TCC database on this runner"
+          fi
+          cat "$schema" || true
+          fda="$(req '{"op":"probe_permissions"}' --timeout 30)"
+          echo "probe_permissions: $fda"
+          sleep 45
+          echo "--- daemon log (TCC lines) ---"
+          daemon_logs | grep -i 'tcc\|full disk' || echo '(none)'
+          # The probe may have restarted the daemon once (a failed probe does, to see a new grant); wait for it.
+          wait_for_status 60 >/dev/null || fail 'the daemon did not come back after the permission probe'
+          collect_logs after-enroll
+
+      - name: Build the tray app and the pkg, version N+1 (a rebuild with the next version number)
+        if: steps.changes.outputs.run == 'true'
+        working-directory: apps/desktop
+        run: |
+          set -euo pipefail
+          n1='${{ steps.setup.outputs.n1 }}'
+          export N1="$n1"
+          perl -0pi -e 's/^version = "[^"]*"/version = "$ENV{N1}"/m' Cargo.toml
+          grep -m1 '^version = ' Cargo.toml
+          pnpm exec tauri build --target universal-apple-darwin --bundles app --config "{\"version\":\"$n1\"}"
+          # The version bump changes Cargo.lock, so this build cannot be --locked.
+          NEO_CARGO_FLAGS="" macos/build-pkg.sh --version "$n1" --out "$RUNNER_TEMP/pkg"
+          cp "$RUNNER_TEMP/pkg/Neo-$n1.pkg" "$RUNNER_TEMP/serve/neo-update.pkg"
+          # Sign it with the throwaway minisign key, the way the release does.
+          pnpm exec tauri signer sign -f "$RUNNER_TEMP/keys/test.key" -p "" "$RUNNER_TEMP/serve/neo-update.pkg"
+          # A valid signature of a different file, for the "bad signature is refused" check.
+          echo 'not the pkg' >"$RUNNER_TEMP/keys/other.bin"
+          pnpm exec tauri signer sign -f "$RUNNER_TEMP/keys/test.key" -p "" "$RUNNER_TEMP/keys/other.bin"
+          git checkout -- Cargo.toml Cargo.lock || true
+
+      - name: The daemon refuses an update whose signature does not verify
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          source apps/desktop/ci/mac-lib.sh
+          n='${{ steps.setup.outputs.n }}'
+          n1='${{ steps.setup.outputs.n1 }}'
+          # A valid signature, but of a different file.
+          node apps/desktop/ci/make-latest-json.mjs --version "$n1" --url 'http://127.0.0.1:8000/neo-update.pkg' \
+            --platform darwin-universal --sig-file "$RUNNER_TEMP/keys/other.bin.sig" --out "$RUNNER_TEMP/serve/latest.json"
+          sudo launchctl kickstart -k system/dev.neoshield.agent   # the update check runs when the daemon starts
+          sleep 30
+          reply="$(wait_for_status 60)" || fail 'the daemon did not answer'
+          node -e '
+            const r = JSON.parse(process.argv[1]);
+            if (r.version !== process.argv[2]) { console.error("the daemon updated despite a bad signature: " + r.version); process.exit(1); }
+            if (r.state !== "enrolled") { console.error("enrollment was lost"); process.exit(1); }
+          ' "$reply" "$n"
+          logs="$(daemon_logs)"
+          grep -q 'signature is not valid' <<<"$logs" || { echo "$logs"; fail 'the refusal is not in the log'; }
+          collect_logs after-bad-update
+
+      - name: The daemon applies a good update itself, and keeps the enrollment
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          source apps/desktop/ci/mac-lib.sh
+          n1='${{ steps.setup.outputs.n1 }}'
+          node apps/desktop/ci/make-latest-json.mjs --version "$n1" --url 'http://127.0.0.1:8000/neo-update.pkg' \
+            --platform darwin-universal --sig-file "$RUNNER_TEMP/serve/neo-update.pkg.sig" --out "$RUNNER_TEMP/serve/latest.json"
+          sudo launchctl kickstart -k system/dev.neoshield.agent
+          now=""
+          for i in $(seq 1 72); do
+            sleep 5
+            now="$(req '{"op":"status"}' --timeout 10 2>/dev/null || true)"
+            if [ -n "$now" ] && node -e 'process.exit(JSON.parse(process.argv[1]).version === process.argv[2] ? 0 : 1)' "$now" "$n1" 2>/dev/null; then break; fi
+            now=""
+          done
+          [ -n "$now" ] || { collect_logs update-failed; sudo tail -n 80 /var/log/install.log || true; fail "the daemon did not come back on $n1"; }
+          echo "status after the update: $now"
+          node -e 'if (JSON.parse(process.argv[1]).state !== "enrolled") process.exit(1)' "$now" || fail 'the upgrade lost the enrollment'
+          daemon_running || fail 'the daemon is not running after the upgrade'
+          sudo test -f "$data_dir/device.json" || fail 'device.json is gone after the upgrade'
+          [ "$(count_deletes)" = 0 ] || fail 'an upgrade must not unenroll'
+          pkgutil --pkg-info dev.neoshield.pkg
+          [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' '/Library/Application Support/Neo/Neo Protection.app/Contents/Info.plist')" = "$n1" ] || fail 'the daemon bundle was not replaced'
+          echo "upgraded to $n1, still enrolled"
+          collect_logs after-update
+
+      # Neo.app moved to the Trash (here: deleted) is an uninstall: after the 20-second grace period
+      # the daemon tells the server once and removes itself.
+      - name: Moving Neo.app away unenrolls once and removes the daemon
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          source apps/desktop/ci/mac-lib.sh
+          before="$(count_deletes)"
+          sudo rm -rf /Applications/Neo.app
+          gone=""
+          for i in $(seq 1 24); do   # grace 20 s + a check interval + the script, with plenty of room
+            sleep 5
+            if ! daemon_print >/dev/null 2>&1 && ! sudo test -e '/Library/Application Support/Neo'; then gone=1; break; fi
+          done
+          if [ -z "$gone" ]; then
+            collect_logs trash-failed
+            daemon_print || true
+            fail 'the daemon did not remove itself after Neo.app was deleted'
+          fi
+          after="$(count_deletes)"
+          echo "DELETE /api/devices/self: $before -> $after"
+          [ "$after" = "$((before + 1))" ] || fail "expected exactly one DELETE /api/devices/self, saw $((after - before))"
+          sleep 2
+          if pgrep -f 'neo-agent' >/dev/null; then fail 'a neo-agent process is still running'; fi
+          [ ! -e /Library/LaunchDaemons/dev.neoshield.agent.plist ] || fail 'the daemon plist is still there'
+          [ ! -e /var/run/neo-agent.sock ] || fail 'the socket is still there'
+          [ -z "$(pkgutil --pkgs | grep -x dev.neoshield.pkg || true)" ] || fail 'the package receipt is still there'
+          echo 'removed after the app was moved away'
+
+      - name: Reinstall N; uninstall.sh removes everything and tells the owner
+        if: steps.changes.outputs.run == 'true'
+        run: |
+          set -euo pipefail
+          source apps/desktop/ci/mac-lib.sh
+          n='${{ steps.setup.outputs.n }}'
+          # No update on offer this time (the manifest would send N to N+1 again).
+          rm -f "$RUNNER_TEMP/serve/latest.json"
+          sudo installer -pkg "$RUNNER_TEMP/pkg/keep-N.pkg" -target / -verbose
+          wait_for_status 90 >/dev/null || fail 'the reinstalled daemon never answered'
+          reply="$(req '{"op":"enroll","code":"CI-CODE","name":"CI Mac","serverUrl":"http://127.0.0.1:3007"}' --timeout 60)"
+          node -e 'if (JSON.parse(process.argv[1]).state !== "enrolled") process.exit(1)' "$reply" || fail 'enrollment failed'
+          before="$(count_deletes)"
+          collect_logs before-uninstall
+          sudo "/Library/Application Support/Neo/Neo Protection.app/Contents/Resources/uninstall.sh"
+          after="$(count_deletes)"
+          [ "$after" = "$((before + 1))" ] || fail "expected one DELETE /api/devices/self from uninstall.sh, saw $((after - before))"
+          sleep 3
+          if daemon_print >/dev/null 2>&1; then fail 'the daemon is still loaded after uninstall.sh'; fi
+          if sudo test -e '/Library/Application Support/Neo'; then fail 'the support folder is still there'; fi
+          [ ! -e /Applications/Neo.app ] || fail 'Neo.app is still there'
+          [ ! -e /Library/LaunchDaemons/dev.neoshield.agent.plist ] || fail 'the daemon plist is still there'
+          [ ! -e /Library/LaunchAgents/dev.neoshield.tray.plist ] || fail 'the tray plist is still there'
+          [ ! -e /var/run/neo-agent.sock ] || fail 'the socket is still there'
+          if pgrep -f 'neo-agent' >/dev/null; then fail 'a neo-agent process is still running'; fi
+          [ -z "$(pkgutil --pkgs | grep -x dev.neoshield.pkg || true)" ] || fail 'the package receipt is still there'
+          echo 'uninstalled cleanly'
+
+      - name: Keep the installer and daemon logs
+        if: always() && steps.changes.outputs.run == 'true'
+        run: |
+          source apps/desktop/ci/mac-lib.sh
+          collect_logs final || true
+          cp "$RUNNER_TEMP/neo-requests.log" "$RUNNER_TEMP/keep/" 2>/dev/null || true
+          cp "$RUNNER_TEMP/fake-server.out" "$RUNNER_TEMP/keep/" 2>/dev/null || true
+          ls -R "$RUNNER_TEMP/keep" | head -60
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always() && steps.changes.outputs.run == 'true'
+        with:
+          name: desktop-macos-logs
+          path: ${{ runner.temp }}/keep
+          if-no-files-found: ignore
+          retention-days: 7
+
   # Single required status check for branch protection. Runs even when an
   # upstream job fails or is cancelled, and fails unless every job succeeded.
   all-checks-passed:
     name: All checks passed
     runs-on: ubuntu-latest
-    needs: [checks, codeql, gitleaks, desktop-core, desktop-windows]
+    needs: [checks, codeql, gitleaks, desktop-core, desktop-windows, desktop-macos]
     if: always()
     permissions: {}
     steps:
@@ -468,14 +811,16 @@ jobs:
           GITLEAKS: ${{ needs.gitleaks.result }}
           DESKTOP_CORE: ${{ needs.desktop-core.result }}
           DESKTOP_WINDOWS: ${{ needs.desktop-windows.result }}
+          DESKTOP_MACOS: ${{ needs.desktop-macos.result }}
         run: |
           echo "checks:   $CHECKS"
           echo "codeql:   $CODEQL"
           echo "gitleaks: $GITLEAKS"
           echo "desktop-core:    $DESKTOP_CORE"
           echo "desktop-windows: $DESKTOP_WINDOWS"
+          echo "desktop-macos:   $DESKTOP_MACOS"
           failed=0
-          for pair in "checks=$CHECKS" "codeql=$CODEQL" "gitleaks=$GITLEAKS" "desktop-core=$DESKTOP_CORE" "desktop-windows=$DESKTOP_WINDOWS"; do
+          for pair in "checks=$CHECKS" "codeql=$CODEQL" "gitleaks=$GITLEAKS" "desktop-core=$DESKTOP_CORE" "desktop-windows=$DESKTOP_WINDOWS" "desktop-macos=$DESKTOP_MACOS"; do
             if [[ "${pair#*=}" != "success" ]]; then
               echo "::error::${pair%%=*} did not pass (${pair#*=})"
               failed=1

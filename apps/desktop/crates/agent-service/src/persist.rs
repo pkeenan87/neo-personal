@@ -38,9 +38,11 @@ impl DataDir {
         self.root.join("updates")
     }
 
+    /// Creates the directory and `logs/`. On unix they are created `0700` (the macOS data directory
+    /// is root-only; `perms::secure_data_dir` locks the root down before anything is put in it).
     pub fn ensure(&self) -> io::Result<()> {
-        std::fs::create_dir_all(&self.root)?;
-        std::fs::create_dir_all(self.logs_dir())
+        create_private_dirs(&self.root)?;
+        create_private_dirs(&self.logs_dir())
     }
 
     pub fn read_bytes(&self, name: &str) -> io::Result<Option<Vec<u8>>> {
@@ -56,10 +58,27 @@ impl DataDir {
     }
 
     pub fn write_atomic_bytes(&self, name: &str, bytes: &[u8]) -> io::Result<()> {
-        std::fs::create_dir_all(&self.root)?;
+        create_private_dirs(&self.root)?;
         let tmp = self.root.join(format!("{name}.tmp"));
-        std::fs::write(&tmp, bytes)?;
+        write_private(&tmp, bytes)?;
         std::fs::rename(&tmp, self.root.join(name))
+    }
+
+    /// Unix: makes `name` owner-only (`0600`) if it is not. Used for `device.json`, which an old
+    /// build or a careless copy may have left more open.
+    pub fn enforce_private(&self, name: &str) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let path = self.root.join(name);
+            if let Ok(m) = std::fs::metadata(&path)
+                && m.permissions().mode() & 0o077 != 0
+            {
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = name;
     }
 
     pub fn write_atomic(&self, name: &str, text: &str) -> io::Result<()> {
@@ -82,6 +101,39 @@ impl DataDir {
     pub fn write_json<T: Serialize>(&self, name: &str, value: &T) -> io::Result<()> {
         let text = serde_json::to_string(value).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         self.write_atomic(name, &text)
+    }
+}
+
+/// Creates `path` and its parents; on unix new directories are `0700`.
+fn create_private_dirs(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(path)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::create_dir_all(path)
+    }
+}
+
+/// Writes `bytes` to `path`; on unix the file is created `0600`.
+fn write_private(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        f.write_all(bytes)
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, bytes)
     }
 }
 
@@ -108,6 +160,9 @@ pub struct Meta {
     pub expected_tools: Vec<ExpectedTool>,
     /// Newest version seen in the update manifest that this build has not installed.
     pub update_available: Option<String>,
+    /// macOS: unix seconds of the last time the daemon exited so that launchd would relaunch it to
+    /// pick up a new Full Disk Access grant (a grant is only visible to a process started after it).
+    pub fda_relaunch_at: Option<i64>,
 }
 
 #[cfg(test)]
@@ -130,5 +185,23 @@ mod tests {
         assert!(!dir.root().join("agent.json.tmp").exists());
         std::fs::write(dir.root().join(META_FILE), "{broken").unwrap();
         assert_eq!(dir.read_json::<Meta>(META_FILE), Meta::default());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn files_are_owner_only_and_loose_ones_are_tightened() {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = DataDir::new(tmp.path().join("data"));
+        dir.ensure().unwrap();
+        dir.write_atomic("device.json", "{}").unwrap();
+        assert_eq!(mode(dir.root()), 0o700);
+        assert_eq!(mode(&dir.logs_dir()), 0o700);
+        assert_eq!(mode(&dir.root().join("device.json")), 0o600);
+        std::fs::set_permissions(dir.root().join("device.json"), std::fs::Permissions::from_mode(0o644)).unwrap();
+        dir.enforce_private("device.json");
+        assert_eq!(mode(&dir.root().join("device.json")), 0o600);
+        dir.enforce_private("missing.json");
     }
 }

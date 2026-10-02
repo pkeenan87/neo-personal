@@ -1,4 +1,5 @@
-//! The service loop: a pipe-server thread plus a one-second tick, until asked to stop.
+//! The service loop: a pipe-server thread plus a one-second tick, until asked to stop (or, on
+//! macOS, until the agent asks to be relaunched).
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
@@ -20,6 +21,12 @@ pub fn run_loop(
         std::thread::spawn(move || serve(agent, stop))
     };
     while !stop.load(Ordering::SeqCst) {
+        if agent.relaunch_due() {
+            // launchd (KeepAlive) starts a fresh process, which can see a new Full Disk Access grant.
+            log::info!("exiting for a relaunch");
+            stop.store(true, Ordering::SeqCst);
+            break;
+        }
         // A bug in one pass must not take the protection down.
         if catch_unwind(AssertUnwindSafe(|| agent.tick())).is_err() {
             log::error!("a scan pass panicked; continuing");

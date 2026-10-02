@@ -101,9 +101,27 @@ impl ConnectionGate {
     }
 }
 
+/// Decides, per connection, whether a unix-socket peer may talk to the service (macOS: `getpeereid`;
+/// every local user is allowed, a peer whose credentials cannot be read is not).
+#[cfg(unix)]
+pub trait PeerCheck: Send + Sync {
+    fn admit(&self, stream: &std::os::unix::net::UnixStream) -> bool;
+}
+
 /// Serves the protocol on a unix socket until `stop` is set (Linux development; `--dev-pipe`).
 #[cfg(unix)]
 pub fn serve_unix(agent: Arc<Agent>, path: &std::path::Path, stop: Arc<AtomicBool>) -> std::io::Result<()> {
+    serve_unix_checked(agent, path, stop, None)
+}
+
+/// [`serve_unix`] with a per-connection peer check (the macOS daemon's socket).
+#[cfg(unix)]
+pub fn serve_unix_checked(
+    agent: Arc<Agent>,
+    path: &std::path::Path,
+    stop: Arc<AtomicBool>,
+    peer: Option<Arc<dyn PeerCheck>>,
+) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
     use std::os::unix::net::UnixListener;
 
@@ -115,6 +133,10 @@ pub fn serve_unix(agent: Arc<Agent>, path: &std::path::Path, stop: Arc<AtomicBoo
     while !stop.load(Ordering::SeqCst) {
         match listener.accept() {
             Ok((stream, _)) => {
+                if peer.as_ref().is_some_and(|p| !p.admit(&stream)) {
+                    log::warn!("refused a connection whose peer could not be verified");
+                    continue;
+                }
                 let Some(permit) = gate.try_acquire() else { continue };
                 let _ = stream.set_nonblocking(false);
                 let agent = agent.clone();

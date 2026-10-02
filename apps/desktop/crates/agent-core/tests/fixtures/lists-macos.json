@@ -1,0 +1,132 @@
+{
+  "version": "fixture-macos-0001",
+  "remoteAccessTools": [
+    {
+      "id": "anydesk",
+      "name": "AnyDesk",
+      "vendorDomains": [
+        "anydesk.com"
+      ],
+      "installerPatterns": [],
+      "windows": {
+        "publishers": [
+          "AnyDesk Software GmbH"
+        ],
+        "displayNamePatterns": [
+          "^AnyDesk$"
+        ],
+        "serviceNames": [
+          "AnyDesk"
+        ],
+        "processNames": [
+          "AnyDesk.exe"
+        ],
+        "sessionEvidence": []
+      },
+      "macos": {
+        "bundleIds": [
+          "com.anydesk.anydesk"
+        ],
+        "teamIds": [
+          "TEAMANYD01"
+        ],
+        "sessionEvidence": [
+          {
+            "kind": "log",
+            "path": "%Home%/.anydesk/connection_trace.txt",
+            "pattern": "^Incoming\\s.*?\\s(?<peer>\\d{6,12})\\s*$",
+            "verified": true,
+            "checked": "fixture"
+          },
+          {
+            "kind": "log",
+            "path": "/Library/Application Support/AnyDesk/unverified.txt",
+            "pattern": "Incoming",
+            "verified": false
+          }
+        ]
+      },
+      "sessionHints": []
+    },
+    {
+      "id": "teamviewer",
+      "name": "TeamViewer",
+      "vendorDomains": [
+        "teamviewer.com"
+      ],
+      "installerPatterns": [],
+      "windows": {
+        "publishers": [
+          "TeamViewer Germany GmbH"
+        ],
+        "displayNamePatterns": [
+          "^TeamViewer.*$"
+        ],
+        "serviceNames": [],
+        "processNames": [
+          "TeamViewer.exe"
+        ],
+        "sessionEvidence": []
+      },
+      "macos": {
+        "bundleIds": [
+          "com.teamviewer.TeamViewer"
+        ],
+        "teamIds": [
+          "H7UGFBUGV6"
+        ],
+        "sessionEvidence": []
+      },
+      "sessionHints": []
+    },
+    {
+      "id": "apple_screen_sharing",
+      "name": "Apple Screen Sharing / Remote Management",
+      "vendorDomains": [],
+      "installerPatterns": [],
+      "windows": {
+        "publishers": [],
+        "displayNamePatterns": [],
+        "serviceNames": [],
+        "processNames": [],
+        "sessionEvidence": []
+      },
+      "macos": {
+        "bundleIds": [],
+        "teamIds": [],
+        "sessionEvidence": [
+          {
+            "kind": "unifiedlog",
+            "predicate": "process == \"screensharingd\"",
+            "pattern": "Authentication: SUCCEEDED",
+            "verified": true,
+            "checked": "fixture"
+          },
+          {
+            "kind": "unifiedlog",
+            "predicate": "process == \"x\" OR 1 == 1",
+            "pattern": "x",
+            "verified": true
+          },
+          {
+            "kind": "unifiedlog",
+            "predicate": "subsystem == \"com.apple.unverified\"",
+            "pattern": "x",
+            "verified": false
+          }
+        ]
+      },
+      "sessionHints": []
+    }
+  ],
+  "pupPublishers": [
+    {
+      "publisher": "PUPTEAM001",
+      "reason": "fixture"
+    },
+    {
+      "publisher": "Shady Soft Ltd",
+      "reason": "fixture"
+    }
+  ]
+}

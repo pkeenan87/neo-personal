@@ -1,8 +1,8 @@
-# Windows desktop agent
+# Desktop agent (Windows and macOS)
 
-Neo's Windows agent (`apps/desktop`) notices a remote-access scam while it happens and tells two people: the person at
+Neo's desktop agent (`apps/desktop`, Windows and macOS) notices a remote-access scam while it happens and tells two people: the person at
 the keyboard at once, and the household owner by email within a minute. The functional spec is
-`_specs/desktop-agent.md`; the wire formats are in `docs/contracts.md` ("Desktop agent", "HTTP contract: devices",
+`_specs/desktop-agent.md` (Windows) and `_specs/desktop-agent-macos.md` (macOS, section "macOS" below); the wire formats are in `docs/contracts.md` ("Desktop agent", "HTTP contract: devices",
 "HTTP contract: signals"). This page is the working guide: how it is built, how to develop it on Linux, how to set up a
 Windows VM, how to verify the detection lists, how to release it, and where to look when it misbehaves.
 
@@ -111,6 +111,7 @@ Set these when building; none is read at run time, so a local user cannot redire
 | `NEO_DESKTOP_UPDATE_URL` | `neo-agent` | the `desktop-latest` release's `latest.json` |
 | `NEO_DESKTOP_UPDATE_PUBKEY` | `neo-agent` | unset: updates are off. The base64 of the `.pub` file (the same value as `plugins.updater.pubkey` in a Tauri config). |
 | `NEO_ALLOW_UNSIGNED_UPDATE` | `neo-agent` | unset. CI only. |
+| `NEO_TRASH_GRACE_SECS` | `neo-agent` (macOS) | 600. CI only: how long `/Applications/Neo.app` may be missing before the daemon unenrolls and removes itself. A release refuses it. |
 | `TAURI_NEO_AGENT_EXE` | the WiX fragment | none; **required** to build the MSI: the absolute path of `neo-agent.exe`. |
 
 ## Developing on Linux
@@ -321,10 +322,10 @@ Neither option gives instant SmartScreen reputation (EV certificates no longer d
 
 ## CI
 
-`.github/workflows/ci.yml` has two desktop jobs next to `checks`. Both **always start** (the *All checks passed*
-aggregator needs `success` from them and counts `skipped` as a failure), and both begin with
+`.github/workflows/ci.yml` has three desktop jobs next to `checks`. All of them **always start** (the *All checks passed*
+aggregator needs `success` from them and counts `skipped` as a failure), and each begins with
 `apps/desktop/ci/changed.sh`, which compares the change with the merge base (`fetch-depth: 0`) and, when nothing under
-`apps/desktop/**`, `packages/tools/src/data/**` or the CI workflow changed, skips every later step.
+`apps/desktop/**`, `packages/tools/src/data/**` or a desktop CI/release workflow changed, skips every later step.
 
 - **`desktop-core`** (Ubuntu): `cargo fmt --check`; clippy `-D warnings` and tests for `neo-agent-core` and `neo-agent`;
   then, after installing WebKitGTK, clippy and tests for the tray crate.
@@ -346,6 +347,225 @@ aggregator needs `success` from them and counts `skipped` as a failure), and bot
 
   Not covered in CI: the *wrong Authenticode signer* refusal (unit-tested; the CI build is unsigned) and real
   SmartScreen/Defender behaviour. Logs are uploaded as the `desktop-windows-logs` artifact.
+- **`desktop-macos`** (`macos-15`, 60 minutes): see "macOS CI" below. GitHub's macOS minutes cost about ten times Linux
+  minutes and the job boots a Mac even to decide it can skip, so keep `changed.sh` tight.
+
+## macOS
+
+The macOS agent (spec `_specs/desktop-agent-macos.md`) is the same product with a different platform layer. `agent-core`,
+the agent loop, the protocol, the queue, updates, the tray app and the server are shared; what differs is a
+`crates/agent-service/src/macos/` module behind the same traits as `windows/`, a signed and notarized `.pkg`, and one
+extra detector: **an app newly allowed to record the screen, control the Mac or read all files** (`tcc_grant`).
+
+### Architecture
+
+```
+                         Mac                                              Neo server
+ ┌──────────────────────────────────────────────────────┐
+ │ /Library/Application Support/Neo/                    │   same HTTPS calls as on Windows
+ │   Neo Protection.app  (daemon bundle, dev.neoshield.agent)
+ │     Contents/MacOS/neo-agent   LaunchDaemon, root, KeepAlive
+ │     Contents/Resources/uninstall.sh
+ │   data/ (root 0700): device.json (0600), seen.json, …, logs/
+ │        ▲  unix socket /var/run/neo-agent.sock (0666, getpeereid)
+ │ /Applications/Neo.app  (the same Tauri tray app, menu-bar only)
+ │   LaunchAgent dev.neoshield.tray starts it at every login
+ └──────────────────────────────────────────────────────┘
+```
+
+- **The daemon is its own bundle** because that is what the person selects in the Full Disk Access list and what macOS
+  shows under Login Items as "Neo Protection". Its plist (`macos/launchd/dev.neoshield.agent.plist`) sets `KeepAlive`
+  (launchd relaunches it whenever it exits) and `AbandonProcessGroup` (the update installer and `uninstall.sh` it starts
+  must outlive it when launchd boots it out).
+- **Why a pkg and not `SMAppService`:** `SMAppService` ties the daemon to the app bundle, so dragging `Neo.app` to the
+  Trash would orphan or kill it. The pkg installs the daemon outside `/Applications` at a fixed path. That needs a
+  *Developer ID Installer* certificate as well as *Developer ID Application*.
+- **Token storage:** `data/device.json`, root, `0600`, inside a `0700` directory that `postinstall` (and the daemon, on
+  start) creates and locks down **before** anything is written into it. There is no DPAPI equivalent that would add
+  protection against anyone with root. The System keychain is an open question in the spec.
+- **IPC:** the Windows pipe protocol, unchanged, over the unix socket. The daemon calls `getpeereid` on every connection
+  and drops one whose credentials it cannot read; any local user may connect. `status` adds `platform` and
+  `fullDiskAccess`; `probe_permissions` re-checks Full Disk Access.
+- **What the Mac-only code does** (all of it in `macos/`; the parts that are plain files, SQLite, plists and command
+  output are `cfg(unix)` and tested on Linux, the thin OS glue is `cfg(target_os = "macos")`):
+
+  | Module | What it does | Where it is tested |
+  |---|---|---|
+  | `tcc.rs` | Reads the system and each user's TCC database with bundled SQLite | Linux (real SQLite fixtures, the recorded 15.7.9 schema) |
+  | `bundles.rs` | Users under `/Users`, `.app` bundles, `Info.plist`, launchd plists, App Translocation paths | Linux |
+  | `unifiedlog.rs` | `log show … --style ndjson` with a validated predicate | Linux |
+  | `pkg.rs`, `trash.rs`, `notify.rs`, `perms.rs`, `exec.rs` | `pkgutil` parsing, the Trash timer and removal, the console-user alert, `0700`/`0600`, command runner | Linux |
+  | `procs.rs`, `codesign.rs`, `peer.rs` | libproc, the Security framework, `getpeereid` | CI only |
+  | `probe.rs`, `installer.rs`, `daemon.rs` | Wiring, `installer -pkg`, the launchd entry | compiled by CI; the logic they call is tested on Linux |
+
+### The two modes
+
+| Mode | Detects |
+|---|---|
+| **Without Full Disk Access** | Remote-access tools appearing (installed or run), verified incoming sessions, unwanted software: the Windows feature set |
+| **With Full Disk Access** | All of the above, plus `tcc_grant` |
+
+Reading the TCC database needs Full Disk Access even as root (Endpoint Security needs it too, plus an Apple-approved
+entitlement, and the unified log redacts the fields), so the permission cannot be avoided; it is a manual step in System
+Settings. The agent works fine without it and says so in `status` (`fullDiskAccess: false`).
+
+- **How the database is read:** read-only, with SQLite's `immutable=1` URI (`tccd` holds it open). `immutable` ignores the
+  write-ahead log, though, so when a non-empty `-wal` exists the database and its `-wal` are copied into
+  `data/tmp/`, read there and the copy deleted. Only `service`, `client`, `client_type` and `auth_value` of `access` are
+  selected. A missing table or column disables TCC detection for the run and logs the macOS version once (fail open).
+  Opening the file is checked first: `EPERM` means no Full Disk Access.
+- **What counts:** `kTCCServiceScreenCapture`, `kTCCServiceAccessibility`, `kTCCServiceSystemPolicyAllFiles`, only a
+  transition to `auth_value` 2 after the first read of that database (grants present at enrollment are never sent: Zoom,
+  Teams and browsers hold Screen Recording). Each database is baselined separately, and one that could not be read in a
+  pass keeps its previous state, so a user logging out is not "revoked grants" and their return not "new grants".
+- **Warnings:** a grant to a listed remote-access tool is a critical window (push `kind: "permission"` with `service`):
+  "**AnyDesk can now see and control this Mac.** If someone on the phone asked you to allow this, it is a scam. Hang up,
+  then open System Settings → Privacy & Security and turn it off." ("see your screen", "control this Mac" or "read all your
+  files" by permission.) A grant to any other app is only sent to the server. With no tray running, the daemon shows the
+  same text itself through `launchctl asuser <console uid> osascript` (text passed as arguments, never in the script).
+
+### The Full Disk Access step
+
+The first-run window offers it after enrollment, and the tray menu offers **App permission checks are off: turn on…**
+whenever `fullDiskAccess` is false (the icon never changes and nothing notifies). The step, in plain words:
+
+1. **Open System Settings** opens `x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles`,
+   falling back to `x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles` (both hardcoded in the tray's
+   Rust; the web view only names the action).
+2. Turn on **Neo Protection**; if it is not listed, press **+**. **Show Neo Protection in Finder** runs `open -R` on the
+   bundle.
+3. **Done** sends `probe_permissions`. A grant is only visible to a process started after it, so when the probe fails the
+   daemon **exits once** (launchd relaunches it) and the tray says "restarting, press Done again". At most one exit per
+   minute, and only on that button; the 5-minute re-probe never restarts it.
+
+The copy says this is the only setting Neo asks for, that it can be turned off any time, and that Neo never asks for it on a
+phone call (the same sentence is a scam script). **Skip for now** is always there.
+
+### Installing, uninstalling and the Trash rule
+
+`Neo.pkg` installs `/Applications/Neo.app`, `/Library/Application Support/Neo/Neo Protection.app` and the two launchd
+plists. Components are marked non-relocatable (otherwise the installer would update a copy of the bundle found anywhere
+on the disk). `preinstall` boots out a running daemon; `postinstall` creates and locks the data directory first, then
+bootstraps the daemon, bootstraps the tray agent for the console user (`launchctl bootstrap gui/<uid>`; no one logged in is
+fine) and opens `Neo.app`. Enrollment is the first-run window, as on Windows.
+
+- **Updates:** `latest.json` platform `darwin-universal`, minisign signature first; then `pkgutil --check-signature` must
+  show `Status: signed by a developer certificate …`, `Notarization: trusted by the Apple notary service` and a
+  `Developer ID Installer: <Name> (<TEAMID>)` certificate whose Team ID equals the running daemon's own (from its code
+  signature). An unsigned daemon (a CI build) accepts an unsigned pkg only when built with `NEO_ALLOW_UNSIGNED_UPDATE`.
+  Then `installer -pkg <staged pkg> -target /`, detached.
+- **Uninstall:** the tray's **Uninstall Neo…** asks who will be told, then runs `uninstall.sh` with the standard
+  administrator prompt (`osascript … with administrator privileges`). From Terminal:
+  `sudo "/Library/Application Support/Neo/Neo Protection.app/Contents/Resources/uninstall.sh"`. It runs
+  `neo-agent --unenroll` (`DELETE /api/devices/self`, so the owner is told), boots out the daemon, removes both bundles,
+  the plists, the data and the socket, runs `pkgutil --forget dev.neoshield.pkg`, and stops the tray last.
+- **The Trash rule:** macOS has no "Settings → Apps → Uninstall", so dragging `Neo.app` to the Trash is an uninstall. The
+  daemon checks every 60 seconds (a quarter of the grace period, at least 5 s) that `/Applications/Neo.app` exists with the
+  daemon's own Team ID (or both unsigned). Missing for 10 minutes (`NEO_TRASH_GRACE_SECS`) it unenrolls
+  (`DELETE /api/devices/self`, which raises the owner's `device_removed` alert), writes a removal note to its log, and runs
+  `uninstall.sh`. It unenrolls *before* the script so the script's own `--unenroll` finds nothing to send and the owner is
+  told exactly once. Putting the app back inside the grace period resets the clock; an app update in progress is covered.
+
+### Developing on Linux (and replaying TCC scenarios)
+
+Everything but the glue builds and tests on Linux: `cd apps/desktop && cargo test --workspace` runs the TCC reader against
+SQLite files built in the tests, the bundle/plist scanners against temporary directories, the Trash timer, the
+`pkgutil` parser, the whole agent against a fake Mac (`crates/agent-service/tests/macos.rs`) and the UI step tests.
+
+The `simulate` example replays the macOS scenarios (a `tcc` snapshot is `{ "dbs_read": ["system"], "rows": [...] }`):
+
+```bash
+cd apps/desktop/crates/agent-core
+cargo run --example simulate -- tests/fixtures/scenarios/macos-anydesk-accessibility.json --post http://localhost:3007 --code <code>
+# macos-unknown-screen-recording: one `medium` event; macos-baseline-grants: nothing is sent
+```
+
+`--dev-pipe` with a snapshot file that has `app_bundles` and `tcc` rows exercises the macOS detectors through the real agent
+loop (`status` reports `platform: "linux"`, and `fullDiskAccess: true` when the snapshot has a `tcc` entry, `null`
+otherwise). The "off" states of the Full Disk Access step are covered by the Vitest tests (`test/permissions.test.tsx`).
+
+### macOS CI
+
+`desktop-macos` (`macos-15`) runs clippy and tests for the whole workspace (the first compile of the Mac-only code), builds
+the tray app and an **unsigned universal pkg** (version N; the daemon and the app are ad-hoc signed) with a throwaway
+minisign key, a local update URL, `NEO_ALLOW_UNSIGNED_UPDATE` and `NEO_TRASH_GRACE_SECS=20`, then, against the fake server
+(`ci/fake-neo-server.mjs`; `ci/socket-request.mjs` is the socket client):
+
+1. `sudo installer -pkg`; `launchctl print system/dev.neoshield.agent` shows it running **as root**; the socket answers
+   `status` to an ordinary user; the socket is `srw-rw-rw- root`; the data directory is `drwx------ root wheel`;
+2. enrolls; `device.json` is `-rw------- root` and no file in the data directory is open to others; records whether the
+   runner lets `sudo sqlite3` and the daemon read the system TCC database (printed and saved as `tcc-schema-<macOS>.sql`,
+   **not asserted**), and sends `probe_permissions` once;
+3. builds N+1, serves a manifest with a signature of a different file and checks the daemon **refuses** it;
+4. serves the real manifest and waits for the daemon to apply N+1 itself, with the enrollment kept and no `DELETE`;
+5. deletes `/Applications/Neo.app` and checks that within the grace period there is **exactly one** `DELETE
+   /api/devices/self`, the daemon is gone and nothing is left (support folder, plist, socket, package receipt);
+6. reinstalls N, enrolls, runs `uninstall.sh` and checks the same, with one more `DELETE`.
+
+Logs (copied out with sudo) are the `desktop-macos-logs` artifact. Not covered: the real Gatekeeper/notarization path
+(the pkg is unsigned), the signer-mismatch refusal (unit-tested) and the Full Disk Access flow itself.
+
+### macOS verification checklist
+
+Everything the lists need from a real Mac. Fill `checked: "<vendor version> <date>"` and flip `verified` only when a
+check below passes; an unverified value never ships.
+
+- **Team IDs and bundle IDs:** install each tool and run `codesign -dv --verbose=4 /Applications/<App>.app`
+  (`TeamIdentifier=`, `Authority=Developer ID Application: <Name> (<TEAMID>)`) and
+  `defaults read /Applications/<App>.app/Contents/Info CFBundleIdentifier`. Confirmed so far: TeamViewer team
+  `H7UGFBUGV6`, bundle `com.teamviewer.TeamViewer` (secondary source); AnyDesk, RustDesk and ScreenConnect bundle ids are
+  unconfirmed.
+- **Session log paths:** connect from another machine and see which file grows: AnyDesk `~/.anydesk/connection_trace.txt` and
+  `/Library/Application Support/AnyDesk/connection_trace.txt`; TeamViewer `~/Library/Logs/TeamViewer/` and
+  `/Library/Logs/TeamViewer/`; RustDesk `~/Library/Logs/RustDesk/`. Record the line format the `pattern` must match.
+- **Unified-log messages:** `log stream --predicate 'process == "screensharingd"'` while someone connects through Screen
+  Sharing; the message that carries success is the `pattern` (candidate: `Authentication: SUCCEEDED`). Check the redaction
+  (`<private>`) of anything the pattern needs.
+- **The Full Disk Access flow:** a clean user, the pkg, enrollment, the step. Check the deep link on macOS 13, 14, 15 and
+  26 (26 is unconfirmed), that **Neo Protection** is listed after the pkg or can be added with **+** (and that the Finder
+  window shows it), that **Done** fails before and succeeds after the daemon's relaunch, and that the grant is keyed by the
+  bundle id `dev.neoshield.agent` (`client_type` 0) rather than a path.
+- **TCC:** revoke and re-grant Screen Recording for a test app and watch one event per grant; a Sequoia monthly
+  re-approval sends nothing; save the `access` schema and macOS version as a new fixture in `tcc.rs` when it changes.
+- **App Translocation:** open a quarantined copy from `~/Downloads`; the process path under
+  `/private/var/folders/…/AppTranslocation/…` must still resolve to the bundle and its Team ID.
+
+### Releasing and notarization
+
+`.github/workflows/desktop-release-macos.yml` runs on the same `desktop-v*` tags as the Windows release (the tag must
+match `apps/desktop/Cargo.toml`). It **fails before building anything** unless every piece of signing configuration is
+present, and refuses `NEO_ALLOW_UNSIGNED_UPDATE` and `NEO_TRASH_GRACE_SECS`.
+
+| Secret / variable | What |
+|---|---|
+| `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` | base64 `.p12` of the **Developer ID Application** certificate, and its password |
+| `APPLE_INSTALLER_CERTIFICATE`, `APPLE_INSTALLER_CERTIFICATE_PASSWORD` | the same for **Developer ID Installer** |
+| `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_KEY_P8` | App Store Connect API key id, issuer id and the `.p8` contents (for `notarytool`) |
+| variable `APPLE_TEAM_ID` | the ten-character Team ID; both certificates must belong to it |
+| `DESKTOP_UPDATE_SIGNING_KEY` (+ `_PASSWORD`), variable `NEO_DESKTOP_UPDATE_PUBKEY` | the same minisign pair as the Windows release |
+
+The steps: import both certificates into a temporary keychain (deleted at the end); build the universal tray app with
+Tauri (signed with the hardened runtime and a timestamp); build the universal daemon (`cargo build` for both architectures,
+`lipo`), sign its bundle and build the pkg with `macos/build-pkg.sh` (`pkgbuild` + `productbuild --sign "Developer ID
+Installer"`); `notarytool submit --wait`; `stapler staple`; verify (`pkgutil --check-signature` must show the notarization
+line and our team, `spctl --assess --type install`, and both programs inside must be validly signed by the same team with
+the hardened runtime); sign the pkg with minisign; publish, merging the `darwin-universal` entry into `latest.json` on the
+rolling `desktop-latest` release. Both release workflows publish through `ci/publish-manifest.sh`, which downloads the
+existing manifest, merges its platform in and re-checks after uploading (the two workflows can run at the same time and a
+release asset cannot be updated atomically); a manifest of an older version is replaced, never mixed in.
+
+Build locally (unsigned): `pnpm exec tauri build --target universal-apple-darwin --bundles app`, then
+`apps/desktop/macos/build-pkg.sh --version 0.1.0 --out /tmp/neo-pkg`. Without `APPLE_SIGNING_IDENTITY` and
+`APPLE_INSTALLER_IDENTITY` the bundles are ad-hoc signed and the pkg unsigned, which Gatekeeper refuses on a real Mac.
+
+### The Apple Developer Program
+
+Signing is a hard gate on macOS: Gatekeeper blocks an unsigned or unnotarized app with no "run anyway" path a relative
+will find. The Apple Developer Program (about $99 a year; individuals can enrol, to confirm on Apple's page) is therefore a
+prerequisite for anyone to run this at all, not only for releases. It is the owner's account and decision. Create the two
+Developer ID certificates (Application and Installer) under Certificates, Identifiers & Profiles, export each as `.p12`,
+and create an App Store Connect API key with Developer access for notarization. A real Mac for the verification checklist
+(a borrowed one, a cloud Mac such as MacStadium or EC2 Mac) is the other open question.
 
 ## Troubleshooting
 
@@ -361,6 +581,10 @@ aggregator needs `success` from them and counts `skipped` as a failure), and bot
 | Owner not told | `queue.json` holds events that could not be sent (network or server errors); they retry with backoff and are dropped after 23 hours. |
 | Wrong list data | `C:\ProgramData\Neo\lists.json` is the cache; delete it to fall back to the built-in snapshot until the next heartbeat. |
 | Reset a computer | Use "Stop protecting this computer" in the tray (the owner is told), or uninstall in Settings → Apps. |
+| macOS: nothing happens | `sudo launchctl print system/dev.neoshield.agent` (state should be `running`, as root); the log is `/Library/Application Support/Neo/data/logs/neo-agent-YYYY-MM-DD.log` (root only). Run it by hand: `sudo launchctl bootout system/dev.neoshield.agent`, then `sudo "/Library/Application Support/Neo/Neo Protection.app/Contents/MacOS/neo-agent" --console`. |
+| macOS: "App permission checks are off" stays | Neo Protection must be switched on under System Settings → Privacy & Security → Full Disk Access, then press Done (the daemon restarts once to see the grant). The log says `TCC databases read` when it works, and `not in a shape this agent understands (macOS …)` when a macOS update changed the schema. |
+| macOS: update did not apply | The log has `update … was not installed`; `…/data/logs/pkg-update.log` is `installer`'s output; `/var/log/install.log` has the rest. |
+| macOS: it removed itself | `Neo.app` was missing or replaced for the grace period (the log says `removal note`). The owner was told once. Reinstall the pkg. |
 
 Warning windows and toasts: the critical window is topmost and does not take keyboard focus; a tool-appeared or
 unwanted-software warning is a toast (Windows shows toasts only for installed apps, so test with the MSI, not

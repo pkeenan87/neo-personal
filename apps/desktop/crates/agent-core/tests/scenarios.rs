@@ -48,3 +48,19 @@ fn expected_tool_with_known_peer_shows_no_local_warning() {
         .collect();
     assert!(kinds.is_empty());
 }
+
+#[test]
+fn macos_scenarios_warn_only_for_the_remote_access_tool() {
+    use neo_agent_core::warn::decide_with_lists;
+    let kinds = |name: &str| {
+        let loaded = load(&common::fixtures().join(format!("scenarios/{name}.json"))).unwrap();
+        run(&loaded, common::t0())
+            .into_iter()
+            .flat_map(|(_, evs)| evs)
+            .filter_map(|e| decide_with_lists(&e, &loaded.scenario.expected_tools, &loaded.lists))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(kinds("macos-anydesk-accessibility"), [WarningKind::Tool, WarningKind::Permission]);
+    assert!(kinds("macos-baseline-grants").is_empty());
+    assert!(kinds("macos-unknown-screen-recording").is_empty());
+}
