@@ -1,0 +1,32 @@
+// @vitest-environment node
+import { beforeEach, expect, it } from "vitest";
+import { setMemoryMembers, resetMemoryState } from "@/lib/server/memory-state";
+import { createMemoryWeeklyDigestStore, createMemoryDigestRecipientStore } from "@/lib/server/weekly-digest/store";
+const tenantId = "11111111-1111-4111-8111-111111111111";
+const other = "22222222-2222-4222-8222-222222222222";
+const member = { userId: "user", email: "synthetic@example.test", name: "Private", role: "owner" as const };
+beforeEach(() => resetMemoryState());
+it("uses live membership consent and role defaults, with scoped resumable deliveries in mock mode", async () => {
+  const store = createMemoryWeeklyDigestStore();
+  setMemoryMembers(tenantId, [member]);
+  expect(await store.getPreference(tenantId, member.userId)).toBe(true);
+  await store.setPreference(tenantId, member.userId, false);
+  expect((await createMemoryDigestRecipientStore().listDigestRecipientPairs()).items).toEqual([]);
+  setMemoryMembers(tenantId, [{ ...member, role: "member" }]);
+  setMemoryMembers(tenantId, [member]);
+  expect(await store.getPreference(tenantId, member.userId)).toBe(true);
+  const now = new Date("2026-10-05T14:00:00Z");
+  const claim = { tenantId, userId: member.userId, isoWeek: "2026-W41", periodStart: new Date(+now - 604800000), periodEnd: now, runId: "a", now };
+  expect((await store.claimDelivery(claim)).result).toBe("claimed");
+  expect((await store.claimDelivery({ ...claim, now: new Date(+now + 1) })).result).toBe("claimed");
+  expect((await store.claimDelivery({ ...claim, runId: "b" })).result).toBe("owned_live");
+  expect((await store.claimDelivery({ ...claim, runId: "b", now: new Date(+now + 900000) })).result).toBe("claimed");
+  expect((await store.claimDelivery({ ...claim, tenantId: other })).result).toBe("household_move_collision");
+  expect(await store.getDelivery(other, member.userId, claim.isoWeek)).toBeUndefined();
+  await store.finishDelivery({ ...claim, state: "sent" });
+  expect((await store.getDelivery(tenantId, member.userId, claim.isoWeek))?.state).toBe("sending");
+  await store.finishDelivery({ ...claim, runId: "b", state: "empty" });
+  expect((await store.claimDelivery(claim)).result).toBe("terminal");
+  setMemoryMembers(tenantId, []);
+  expect(await store.getPreference(tenantId, member.userId)).toBeUndefined();
+});

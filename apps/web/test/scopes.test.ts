@@ -56,6 +56,7 @@ const UNAUTHENTICATED = [
   /^inngest$/,
   /^health$/,
   /^inbound\//,
+  /^digest\/unsubscribe$/,
   /^desktop\/device$/,
   /^desktop\/device\/token$/,
   /^devices(\/|$)/,
@@ -138,7 +139,7 @@ describe("route list", () => {
     expect(cases.length).toBeGreaterThan(25);
     const routes = new Set(cases.map((c) => c.route));
     for (const r of ["verdicts", "agent", "household", "settings/desktop-tokens", "desktop/device/approve", "invites/[secret]"]) expect(routes).toContain(r);
-    for (const r of ["health", "inngest", "desktop/device", "desktop/device/token", "inbound/resend"]) expect(routes).not.toContain(r);
+    for (const r of ["health", "inngest", "desktop/device", "desktop/device/token", "inbound/resend", "digest/unsubscribe"]) expect(routes).not.toContain(r);
   });
 });
 

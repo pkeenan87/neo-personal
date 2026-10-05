@@ -26,6 +26,14 @@ export interface OutgoingEmail {
   html: string;
   text: string;
   idempotencyKey: string;
+  headers?: Record<string, string>;
+}
+
+export class MailerHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`Resend send failed: HTTP ${status}`);
+    this.name = "MailerHttpError";
+  }
 }
 
 export interface Mailer {
@@ -74,10 +82,10 @@ export function createResendMailer(apiKey: string, from: string, fetchImpl: type
           "Content-Type": "application/json",
           "Idempotency-Key": email.idempotencyKey.slice(0, 256),
         },
-        body: JSON.stringify({ from, to: [email.to], subject: email.subject, html: email.html, text: email.text }),
+        body: JSON.stringify({ from, to: [email.to], subject: email.subject, html: email.html, text: email.text, headers: email.headers }),
         signal: AbortSignal.timeout(15_000),
       });
-      if (!res.ok) throw new Error(`Resend send failed: HTTP ${res.status}`);
+      if (!res.ok) throw new MailerHttpError(res.status);
       const body = (await res.json().catch(() => ({}))) as { id?: unknown };
       return { id: typeof body.id === "string" ? body.id : "" };
     },

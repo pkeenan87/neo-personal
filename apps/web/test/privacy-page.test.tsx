@@ -43,6 +43,24 @@ describe("privacy policy page", () => {
     expect(screen.getByText(/mark a remote-access tool as expected on a device/)).toBeInTheDocument();
   });
 
+  it("discloses encrypted digest retries, payload retention, secret rotation, and personal opt-out", () => {
+    render(<PrivacyPage />);
+    const text = document.body.textContent ?? "";
+    expect(screen.getByText("Weekly digests.")).toBeInTheDocument();
+    expect(text).toContain("Resend receives your address and the rendered digest to deliver it.");
+    expect(text).toContain("phone-like digit runs and long alphanumeric tokens redacted");
+    expect(text).toContain("stores the exact request encrypted in the tenant-scoped delivery ledger");
+    expect(text).toContain("Inngest step state and digest fan-out events contain no address or rendered request");
+    expect(text).toContain("The daily sweep removes non-sending payloads and sending payloads at least 24 hours old");
+    expect(text).toContain("under the daily schedule, encrypted request bytes may remain roughly 24–48 hours after creation");
+    expect(text).not.toContain("within 24 hours");
+    expect(text).toContain("Rotating `AUTH_SECRET` invalidates existing digest unsubscribe links");
+    expect(text).toContain("Weekly digest events and step state carry only identifiers/status");
+    expect(text).toContain("Weekly digest request payloads");
+    expect(text).toContain("never member verdict details");
+    expect(screen.getByRole("link", { name: "Settings → Digest" })).toHaveAttribute("href", "/settings/digest");
+  });
+
   it("falls back to the default contact address", () => {
     vi.stubEnv("NEO_CONTACT_EMAIL", "");
     render(<PrivacyPage />);

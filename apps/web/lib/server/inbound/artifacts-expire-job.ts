@@ -3,7 +3,7 @@
  * delete rejected/failed inbound rows older than 90 days, and delete old owner
  * alerts (acknowledged > 90 days, any > 180 days; _specs/owner-alerts.md), old devices
  * and enrollment codes (revoked devices > 90 days, spent codes > 30 days; _specs/device-enrollment.md),
- * device_signals rows older than 30 days, and expired reputation_cache rows (_specs/signals.md).
+ * device_signals rows older than 30 days, expired reputation_cache rows, and expired encrypted weekly-digest payloads.
  */
 import { logger } from "@neo/core";
 import type { ArtifactStore } from "@neo/db";
@@ -25,6 +25,8 @@ export interface ExpireDeps {
   purgeOldDeviceSignals(): Promise<number>;
   /** Delete expired reputation_cache rows, across households; returns the count. */
   purgeExpiredReputationCache(): Promise<number>;
+  /** Clear non-sending digest payloads and sending payloads older than 24 hours; returns the count. */
+  purgeWeeklyDigestPayloads(): Promise<number>;
 }
 
 export async function runArtifactsExpire(
@@ -38,6 +40,7 @@ export async function runArtifactsExpire(
   devicesDeleted: number;
   signalsDeleted: number;
   reputationCacheDeleted: number;
+  digestPayloadsDeleted: number;
 }> {
   const artifacts = await step.run("purge-artifacts", async () => {
     if (!deps.artifacts) return { purged: 0, errors: 0 };
@@ -65,6 +68,7 @@ export async function runArtifactsExpire(
   const devicesDeleted = await step.run("purge-devices", () => deps.purgeOldDevices());
   const signalsDeleted = await step.run("purge-signals", () => deps.purgeOldDeviceSignals());
   const reputationCacheDeleted = await step.run("purge-reputation-cache", () => deps.purgeExpiredReputationCache());
+  const digestPayloadsDeleted = await step.run("purge-digest-payloads", () => deps.purgeWeeklyDigestPayloads());
   const result = {
     artifactsPurged: artifacts.purged,
     artifactErrors: artifacts.errors,
@@ -73,6 +77,7 @@ export async function runArtifactsExpire(
     devicesDeleted,
     signalsDeleted,
     reputationCacheDeleted,
+    digestPayloadsDeleted,
   };
   logger.info("Retention run finished", "retention", result);
   return result;

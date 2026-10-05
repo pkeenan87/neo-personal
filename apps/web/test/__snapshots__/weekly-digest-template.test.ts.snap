@@ -1,0 +1,32 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`renders escaped owner/member summaries with only dashboard links and optional slots omitted > member 1`] = `
+{
+  "html": "<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Your weekly Neo security digest</title></head><body><h1>Your weekly Neo security digest</h1><h2>Your security checks</h2><p>Malicious: 1</p><p><a href="https://neo.example.test/verdicts/abc">&lt;img src=x&gt; [redacted] [redacted] — Malicious (2026-10-04)</a></p><p>You receive this because weekly digests are enabled in your Neo settings.</p><p><a href="https://neo.example.test/api/digest/unsubscribe?token=ci-only-placeholder-not-a-secret">Unsubscribe</a></p></body></html>",
+  "subject": "Your weekly Neo security digest",
+  "text": "Your weekly Neo security digest
+Your security checks
+Malicious: 1
+<img src=x> [redacted] [redacted] — Malicious (2026-10-04): https://neo.example.test/verdicts/abc
+You receive this because weekly digests are enabled in your Neo settings.
+Unsubscribe: https://neo.example.test/api/digest/unsubscribe?token=ci-only-placeholder-not-a-secret",
+}
+`;
+
+exports[`renders escaped owner/member summaries with only dashboard links and optional slots omitted > owner 1`] = `
+{
+  "html": "<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Your weekly Neo security digest</title></head><body><h1>Your weekly Neo security digest</h1><h2>Your security checks</h2><p>Malicious: 1</p><p><a href="https://neo.example.test/verdicts/abc">&lt;img src=x&gt; [redacted] [redacted] — Malicious (2026-10-04)</a></p><h2>Household summary</h2><p>high alerts: 1</p><p><a href="https://neo.example.test/settings/household">Remote access alert — high (2026-10-04)</a></p><p>Offline member devices: 2</p><p>Removed or uninstalled member devices: 1</p><p>You receive this because weekly digests are enabled in your Neo settings.</p><p><a href="https://neo.example.test/api/digest/unsubscribe?token=ci-only-placeholder-not-a-secret">Unsubscribe</a></p></body></html>",
+  "subject": "Your weekly Neo security digest",
+  "text": "Your weekly Neo security digest
+Your security checks
+Malicious: 1
+<img src=x> [redacted] [redacted] — Malicious (2026-10-04): https://neo.example.test/verdicts/abc
+Household summary
+high alerts: 1
+Remote access alert — high (2026-10-04): https://neo.example.test/settings/household
+Offline member devices: 2
+Removed or uninstalled member devices: 1
+You receive this because weekly digests are enabled in your Neo settings.
+Unsubscribe: https://neo.example.test/api/digest/unsubscribe?token=ci-only-placeholder-not-a-secret",
+}
+`;

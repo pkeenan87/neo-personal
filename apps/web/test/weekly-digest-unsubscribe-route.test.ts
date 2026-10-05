@@ -1,0 +1,62 @@
+// @vitest-environment node
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { GET, POST } from "@/app/api/digest/unsubscribe/route";
+import { setMemoryMembers } from "@/lib/server/memory-state";
+import { createMemoryWeeklyDigestStore } from "@/lib/server/weekly-digest/store";
+import { signDigestUnsubscribe } from "@/lib/server/weekly-digest/unsubscribe";
+import { resetRateLimits } from "@/lib/server/rate-limit";
+import { post, resetMemoryState, stubBaseEnv } from "./helpers/routes";
+const owner = { tenantId: "11111111-1111-4111-8111-111111111111", userId: "owner" };
+beforeEach(() => {
+  stubBaseEnv(vi); vi.stubEnv("AUTH_SECRET", ""); resetMemoryState(); resetRateLimits();
+  setMemoryMembers(owner.tenantId, [
+    { userId: "owner", role: "owner", email: "owner@example.test", name: "Owner" },
+    { userId: "other", role: "owner", email: "other@example.test", name: "Other" },
+  ]);
+});
+afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); });
+it("keeps scanner GET read-only and confirms with an idempotent token-owner-only POST", async () => {
+  const token = signDigestUnsubscribe(owner)!;
+  const url = `https://neo.example.test/api/digest/unsubscribe?token=${token}`;
+  const store = createMemoryWeeklyDigestStore();
+  const confirmation = await GET(new Request(url));
+  expect(confirmation.status).toBe(200);
+  expect(confirmation.headers.get("cache-control")).toBe("no-store");
+  expect(confirmation.headers.get("referrer-policy")).toBe("no-referrer");
+  const html = await confirmation.text();
+  expect(html).toContain('method="post"');
+  expect(html).toContain("Unsubscribe");
+  expect(html).not.toContain("owner@example.test");
+  expect(await store.getPreference(owner.tenantId, owner.userId)).toBe(true);
+  const res = await POST(post("/api/digest/unsubscribe", { token }));
+  expect(res.status).toBe(204);
+  expect(res.headers.get("location")).toBeNull();
+  expect(res.headers.get("referrer-policy")).toBe("no-referrer");
+  expect(await store.getPreference(owner.tenantId, owner.userId)).toBe(false);
+  expect(await store.getPreference(owner.tenantId, "other")).toBe(true);
+  // RFC 8058 POST uses the token in the URL and this form body.
+  expect((await POST(new Request(url, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: "List-Unsubscribe=One-Click" }))).status).toBe(204);
+  expect((await POST(new Request("https://neo.example.test/api/digest/unsubscribe", { method: "POST", body: new URLSearchParams({ token }) }))).status).toBe(204);
+  expect((await POST(post("/api/digest/unsubscribe", { token: token + "tampered" }))).status).toBe(400);
+  setMemoryMembers(owner.tenantId, []);
+  expect((await POST(post("/api/digest/unsubscribe", { token }))).status).toBe(204);
+});
+
+it("limits only malformed or invalid tokens after verification, not valid shared-IP unsubscribes", async () => {
+  vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-05T14:00:00Z"));
+  const ownerToken = signDigestUnsubscribe(owner)!;
+  const otherToken = signDigestUnsubscribe({ ...owner, userId: "other" })!;
+  const invalidUrl = "https://neo.example.test/api/digest/unsubscribe?token=invalid";
+  const sharedIp = { "x-forwarded-for": "192.0.2.1" };
+  for (let i = 0; i < 10; i++) expect((await GET(new Request(invalidUrl, { headers: sharedIp }))).status).toBe(400);
+  const denied = await POST(new Request(invalidUrl, { method: "POST", headers: sharedIp }));
+  expect(denied.status).toBe(429);
+  expect(denied.headers.get("retry-after")).toBe("3600");
+  expect(denied.headers.get("referrer-policy")).toBe("no-referrer");
+  expect((await GET(new Request(`https://neo.example.test/api/digest/unsubscribe?token=${ownerToken}`, { headers: sharedIp }))).status).toBe(200);
+  expect((await POST(new Request(`https://neo.example.test/api/digest/unsubscribe?token=${ownerToken}`, { method: "POST", headers: sharedIp }))).status).toBe(204);
+  expect((await POST(new Request(`https://neo.example.test/api/digest/unsubscribe?token=${otherToken}`, { method: "POST", headers: sharedIp }))).status).toBe(204);
+  const store = createMemoryWeeklyDigestStore();
+  expect(await store.getPreference(owner.tenantId, owner.userId)).toBe(false);
+  expect(await store.getPreference(owner.tenantId, "other")).toBe(false);
+});

@@ -1,6 +1,6 @@
 /** Production wiring for the inbound jobs (tests build their own deps). */
 import { runTriage } from "@neo/core";
-import { purgeOldAlerts } from "@neo/db";
+import { purgeOldAlerts, weeklyDigest } from "@neo/db";
 import { analyzeEmail, EMAIL_ANALYSIS_GUIDANCE } from "@neo/tools";
 import { inboundEnv } from "@/lib/env";
 import { sharedUrlCache } from "../agent-run";
@@ -49,5 +49,6 @@ export function createExpireDeps(): ExpireDeps {
     purgeOldDevices,
     purgeOldDeviceSignals,
     purgeExpiredReputationCache,
+    purgeWeeklyDigestPayloads: async () => db ? weeklyDigest.purgeStalePayloads(db) : 0,
   };
 }

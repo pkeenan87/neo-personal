@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 /** Bump when the policy text changes materially. */
-export const PRIVACY_POLICY_UPDATED = "2026-09-29";
+export const PRIVACY_POLICY_UPDATED = "2026-10-05";
 
 const REPO_URL = "https://github.com/pkeenan87/neo-personal";
 
@@ -90,6 +90,12 @@ function sections(email: string): Section[] {
             devices in Settings → Household; removing one tells the owner.
           </p>
           <p className="mt-3">
+            <strong>Weekly digests.</strong> If enabled, your digest summarizes your own security checks from the past
+            week. Owners also receive aggregate household alerts and member-device health, never member verdict details,
+            member names or device names. Checked message bodies, checked URLs and free-form alert text are excluded;
+            headlines have links, email addresses, phone-like digit runs and long alphanumeric tokens redacted; the email contains only those redacted headlines. Resend receives your address and the rendered digest to deliver it. For retries, Neo stores the exact request encrypted in the tenant-scoped delivery ledger; only the active sending run can read it. Inngest step state and digest fan-out events contain no address or rendered request. Terminal delivery clears the payload. The daily sweep clears non-sending payloads and sending payloads after they reach 24 hours old; under the daily schedule, encrypted request bytes may remain roughly 24–48 hours after creation. A deployed digest requires the operator&apos;s `NEO_MASTER_KEY`; local/mock mode uses a development-only key. We keep your membership preference and minimal delivery identifiers, period, status, timestamps and provider message ID in the database. Rotating `AUTH_SECRET` invalidates existing digest unsubscribe links; you can opt out in Settings or use a fresh link from a later digest.
+          </p>
+          <p className="mt-3">
             Neo does not sell or rent your data, does not show ads, does not build advertising profiles, and does not use
             what you submit to train AI models.
           </p>
@@ -133,10 +139,11 @@ function sections(email: string): Section[] {
               <strong>Domain registries (RDAP)</strong> receive domain names to look up their age and registrar.
             </li>
             <li>
-              <strong>Vercel</strong> hosts the app, keeps request logs, and stores uploaded and forwarded evidence.
-              <strong> Neon</strong> stores the database. <strong>Resend</strong> receives forwarded email for your
-              household address and sends sign-in links and result emails. <strong>Inngest</strong> runs background jobs
-              and sees only record identifiers, not content. <strong>Google</strong> handles Google sign-in.
+              <strong>Vercel</strong> hosts the app, keeps request logs, and stores uploaded and forwarded evidence.{" "}
+              <strong>Neon</strong> stores the database. <strong>Resend</strong> receives forwarded email for your
+              household address and sends sign-in links, result emails, and weekly digests. <strong>Inngest</strong> runs
+              background jobs. Weekly digest events and step state carry only identifiers/status; the temporary email request is stored encrypted in the tenant-scoped database ledger and is cleared on completion or by the daily sweep when it is non-sending or reaches 24 hours of age. <strong>Google</strong> handles Google
+              sign-in.
             </li>
           </ul>
         </>
@@ -162,6 +169,10 @@ function sections(email: string): Section[] {
           </li>
           <li>
             <strong>Your account</strong> is kept until you ask us to delete it.
+          </li>
+          <li>
+            <strong>Weekly digest request payloads</strong> are encrypted in the delivery ledger while a send is pending,
+            cleared when delivery becomes terminal. The daily sweep removes non-sending payloads and sending payloads at least 24 hours old; under the daily schedule, a pending payload may remain roughly 24–48 hours after creation.
           </li>
           <li>
             <strong>Provider logs</strong> follow each provider&apos;s own retention, typically days to a few weeks.
@@ -192,6 +203,11 @@ function sections(email: string): Section[] {
         <ul className="list-disc space-y-2 pl-5">
           <li>Delete any verdict from its page; this also deletes the evidence attached to it.</li>
           <li>Delete any conversation from the chat sidebar.</li>
+          <li>
+            Control your own weekly digest in <Link href="/settings/digest" className="text-accent hover:text-accent-hover">Settings → Digest</Link>
+            {" "}or use its unsubscribe link. Owners default on and members default off; changing roles resets that default.
+            Empty weeks are skipped. Digest preferences are separate from alert emails, and owners cannot change a member&apos;s preference.
+          </li>
           <li>Rotate your household&apos;s forwarding address at any time from Settings; the old one stops working.</li>
           <li>
             Leave a household at any time from Settings → Household; your chats in it are deleted and the checks you ran

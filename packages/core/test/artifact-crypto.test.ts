@@ -1,9 +1,10 @@
-import { randomBytes } from "node:crypto";
+import { hkdfSync, randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   ARTIFACT_CIPHERTEXT_OVERHEAD,
   ArtifactDecryptError,
   decryptArtifact,
+  deriveKey,
   deriveTenantKey,
   encryptArtifact,
   masterKeyFromEnv,
@@ -94,3 +95,15 @@ describe("encryptArtifact / decryptArtifact", () => {
     expect(() => decryptArtifact(key, blob.subarray(0, 10), ARTIFACT)).toThrow(/truncated/);
   });
 });
+
+ it("derives purpose/context keys with the fixed salt without changing artifact keys", () => {
+   const key = new Uint8Array(32).fill(7);
+   for (const context of ["", "user-1"]) {
+     const info = context ? `neo-digest-unsubscribe-v1:${context}` : "neo-digest-unsubscribe-v1";
+     expect(Buffer.from(deriveKey(key, "neo-digest-unsubscribe-v1", context))).toEqual(
+       Buffer.from(hkdfSync("sha256", key, "neo-artifact-hkdf-salt-v1", info, 32)),
+     );
+   }
+   expect(deriveKey(key, "neo-artifact-v1", TENANT_A)).toEqual(deriveTenantKey(key, TENANT_A));
+   expect(deriveKey(key, "other", "")).not.toEqual(deriveKey(key, "neo-digest-unsubscribe-v1", ""));
+ });

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import type { ModelFamily, RoutingPreference } from "@neo/core";
 import { users } from "./auth.js";
 
@@ -31,6 +31,7 @@ export const memberships = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: text("role").$type<MembershipRole>().notNull(),
+    weeklyDigestEnabled: boolean("weekly_digest_enabled").notNull().default(false),
     /** Chat routing bias (Phase 2): shifts the routed tier along the family ladder. */
     routingPreference: text("routing_preference").$type<RoutingPreference>().notNull().default("balanced"),
     /** Model family the member prefers; falls back to Anthropic when not enabled. */

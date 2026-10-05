@@ -193,6 +193,7 @@ Notes:
 // Artifact crypto (pure; AES-256-GCM, HKDF per tenant, AAD = artifact id)
 export function masterKeyFromEnv(source?: NodeJS.ProcessEnv): Uint8Array | undefined;   // NEO_MASTER_KEY base64 (32 bytes)
 export function deriveTenantKey(masterKey: Uint8Array, tenantId: string): Uint8Array;
+export function deriveKey(masterKey: Uint8Array, label: string, context: string): Uint8Array; // HKDF-SHA256 with the shared fixed salt; info is label plus optional context; 32 bytes
 export function encryptArtifact(key: Uint8Array, plaintext: Uint8Array, aad: string): Uint8Array;
 export function decryptArtifact(key: Uint8Array, blob: Uint8Array, aad: string): Uint8Array;  // throws ArtifactDecryptError
 export class ArtifactDecryptError extends Error {}
@@ -821,3 +822,96 @@ Agent service (macOS):
 - **`latest.json`:** `ci/make-latest-json.mjs --platform <key> --merge-into <existing>`; `ci/publish-manifest.sh` merges and re-verifies on the rolling release (both release workflows use it).
 - **Packaging:** `apps/desktop/macos/` (`Neo Protection.app` skeleton, `launchd/`, `scripts/preinstall|postinstall`, `distribution.xml`, `build-pkg.sh`); the daemon plist sets `AbandonProcessGroup` and `AssociatedBundleIdentifiers`. `build-pkg.sh` marks the components non-relocatable (`pkgbuild --component-plist`), ad-hoc signs both bundles when no identity is given, and refuses to build when the daemon and the tray app are signed by different teams.
 - **Signer names and trust:** `AppBundle.signer` (for `pupPublishers`) is the leaf certificate's subject summary without the `Developer ID Application:` prefix and the Team ID; `AppBundle.team_id`, `signing_id` and `ExeFacts.signed_trusted` are set only for a signature that validates against the Developer ID requirement (Apple's own: `anchor apple`, identifier only), never from an ad-hoc or broken signature.
+
+---
+
+## @neo/db (spec `_specs/weekly-digest.md`)
+
+```ts
+export type DigestDeliveryState = "sending" | "sent" | "empty" | "failed";
+export type DigestDelivery = { tenantId: string; userId: string; isoWeek: string; state: DigestDeliveryState; periodStart: Date; periodEnd: Date; claimedAt?: Date; runId?: string; providerMessageId?: string; createdAt: Date; updatedAt: Date };
+// digest_deliveries: UNIQUE (user_id, iso_week); encrypted payload bytea; tenant_isolation RLS; registered in tenantTables; app_user grant.
+// The delivery DTO deliberately omits payload. save/get require the current sending run; terminal states clear it.
+// A security-definer sweep clears non-sending payloads and sending payloads older than 24 hours.
+// memberships.weekly_digest_enabled boolean NOT NULL; role defaults are set on creation/change.
+// list_digest_recipients(cursor_tenant_id uuid, cursor_user_id text, limit integer) returns tenant_id/user_id only,
+// cursor-paginated with LIMIT 1000; SECURITY DEFINER; EXECUTE revoked from PUBLIC and granted to app_user.
+export const weeklyDigest: {
+  listDigestRecipientPairs(db: Db, opts: { cursor?: string; limit: number /* 1..1000 */ }): Promise<{ items: Array<{ tenantId: string; userId: string }>; nextCursor?: string }>;
+  getPreference(db: Db, tenantId: string, userId: string): Promise<boolean | undefined>;
+  setPreference(db: Db, tenantId: string, userId: string, enabled: boolean): Promise<boolean>;
+  getDelivery(db: Db, tenantId: string, userId: string, isoWeek: string): Promise<DigestDelivery | undefined>;
+  claimDelivery(db: Db, input: { tenantId: string; userId: string; isoWeek: string; periodStart: Date; periodEnd: Date; runId: string; now: Date }): Promise<{ result: "claimed" | "owned_live" | "terminal" | "household_move_collision"; delivery?: DigestDelivery }>;
+  savePayload(db: Db, input: { tenantId: string; userId: string; isoWeek: string; runId: string; payload: Uint8Array; now: Date }): Promise<boolean>;
+  getPayload(db: Db, input: { tenantId: string; userId: string; isoWeek: string; runId: string }): Promise<Uint8Array | undefined>;
+  purgeStalePayloads(db: Db, now?: Date): Promise<number>;
+  finishDelivery(db, input: { tenantId: string; userId: string; isoWeek: string; runId: string; state: "sent" | "empty" | "failed"; providerMessageId?: string; now: Date }): Promise<void>;
+};
+```
+
+## apps/web (spec `_specs/weekly-digest.md`)
+
+```ts
+export type DigestGenerateEvent = {
+  tenantId: string;       // UUID of the current household
+  userId: string;         // recipient id
+  scheduledAt: string;    // ISO-8601 UTC schedule boundary
+  periodStart: string;    // inclusive ISO-8601 UTC
+  periodEnd: string;      // exclusive ISO-8601 UTC
+  isoWeek: string;        // ISO week YYYY-Www
+};
+export const digestGenerateEventSchema: z.ZodType<DigestGenerateEvent>;
+export const DIGEST_GENERATE_EVENT = "neo/digest.generate";
+export type PersonalDigestSlot = { verdictCounts: Array<{ label: VerdictLabel; count: number }>; topVerdicts: Array<{ id: string; label: VerdictLabel; headline: string; createdAt: string; href: string }> };
+export type HouseholdDigestSlot = { alertCounts: Array<{ severity: Severity; count: number }>; topAlerts: Array<{ label: string; severity: Severity; createdAt: string; href: string }>; devices: { offline: number; removedOrUninstalled: number } };
+export type BreachStatusSlot = { status: "clean" | "breached" | "not_checked"; href: string };
+export type HardeningScoreSlot = { scorePercent: number | null; href: string };
+export interface DigestRendererSlots { personal?: PersonalDigestSlot; household?: HouseholdDigestSlot; breachStatus?: BreachStatusSlot; hardeningScore?: HardeningScoreSlot }
+export type DigestContent = DigestRendererSlots;
+export type EnvSource = Readonly<Record<string, string | undefined>>;
+export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string, source?: EnvSource): { subject: string; html: string; text: string };
+export interface OutgoingEmail { to: string; subject: string; html: string; text: string; idempotencyKey: string; headers?: Record<string, string> }
+// Exact request bytes are encrypted at rest; plaintext is not returned in Inngest step state.
+export type DigestSendPayload = { email: OutgoingEmail; role: "owner" | "member"; deliveryCreatedAt: string };
+export function encryptDigestPayload(payload: DigestSendPayload, identity: { tenantId: string; userId: string; isoWeek: string }, env?: EnvSource): Uint8Array | undefined;
+export function decryptDigestPayload(encrypted: Uint8Array, identity: { tenantId: string; userId: string; isoWeek: string }, env?: EnvSource): DigestSendPayload;
+export interface Mailer { send(email: OutgoingEmail): Promise<{ id: string }> }
+export interface SentEmail extends OutgoingEmail { from: string; id: string; sentAt: Date }
+export class MailerHttpError extends Error { readonly status: number }
+// Digest Resend requests are throttled to two per second; 408, 409, and 429 retry without terminalizing the ledger.
+export type DigestPeriod = { scheduledAt: Date; periodStart: Date; periodEnd: Date; isoWeek: string };
+export function digestPeriod(eventTs: number | undefined, firstStepReceivedAt: Date): DigestPeriod;
+export const weeklyDigestCron = "TZ=UTC 0 14 * * 1";
+export const DIGEST_RESUME_LEASE_MS = 15 * 60_000;
+export function digestResendIdempotencyKey(userId: string, isoWeek: string): string; // digest:<userId>:<ISO week>
+export interface WeeklyDigestStore {
+  getPreference(tenantId: string, userId: string): Promise<boolean | undefined>;
+  setPreference(tenantId: string, userId: string, enabled: boolean): Promise<boolean>;
+  getDelivery(tenantId: string, userId: string, isoWeek: string): Promise<DigestDelivery | undefined>;
+  claimDelivery(input: { tenantId: string; userId: string; isoWeek: string; periodStart: Date; periodEnd: Date; runId: string; now: Date }): Promise<{ result: "claimed" | "owned_live" | "terminal" | "household_move_collision"; delivery?: DigestDelivery }>;
+  savePayload(input: { tenantId: string; userId: string; isoWeek: string; runId: string; payload: Uint8Array; now: Date }): Promise<boolean>;
+  getPayload(input: { tenantId: string; userId: string; isoWeek: string; runId: string }): Promise<Uint8Array | undefined>;
+  purgeStalePayloads(now?: Date): Promise<number>;
+  finishDelivery(input: { tenantId: string; userId: string; isoWeek: string; runId: string; state: "sent" | "empty" | "failed"; providerMessageId?: string; now: Date }): Promise<void>;
+}
+export interface DigestRecipientStore { listDigestRecipientPairs(cursor?: string, limit?: number): Promise<{ items: Array<{ tenantId: string; userId: string }>; nextCursor?: string }> }
+export interface DigestContentStore { loadDigestContent(input: { tenantId: string; userId: string; role: "owner" | "member"; periodStart: Date; periodEnd: Date }): Promise<DigestContent> }
+export function createMemoryWeeklyDigestStore(): WeeklyDigestStore;
+export function createMemoryDigestRecipientStore(): DigestRecipientStore;
+export function createMemoryDigestContentStore(): DigestContentStore;
+```
+
+- `GET /api/settings/digest` → `{ enabled: boolean }`; `POST /api/settings/digest` `{ enabled: boolean }` → `{ enabled: boolean }` for the session user's own preference.
+- `GET /api/digest/unsubscribe?token=v1.<payload>.<mac>` → read-only confirmation; `POST /api/digest/unsubscribe` `{ token }` → 204 and idempotently disables only the token owner's preference.
+- `weeklyDigestCron` emits `neo/digest.generate` events using `DigestGenerateEvent`; recipient discovery returns IDs only, then re-resolves current membership and preference under tenant RLS.
+
+Weekly-digest HTTP slices as built (2026-10-05):
+- Settings GET requires an API session; POST requires a browser session and accepts only `{ enabled: boolean }`. Both resolve the session user's current tenant membership; a stale membership returns 403. Responses use `Cache-Control: no-store`.
+- Unsubscribe GET returns a read-only HTML confirmation form. POST accepts the JSON contract, the confirmation form's token, or a query token with an RFC 8058 `List-Unsubscribe=One-Click` form body; success is 204 without a redirect, including removed memberships. All responses use `no-store` and `Referrer-Policy: no-referrer`; handlers do not log tokens or URLs.
+- Unsubscribe GET and POST apply the process-local IP limiter only to malformed or invalid-HMAC requests, after token validation; valid tokens from shared IPs are not rate-limited. The limit is per app instance, not distributed.
+- The exact email request is AES-GCM encrypted in `digest_deliveries.payload` using a tenant-derived key and `digest:<tenantId>:<userId>:<isoWeek>` AAD. It is never returned from the prepare step; only the current sending run can read/write it. Terminal completion clears it, and the daily retention job clears non-sending payloads plus sending payloads older than 24 hours; under the daily schedule, a sending payload may remain roughly 24–48 hours from creation. Deployed operation requires `NEO_MASTER_KEY`; when absent, digest preparation fails closed. Non-deployed/mock mode uses a development-only key.
+- `AUTH_SECRET` rotation invalidates previously issued digest unsubscribe links; users must use a fresh link from a subsequent digest or change the setting in Settings.
+- `list_digest_recipients` returns only verified recipients with enabled preferences; owner defaults are enabled and member defaults are disabled.
+- Headline offline health is calculated at `periodEnd` (48-hour threshold), so retry time does not change content. Headlines redact URLs, emails, phone-like digit runs and long alphanumeric tokens; rendered text is escaped and unsafe links fall back to the dashboard.
+- Resend digest sends are throttled to two requests per second; 408/409/429 and 5xx failures remain retryable, while other 4xx responses terminalize the delivery.
+- Rendering requires HTTPS except `http://localhost` outside deployed environments.
