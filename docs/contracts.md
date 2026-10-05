@@ -821,3 +821,42 @@ Agent service (macOS):
 - **`latest.json`:** `ci/make-latest-json.mjs --platform <key> --merge-into <existing>`; `ci/publish-manifest.sh` merges and re-verifies on the rolling release (both release workflows use it).
 - **Packaging:** `apps/desktop/macos/` (`Neo Protection.app` skeleton, `launchd/`, `scripts/preinstall|postinstall`, `distribution.xml`, `build-pkg.sh`); the daemon plist sets `AbandonProcessGroup` and `AssociatedBundleIdentifiers`. `build-pkg.sh` marks the components non-relocatable (`pkgbuild --component-plist`), ad-hoc signs both bundles when no identity is given, and refuses to build when the daemon and the tray app are signed by different teams.
 - **Signer names and trust:** `AppBundle.signer` (for `pupPublishers`) is the leaf certificate's subject summary without the `Developer ID Application:` prefix and the Team ID; `AppBundle.team_id`, `signing_id` and `ExeFacts.signed_trusted` are set only for a signature that validates against the Developer ID requirement (Apple's own: `anchor apple`, identifier only), never from an ad-hoc or broken signature.
+
+---
+
+## @neo/db (spec `_specs/weekly-digest.md`)
+
+```ts
+export type DigestDeliveryState = "sending" | "sent" | "empty" | "suppressed" | "failed";
+export type DigestDelivery = { tenantId: string; userId: string; isoWeek: string; state: DigestDeliveryState; periodStart: Date; periodEnd: Date; providerMessageId?: string; createdAt: Date; updatedAt: Date };
+export const weeklyDigest: {
+  listRecipients(db: Db, opts: { cursor?: string; limit: number /* 1..1000 */ }): Promise<{ items: Array<{ tenantId: string; userId: string }>; nextCursor?: string }>;
+  getPreference(db: Db, tenantId: string, userId: string): Promise<boolean | undefined>;
+  setPreference(db: Db, tenantId: string, userId: string, enabled: boolean): Promise<boolean>;
+  getDelivery(db: Db, tenantId: string, userId: string, isoWeek: string): Promise<DigestDelivery | undefined>;
+  upsertDelivery(db: Db, input: Omit<DigestDelivery, "createdAt" | "updatedAt">): Promise<DigestDelivery>;
+};
+```
+
+## apps/web (spec `_specs/weekly-digest.md`)
+
+```ts
+export type DigestGenerateEvent = { tenantId: string; userId: string; scheduledAt: string; periodStart: string; periodEnd: string; isoWeek: string };
+export const digestGenerateEventSchema: z.ZodType<DigestGenerateEvent>;
+export const DIGEST_GENERATE_EVENT = "neo/digest.generate";
+export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string): { subject: string; html: string; text: string };
+export interface DigestRendererSlots { personal?: PersonalDigestSlot; household?: HouseholdDigestSlot; breachStatus?: BreachStatusSlot; hardeningScore?: HardeningScoreSlot }
+export type DigestContent = DigestRendererSlots;
+export interface Mailer { send(input: MailInput & { headers?: Record<string, string> }): Promise<MailResult> }
+// apps/web HTTP routes
+// GET|POST /api/settings/digest
+// GET|POST /api/digest/unsubscribe
+// Inngest event: neo/digest.generate (DigestGenerateEvent)
+export const weeklyDigestCron = "TZ=UTC 0 14 * * 1";
+export function digestPeriod(eventTs: number | undefined, now: Date, fallback?: (now: Date) => Date): DigestPeriod;
+export type DigestPeriod = { scheduledAt: Date; periodStart: Date; periodEnd: Date; isoWeek: string };
+// MOCK_MODE uses these in-memory stores.
+export function createMemoryWeeklyDigestStore(): WeeklyDigestStore;
+export function createMemoryDigestRecipientStore(): DigestRecipientStore;
+export function createMemoryDigestContentStore(): DigestContentStore;
+```
