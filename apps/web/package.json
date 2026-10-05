@@ -15,34 +15,34 @@
     "playbooks:generate": "node scripts/generate-playbooks.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.128.0",
+    "@anthropic-ai/sdk": "0.131.0",
     "@auth/drizzle-adapter": "1.11.3",
     "@neo/core": "workspace:*",
     "@neo/db": "workspace:*",
     "@neo/tools": "workspace:*",
     "@neo/verdict": "workspace:*",
-    "ai": "7.0.116",
+    "ai": "7.0.127",
     "drizzle-orm": "^0.45.3",
-    "inngest": "4.21.0",
-    "lucide-react": "1.47.0",
-    "next": "16.3.6",
+    "inngest": "4.21.1",
+    "lucide-react": "1.50.0",
+    "next": "16.3.8",
     "next-auth": "5.0.0-beta.32",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-markdown": "10.1.0",
     "rehype-sanitize": "6.0.0",
     "remark-gfm": "4.0.1",
-    "svix": "2.5.0",
+    "svix": "2.6.1",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.8",
-    "@next/eslint-plugin-next": "16.3.6",
+    "@next/eslint-plugin-next": "16.3.8",
     "@tailwindcss/postcss": "4.3.3",
     "@testing-library/jest-dom": "7.0.1",
     "@testing-library/react": "16.3.3",
     "@testing-library/user-event": "14.6.7",
-    "@types/node": "26.6.2",
+    "@types/node": "26.6.4",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
@@ -52,7 +52,7 @@
     "postcss": "8.5.28",
     "tailwindcss": "4.3.3",
     "typescript": "6.0.3",
-    "typescript-eslint": "8.70.1",
-    "vitest": "5.0.1"
+    "typescript-eslint": "8.71.0",
+    "vitest": "5.0.3"
   }
 }
