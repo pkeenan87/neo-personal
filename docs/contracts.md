@@ -193,6 +193,7 @@ Notes:
 // Artifact crypto (pure; AES-256-GCM, HKDF per tenant, AAD = artifact id)
 export function masterKeyFromEnv(source?: NodeJS.ProcessEnv): Uint8Array | undefined;   // NEO_MASTER_KEY base64 (32 bytes)
 export function deriveTenantKey(masterKey: Uint8Array, tenantId: string): Uint8Array;
+export function deriveKey(masterKey: Uint8Array, label: string, context: string): Uint8Array; // HKDF-SHA256 with the shared fixed salt; info is label plus optional context; 32 bytes
 export function encryptArtifact(key: Uint8Array, plaintext: Uint8Array, aad: string): Uint8Array;
 export function decryptArtifact(key: Uint8Array, blob: Uint8Array, aad: string): Uint8Array;  // throws ArtifactDecryptError
 export class ArtifactDecryptError extends Error {}
