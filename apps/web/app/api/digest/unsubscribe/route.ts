@@ -13,18 +13,17 @@ const headers = {
 };
 const invalid = () => new Response("Invalid unsubscribe link.", { status: 400, headers });
 
-function limited(req: Request): Response | undefined {
-  const slot = takeRateSlot("digest-unsubscribe", clientIp(req), 10, 3600000);
+function invalidRequest(req: Request): Response {
+  const slot = takeRateSlot("digest-unsubscribe-invalid", clientIp(req), 10, 3600000);
   if (!slot.ok) return new Response("Too many attempts. Please try again later.", {
     status: 429, headers: { ...headers, "Retry-After": String(slot.retryAfterSeconds) },
   });
+  return invalid();
 }
 
 export async function GET(req: Request): Promise<Response> {
-  const denied = limited(req);
-  if (denied) return denied;
   const token = new URL(req.url).searchParams.get("token") ?? "";
-  if (!verifyDigestUnsubscribe(token)) return invalid();
+  if (!verifyDigestUnsubscribe(token)) return invalidRequest(req);
   // No recipient lookup or preference mutation on GET: mail scanners may visit this URL.
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Weekly digest unsubscribe</title></head><body><main><h1>Unsubscribe from weekly digests</h1><p>Confirm to stop your weekly Neo security digest. Other notifications are unchanged.</p><form method="post" action="/api/digest/unsubscribe"><input type="hidden" name="token" value="${escapeHtml(token)}"><button type="submit">Unsubscribe</button></form></main></body></html>`, {
     headers: { ...headers, "Content-Type": "text/html; charset=utf-8" },
@@ -32,18 +31,16 @@ export async function GET(req: Request): Promise<Response> {
 }
 
 export async function POST(req: Request): Promise<Response> {
-  const denied = limited(req);
-  if (denied) return denied;
   let token: unknown = new URL(req.url).searchParams.get("token");
   if (!token) {
     if (req.headers.get("content-type")?.includes("application/json")) token = (await readJsonObject(req))?.token;
     else {
       try { token = (await req.formData()).get("token"); }
-      catch { return invalid(); }
+      catch { return invalidRequest(req); }
     }
   }
   const owner = typeof token === "string" ? verifyDigestUnsubscribe(token) : undefined;
-  if (!owner) return invalid();
+  if (!owner) return invalidRequest(req);
   try {
     // A removed/moved membership is a successful no-op, never a cross-tenant lookup.
     await getDigestServices().store.setPreference(owner.tenantId, owner.userId, false);

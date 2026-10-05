@@ -23,6 +23,7 @@ export const digestGenerate = inngest.createFunction(
     name: "Send a weekly digest",
     triggers: [{ event: DIGEST_GENERATE_EVENT }],
     retries: 3,
+    throttle: { limit: 2, period: "1s" },
     concurrency: [
       { limit: 5, key: '\"weekly-digest\"' },
       { limit: 1, key: "event.data.userId" },

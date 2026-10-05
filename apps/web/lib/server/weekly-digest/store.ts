@@ -6,6 +6,9 @@ export interface WeeklyDigestStore {
   setPreference(tenantId: string, userId: string, enabled: boolean): Promise<boolean>;
   getDelivery(tenantId: string, userId: string, isoWeek: string): Promise<DigestDelivery | undefined>;
   claimDelivery(input: DigestClaim): Promise<DigestClaimResult>;
+  savePayload(input: { tenantId: string; userId: string; isoWeek: string; runId: string; payload: Uint8Array; now: Date }): Promise<boolean>;
+  getPayload(input: { tenantId: string; userId: string; isoWeek: string; runId: string }): Promise<Uint8Array | undefined>;
+  purgeStalePayloads(now?: Date): Promise<number>;
   finishDelivery(input: { tenantId: string; userId: string; isoWeek: string; runId: string; state: "sent" | "empty" | "failed"; providerMessageId?: string; now: Date }): Promise<void>;
 }
 export interface DigestRecipientStore {
@@ -13,6 +16,7 @@ export interface DigestRecipientStore {
 }
 export function createMemoryWeeklyDigestStore(): WeeklyDigestStore {
   const deliveries = new Map<string, DigestDelivery>();
+  const payloads = new Map<string, Uint8Array>();
   const key = (userId: string, isoWeek: string) => JSON.stringify([userId, isoWeek]);
   return {
     async getPreference(tenantId, userId) {
@@ -47,9 +51,37 @@ export function createMemoryWeeklyDigestStore(): WeeklyDigestStore {
       deliveries.set(id, row);
       return { result: "claimed", delivery: structuredClone(row) };
     },
+    async savePayload(input) {
+      const id = key(input.userId, input.isoWeek);
+      const row = deliveries.get(id);
+      if (!row || row.tenantId !== input.tenantId || row.runId !== input.runId || row.state !== "sending" || payloads.has(id)) return false;
+      payloads.set(id, new Uint8Array(input.payload));
+      row.updatedAt = input.now;
+      return true;
+    },
+    async getPayload(input) {
+      const id = key(input.userId, input.isoWeek);
+      const row = deliveries.get(id);
+      const payload = payloads.get(id);
+      return row?.tenantId === input.tenantId && row.runId === input.runId && row.state === "sending" && payload
+        ? new Uint8Array(payload)
+        : undefined;
+    },
+    async purgeStalePayloads(now = new Date()) {
+      let cleared = 0;
+      for (const id of payloads.keys()) {
+        const row = deliveries.get(id);
+        if (!row || row.state !== "sending" || +now - +row.createdAt >= 24 * 60 * 60_000) {
+          payloads.delete(id);
+          cleared++;
+        }
+      }
+      return cleared;
+    },
     async finishDelivery(input) {
       const row = deliveries.get(key(input.userId, input.isoWeek));
       if (row?.tenantId === input.tenantId && row.runId === input.runId && row.state === "sending") {
+        payloads.delete(key(input.userId, input.isoWeek));
         row.state = input.state; row.updatedAt = input.now;
         row.providerMessageId = input.providerMessageId;
       }

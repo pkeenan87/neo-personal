@@ -830,7 +830,9 @@ Agent service (macOS):
 ```ts
 export type DigestDeliveryState = "sending" | "sent" | "empty" | "failed";
 export type DigestDelivery = { tenantId: string; userId: string; isoWeek: string; state: DigestDeliveryState; periodStart: Date; periodEnd: Date; claimedAt?: Date; runId?: string; providerMessageId?: string; createdAt: Date; updatedAt: Date };
-// digest_deliveries: UNIQUE (user_id, iso_week); tenant_isolation RLS; registered in tenantTables; app_user grant.
+// digest_deliveries: UNIQUE (user_id, iso_week); encrypted payload bytea; tenant_isolation RLS; registered in tenantTables; app_user grant.
+// The delivery DTO deliberately omits payload. save/get require the current sending run; terminal states clear it.
+// A security-definer sweep clears non-sending payloads and sending payloads older than 24 hours.
 // memberships.weekly_digest_enabled boolean NOT NULL; role defaults are set on creation/change.
 // list_digest_recipients(cursor_tenant_id uuid, cursor_user_id text, limit integer) returns tenant_id/user_id only,
 // cursor-paginated with LIMIT 1000; SECURITY DEFINER; EXECUTE revoked from PUBLIC and granted to app_user.
@@ -840,7 +842,10 @@ export const weeklyDigest: {
   setPreference(db: Db, tenantId: string, userId: string, enabled: boolean): Promise<boolean>;
   getDelivery(db: Db, tenantId: string, userId: string, isoWeek: string): Promise<DigestDelivery | undefined>;
   claimDelivery(db: Db, input: { tenantId: string; userId: string; isoWeek: string; periodStart: Date; periodEnd: Date; runId: string; now: Date }): Promise<{ result: "claimed" | "owned_live" | "terminal" | "household_move_collision"; delivery?: DigestDelivery }>;
-  finishDelivery(db: Db, input: { tenantId: string; userId: string; isoWeek: string; runId: string; state: "sent" | "empty" | "failed"; providerMessageId?: string; now: Date }): Promise<void>;
+  savePayload(db: Db, input: { tenantId: string; userId: string; isoWeek: string; runId: string; payload: Uint8Array; now: Date }): Promise<boolean>;
+  getPayload(db: Db, input: { tenantId: string; userId: string; isoWeek: string; runId: string }): Promise<Uint8Array | undefined>;
+  purgeStalePayloads(db: Db, now?: Date): Promise<number>;
+  finishDelivery(db, input: { tenantId: string; userId: string; isoWeek: string; runId: string; state: "sent" | "empty" | "failed"; providerMessageId?: string; now: Date }): Promise<void>;
 };
 ```
 
@@ -863,14 +868,17 @@ export type BreachStatusSlot = { status: "clean" | "breached" | "not_checked"; h
 export type HardeningScoreSlot = { scorePercent: number | null; href: string };
 export interface DigestRendererSlots { personal?: PersonalDigestSlot; household?: HouseholdDigestSlot; breachStatus?: BreachStatusSlot; hardeningScore?: HardeningScoreSlot }
 export type DigestContent = DigestRendererSlots;
-export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string): { subject: string; html: string; text: string };
+export type EnvSource = Readonly<Record<string, string | undefined>>;
+export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string, source?: EnvSource): { subject: string; html: string; text: string };
 export interface OutgoingEmail { to: string; subject: string; html: string; text: string; idempotencyKey: string; headers?: Record<string, string> }
-// Exact request payload plus safety metadata returned by a successful Inngest step and replayed for retries.
-// It is not stored in digest_deliveries or fan-out events.
+// Exact request bytes are encrypted at rest; plaintext is not returned in Inngest step state.
 export type DigestSendPayload = { email: OutgoingEmail; role: "owner" | "member"; deliveryCreatedAt: string };
+export function encryptDigestPayload(payload: DigestSendPayload, identity: { tenantId: string; userId: string; isoWeek: string }, env?: EnvSource): Uint8Array | undefined;
+export function decryptDigestPayload(encrypted: Uint8Array, identity: { tenantId: string; userId: string; isoWeek: string }, env?: EnvSource): DigestSendPayload;
 export interface Mailer { send(email: OutgoingEmail): Promise<{ id: string }> }
 export interface SentEmail extends OutgoingEmail { from: string; id: string; sentAt: Date }
 export class MailerHttpError extends Error { readonly status: number }
+// Digest Resend requests are throttled to two per second; 408, 409, and 429 retry without terminalizing the ledger.
 export type DigestPeriod = { scheduledAt: Date; periodStart: Date; periodEnd: Date; isoWeek: string };
 export function digestPeriod(eventTs: number | undefined, firstStepReceivedAt: Date): DigestPeriod;
 export const weeklyDigestCron = "TZ=UTC 0 14 * * 1";
@@ -881,6 +889,9 @@ export interface WeeklyDigestStore {
   setPreference(tenantId: string, userId: string, enabled: boolean): Promise<boolean>;
   getDelivery(tenantId: string, userId: string, isoWeek: string): Promise<DigestDelivery | undefined>;
   claimDelivery(input: { tenantId: string; userId: string; isoWeek: string; periodStart: Date; periodEnd: Date; runId: string; now: Date }): Promise<{ result: "claimed" | "owned_live" | "terminal" | "household_move_collision"; delivery?: DigestDelivery }>;
+  savePayload(input: { tenantId: string; userId: string; isoWeek: string; runId: string; payload: Uint8Array; now: Date }): Promise<boolean>;
+  getPayload(input: { tenantId: string; userId: string; isoWeek: string; runId: string }): Promise<Uint8Array | undefined>;
+  purgeStalePayloads(now?: Date): Promise<number>;
   finishDelivery(input: { tenantId: string; userId: string; isoWeek: string; runId: string; state: "sent" | "empty" | "failed"; providerMessageId?: string; now: Date }): Promise<void>;
 }
 export interface DigestRecipientStore { listDigestRecipientPairs(cursor?: string, limit?: number): Promise<{ items: Array<{ tenantId: string; userId: string }>; nextCursor?: string }> }
@@ -897,5 +908,10 @@ export function createMemoryDigestContentStore(): DigestContentStore;
 Weekly-digest HTTP slices as built (2026-10-05):
 - Settings GET requires an API session; POST requires a browser session and accepts only `{ enabled: boolean }`. Both resolve the session user's current tenant membership; a stale membership returns 403. Responses use `Cache-Control: no-store`.
 - Unsubscribe GET returns a read-only HTML confirmation form. POST accepts the JSON contract, the confirmation form's token, or a query token with an RFC 8058 `List-Unsubscribe=One-Click` form body; success is 204 without a redirect, including removed memberships. All responses use `no-store` and `Referrer-Policy: no-referrer`; handlers do not log tokens or URLs.
-- Unsubscribe GET and POST share the existing process-local limiter at 10 requests/hour/IP, including invalid tokens. This is per app instance, not a distributed limit; a deployment-wide bound requires shared infrastructure.
-- Owner approved persisting the exact recipient address and rendered request in Inngest durable function state for identical-request retries (2026-10-05). Those values remain absent from fan-out events and the `digest_deliveries` table; no Inngest function-state retention duration is claimed.
+- Unsubscribe GET and POST apply the process-local IP limiter only to malformed or invalid-HMAC requests, after token validation; valid tokens from shared IPs are not rate-limited. The limit is per app instance, not distributed.
+- The exact email request is AES-GCM encrypted in `digest_deliveries.payload` using a tenant-derived key and `digest:<tenantId>:<userId>:<isoWeek>` AAD. It is never returned from the prepare step; only the current sending run can read/write it. Terminal completion clears it, and the daily retention job clears non-sending payloads plus sending payloads older than 24 hours; under the daily schedule, a sending payload may remain roughly 24–48 hours from creation. Deployed operation requires `NEO_MASTER_KEY`; when absent, digest preparation fails closed. Non-deployed/mock mode uses a development-only key.
+- `AUTH_SECRET` rotation invalidates previously issued digest unsubscribe links; users must use a fresh link from a subsequent digest or change the setting in Settings.
+- `list_digest_recipients` returns only verified recipients with enabled preferences; owner defaults are enabled and member defaults are disabled.
+- Headline offline health is calculated at `periodEnd` (48-hour threshold), so retry time does not change content. Headlines redact URLs, emails, phone-like digit runs and long alphanumeric tokens; rendered text is escaped and unsafe links fall back to the dashboard.
+- Resend digest sends are throttled to two requests per second; 408/409/429 and 5xx failures remain retryable, while other 4xx responses terminalize the delivery.
+- Rendering requires HTTPS except `http://localhost` outside deployed environments.

@@ -5,8 +5,9 @@ import type { DigestContent } from "./content";
 import type { DigestRecipientStore } from "./store";
 import { signDigestUnsubscribe } from "./unsubscribe";
 import { renderWeeklyDigest } from "../email/weekly-digest-email";
-import { MailerHttpError, type Mailer, type OutgoingEmail } from "../email/resend";
+import { MailerHttpError, type Mailer } from "../email/resend";
 import type { EnvSource } from "@/lib/env";
+import { decryptDigestPayload, encryptDigestPayload, type DigestPayloadIdentity, type DigestStoredPayload } from "./payload";
 
 export interface DigestStepTools {
   run<T>(id: string, fn: () => T | Promise<T>): Promise<T>;
@@ -14,11 +15,7 @@ export interface DigestStepTools {
 export interface DigestCronStepTools extends DigestStepTools {
   sendEvent(id: string, events: Array<{ id: string; name: string; data: DigestGenerateEvent }>): Promise<unknown>;
 }
-export type DigestSendPayload = {
-  email: OutgoingEmail;
-  role: "owner" | "member";
-  deliveryCreatedAt: string;
-};
+export type DigestSendPayload = DigestStoredPayload;
 export type DigestDeliveryResult =
   | { status: "sent"; providerMessageId: string }
   | { status: "empty" | "failed" | "skipped" };
@@ -92,6 +89,12 @@ async function finish(
   });
 }
 
+type DigestPreparedResult = { status: "ready"; deliveryCreatedAt: string } | { status: "empty" | "failed" | "skipped" };
+
+function payloadIdentity(event: DigestGenerateEvent): DigestPayloadIdentity {
+  return { tenantId: event.tenantId, userId: event.userId, isoWeek: event.isoWeek };
+}
+
 async function prepareSendPayload(
   event: DigestGenerateEvent,
   runId: string,
@@ -99,7 +102,7 @@ async function prepareSendPayload(
   appUrl: string,
   source: EnvSource,
   now: () => Date,
-): Promise<{ status: "ready"; payload: DigestSendPayload } | { status: "empty" | "failed" | "skipped" }> {
+): Promise<DigestPreparedResult> {
   const recipient = await services.resolveRecipient(event.tenantId, event.userId);
   if (!recipient || recipient.tenantId !== event.tenantId || recipient.userId !== event.userId) return { status: "skipped" };
 
@@ -122,12 +125,30 @@ async function prepareSendPayload(
   }
   if (!claimed.delivery) throw new Error("claimed weekly digest delivery has no row");
 
-  // Re-resolve membership, role, verified address, and consent at content-selection time.
+  const identity = payloadIdentity(event);
   const current = await services.resolveRecipient(event.tenantId, event.userId);
   if (!current || current.tenantId !== event.tenantId || current.userId !== event.userId) {
     await finish(services, event, runId, "failed", now());
     return { status: "failed" };
   }
+
+  const existing = await services.store.getPayload({ ...identity, runId });
+  if (existing) {
+    let stored: DigestSendPayload;
+    try {
+      stored = decryptDigestPayload(existing, identity, source);
+    } catch {
+      await finish(services, event, runId, "failed", now());
+      logger.warn("Weekly digest stored request could not be decrypted", "weekly-digest");
+      return { status: "failed" };
+    }
+    if (stored.email.to !== current.email || stored.role !== current.role) {
+      await finish(services, event, runId, "failed", now());
+      return { status: "failed" };
+    }
+    return { status: "ready", deliveryCreatedAt: stored.deliveryCreatedAt };
+  }
+
   const content = await services.content.loadDigestContent({
     tenantId: event.tenantId,
     userId: event.userId,
@@ -152,30 +173,58 @@ async function prepareSendPayload(
     logger.warn("Weekly digest unsubscribe signing is unavailable", "weekly-digest");
     return { status: "failed" };
   }
+
+  let payload: DigestSendPayload;
+  let encrypted: Uint8Array | undefined;
   try {
     const unsubscribeUrl = new URL(`/api/digest/unsubscribe?token=${encodeURIComponent(token)}`, appUrl).href;
-    const rendered = renderWeeklyDigest(content, unsubscribeUrl);
-    const email: OutgoingEmail = {
-      to: current.email,
-      subject: rendered.subject,
-      html: rendered.html,
-      text: rendered.text,
-      idempotencyKey: digestResendIdempotencyKey(event.userId, event.isoWeek),
-      headers: {
-        "List-Unsubscribe": `<${unsubscribeUrl}>`,
-        "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    const rendered = renderWeeklyDigest(content, unsubscribeUrl, source);
+    payload = {
+      email: {
+        to: current.email,
+        subject: rendered.subject,
+        html: rendered.html,
+        text: rendered.text,
+        idempotencyKey: digestResendIdempotencyKey(event.userId, event.isoWeek),
+        headers: {
+          "List-Unsubscribe": `<${unsubscribeUrl}>`,
+          "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+        },
       },
+      role: current.role,
+      deliveryCreatedAt: claimed.delivery.createdAt.toISOString(),
     };
-    // Successful step outputs are durable Inngest state; this contains the exact request for retries.
-    return { status: "ready", payload: { email, role: current.role, deliveryCreatedAt: claimed.delivery.createdAt.toISOString() } };
+    encrypted = encryptDigestPayload(payload, identity, source);
   } catch {
     await finish(services, event, runId, "failed", now());
     logger.warn("Weekly digest request could not be prepared", "weekly-digest");
     return { status: "failed" };
   }
+  if (!encrypted) {
+    await finish(services, event, runId, "failed", now());
+    logger.warn("Weekly digest payload encryption key is unavailable", "weekly-digest");
+    return { status: "failed" };
+  }
+
+  await services.store.savePayload({ ...identity, runId, payload: encrypted, now: now() });
+  const durable = await services.store.getPayload({ ...identity, runId });
+  if (!durable) return { status: "skipped" };
+  let stored: DigestSendPayload;
+  try {
+    stored = decryptDigestPayload(durable, identity, source);
+  } catch {
+    await finish(services, event, runId, "failed", now());
+    logger.warn("Weekly digest stored request could not be decrypted", "weekly-digest");
+    return { status: "failed" };
+  }
+  if (stored.email.to !== afterContent.email || stored.role !== afterContent.role) {
+    await finish(services, event, runId, "failed", now());
+    return { status: "failed" };
+  }
+  return { status: "ready", deliveryCreatedAt: stored.deliveryCreatedAt };
 }
 
-/** Persist the exact request in Inngest step state; transient send failures replay it byte-for-byte. */
+/** Keep the encrypted exact request in the tenant-scoped ledger; step outputs contain only metadata. */
 export async function runWeeklyDigestDelivery(
   event: DigestGenerateEvent,
   runId: string,
@@ -202,13 +251,28 @@ export async function runWeeklyDigestDelivery(
 
   return step.run("digest-send-email", async () => {
     const time = now();
-    const current = await deps.services.resolveRecipient(event.tenantId, event.userId);
-    if (!current || current.tenantId !== event.tenantId || current.userId !== event.userId ||
-      current.email !== prepared.payload.email.to || current.role !== prepared.payload.role) {
+    const identity = payloadIdentity(event);
+    const encrypted = await deps.services.store.getPayload({ ...identity, runId });
+    if (!encrypted) {
       await finish(deps.services, event, runId, "failed", time);
       return { status: "failed" } as const;
     }
-    if (+time - Date.parse(prepared.payload.deliveryCreatedAt) >= RESEND_IDEMPOTENCY_WINDOW_MS) {
+    let payload: DigestSendPayload;
+    try {
+      payload = decryptDigestPayload(encrypted, identity, source);
+    } catch {
+      await finish(deps.services, event, runId, "failed", time);
+      logger.warn("Weekly digest stored request could not be decrypted", "weekly-digest");
+      return { status: "failed" } as const;
+    }
+
+    const current = await deps.services.resolveRecipient(event.tenantId, event.userId);
+    if (payload.deliveryCreatedAt !== prepared.deliveryCreatedAt || !current || current.tenantId !== event.tenantId ||
+      current.userId !== event.userId || current.email !== payload.email.to || current.role !== payload.role) {
+      await finish(deps.services, event, runId, "failed", time);
+      return { status: "failed" } as const;
+    }
+    if (+time - Date.parse(payload.deliveryCreatedAt) >= RESEND_IDEMPOTENCY_WINDOW_MS) {
       await finish(deps.services, event, runId, "failed", time);
       logger.warn("Weekly digest retry stopped after the provider idempotency window", "weekly-digest");
       return { status: "failed" } as const;
@@ -218,12 +282,13 @@ export async function runWeeklyDigestDelivery(
       logger.warn("Weekly digest mailer is unavailable", "weekly-digest");
       return { status: "failed" } as const;
     }
+
     try {
-      const result = await deps.mailer.send(prepared.payload.email);
+      const result = await deps.mailer.send(payload.email);
       await finish(deps.services, event, runId, "sent", now(), result.id);
       return { status: "sent", providerMessageId: result.id } as const;
     } catch (error) {
-      if (error instanceof MailerHttpError && error.status >= 400 && error.status < 500) {
+      if (error instanceof MailerHttpError && error.status >= 400 && error.status < 500 && ![408, 409, 429].includes(error.status)) {
         await finish(deps.services, event, runId, "failed", now());
         return { status: "failed" } as const;
       }

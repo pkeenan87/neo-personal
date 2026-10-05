@@ -4,7 +4,7 @@ import { WEEKLY_DIGEST_TEST_AUTH_SECRET } from "./fixtures/weekly-digest";
 import { runWeeklyDigestCron, runWeeklyDigestDelivery } from "@/lib/server/weekly-digest/orchestration";
 import { setMemoryMembers, resetMemoryState } from "@/lib/server/memory-state";
 import { createMemoryWeeklyDigestStore, createMemoryDigestRecipientStore } from "@/lib/server/weekly-digest/store";
-import { MailerHttpError, type Mailer, type OutgoingEmail } from "@/lib/server/email/resend";
+import { MailerHttpError, createMockMailer, memorySentEmails, type Mailer, type OutgoingEmail } from "@/lib/server/email/resend";
 import type { DigestServices } from "@/lib/server/weekly-digest/data";
 import type { DigestContent } from "@/lib/server/weekly-digest/content";
 import type { DigestGenerateEvent } from "@/lib/server/weekly-digest/period";
@@ -39,19 +39,24 @@ class DurableSteps {
 
 function makeServices(content: DigestContent) {
   const store = createMemoryWeeklyDigestStore();
-  setMemoryMembers(tenantId, [{ userId, role: "owner", name: "Owner", email: "owner@example.test" }]);
+  let role: "owner" | "member" = "owner";
+  const setRole = (next: "owner" | "member") => {
+    role = next;
+    setMemoryMembers(tenantId, [{ userId, role, name: "Owner", email: "owner@example.test" }]);
+  };
+  setRole("owner");
   const services: DigestServices = {
     store,
     recipients: createMemoryDigestRecipientStore(),
     resolveRecipient: async (tenant, user) => {
       const enabled = await store.getPreference(tenant, user);
       return tenant === tenantId && user === userId && enabled
-        ? { tenantId, userId, role: "owner", email: "owner@example.test" }
+        ? { tenantId, userId, role, email: "owner@example.test" }
         : undefined;
     },
     content: { loadDigestContent: vi.fn(async () => content) },
   };
-  return { store, services };
+  return { store, services, setRole };
 }
 
 const reportable: DigestContent = {
@@ -98,6 +103,8 @@ it("reuses the persisted exact request on a transient provider retry", async () 
   }) };
   const deps = { services, mailer, appUrl: "https://neo.example.test", env: { AUTH_SECRET: WEEKLY_DIGEST_TEST_AUTH_SECRET }, now: () => now };
   await expect(runWeeklyDigestDelivery(event, "run-1", steps, deps)).rejects.toBeInstanceOf(MailerHttpError);
+  const durableState = JSON.stringify([...steps.state.values()]);
+  expect(durableState).not.toMatch(/owner@example\.test|<html|List-Unsubscribe|v1\./);
   expect(await runWeeklyDigestDelivery(event, "run-1", steps, deps)).toEqual({ status: "sent", providerMessageId: "resend-1" });
   expect(attempts).toHaveLength(2);
   expect(attempts[0]).toEqual(attempts[1]);
@@ -106,6 +113,57 @@ it("reuses the persisted exact request on a transient provider retry", async () 
   expect(attempts[0]?.headers?.["List-Unsubscribe"]).toContain("https://neo.example.test/api/digest/unsubscribe?token=v1.");
   expect(services.content.loadDigestContent).toHaveBeenCalledTimes(1);
   expect((await store.getDelivery(tenantId, userId, event.isoWeek))?.state).toBe("sent");
+});
+
+it("reuses the encrypted request byte-for-byte when a new run takes over a stale lease", async () => {
+  resetMemoryState();
+  const { store, services } = makeServices(reportable);
+  services.content.loadDigestContent = vi.fn()
+    .mockResolvedValueOnce(reportable)
+    .mockResolvedValueOnce({ personal: { ...reportable.personal, topVerdicts: [{ ...reportable.personal!.topVerdicts![0]!, headline: "Different after retry" }] } });
+  const firstSteps = new DurableSteps();
+  let now = new Date("2026-10-05T15:00:00.000Z");
+  const attempts: OutgoingEmail[] = [];
+  const mailer: Mailer = { send: vi.fn(async email => {
+    attempts.push(structuredClone(email));
+    if (attempts.length === 1) throw new MailerHttpError(503);
+    return { id: "resend-2" };
+  }) };
+  const deps = { services, mailer, appUrl: "https://neo.example.test", env: { AUTH_SECRET: WEEKLY_DIGEST_TEST_AUTH_SECRET }, now: () => now };
+  await expect(runWeeklyDigestDelivery(event, "run-1", firstSteps, deps)).rejects.toBeInstanceOf(MailerHttpError);
+  now = new Date(+now + 16 * 60_000);
+  const secondSteps = new DurableSteps();
+  expect(await runWeeklyDigestDelivery(event, "run-2", secondSteps, deps)).toEqual({ status: "sent", providerMessageId: "resend-2" });
+  expect(attempts).toHaveLength(2);
+  expect(attempts[1]).toEqual(attempts[0]);
+  expect(services.content.loadDigestContent).toHaveBeenCalledTimes(1);
+  const state = JSON.stringify([...secondSteps.state.values()]);
+  expect(state).not.toContain("owner@example.test");
+  expect(state).not.toContain("<html");
+  expect(state).not.toContain("List-Unsubscribe");
+  expect(state).not.toContain("v1.");
+  expect((await store.getDelivery(tenantId, userId, event.isoWeek))?.runId).toBe("run-2");
+});
+
+it("blocks send if the recipient role changes after prepare", async () => {
+  resetMemoryState();
+  const { store, services, setRole } = makeServices(reportable);
+  await store.setPreference(tenantId, userId, true);
+  const mailer: Mailer = { send: vi.fn(async () => ({ id: "msg-role" })) };
+  class RoleChangeSteps extends DurableSteps {
+    override async run<T>(id: string, fn: () => Promise<T> | T): Promise<T> {
+      if (id === "digest-send-email") setRole("member");
+      return super.run(id, fn);
+    }
+  }
+  const result = await runWeeklyDigestDelivery(event, "run-role-change", new RoleChangeSteps(), {
+    services, appUrl: "https://neo.example.test",
+    env: { AUTH_SECRET: WEEKLY_DIGEST_TEST_AUTH_SECRET, RESEND_FROM_EMAIL: "Neo <security@neo.example.test>" }, mailer, now: () => new Date("2026-10-05T14:00:00Z"),
+  });
+  expect(result.status).toBe("failed");
+  expect(mailer.send).not.toHaveBeenCalled();
+  expect(await store.getDelivery(tenantId, userId, event.isoWeek)).toMatchObject({ state: "failed" });
+  expect(await store.getPayload({ tenantId, userId, isoWeek: event.isoWeek, runId: "run-role-change" })).toBeUndefined();
 });
 
 it("rechecks current consent immediately before every retry and does not send after opt-out", async () => {
@@ -161,6 +219,93 @@ it("marks a Resend 4xx terminal and does not retry the send", async () => {
   expect(await runWeeklyDigestDelivery(event, "run-1", steps, deps)).toEqual({ status: "failed" });
   expect(mailer.send).toHaveBeenCalledTimes(1);
   expect((await store.getDelivery(tenantId, userId, event.isoWeek))?.state).toBe("failed");
+});
+
+it.each([408, 409, 429])("retries Resend %s without terminally failing or clearing the encrypted request", async (status) => {
+  resetMemoryState();
+  const { store, services } = makeServices(reportable);
+  const steps = new DurableSteps();
+  let attempts = 0;
+  const mailer: Mailer = { send: vi.fn(async () => {
+    attempts++;
+    if (attempts === 1) throw new MailerHttpError(status);
+    return { id: `resend-after-${status}` };
+  }) };
+  const deps = { services, mailer, appUrl: "https://neo.example.test", env: { AUTH_SECRET: WEEKLY_DIGEST_TEST_AUTH_SECRET }, now: () => new Date("2026-10-05T15:00:00.000Z") };
+  await expect(runWeeklyDigestDelivery(event, "run-1", steps, deps)).rejects.toMatchObject({ status });
+  expect((await store.getDelivery(tenantId, userId, event.isoWeek))?.state).toBe("sending");
+  expect(await store.getPayload({ tenantId, userId, isoWeek: event.isoWeek, runId: "run-1" })).toBeInstanceOf(Uint8Array);
+  expect(await runWeeklyDigestDelivery(event, "run-1", steps, deps)).toEqual({ status: "sent", providerMessageId: `resend-after-${status}` });
+  expect(attempts).toBe(2);
+});
+
+it("fails closed in deployed environments when the payload master key is absent", async () => {
+  resetMemoryState();
+  const { store, services } = makeServices(reportable);
+  const mailer: Mailer = { send: vi.fn(async () => ({ id: "unexpected" })) };
+  const result = await runWeeklyDigestDelivery(event, "run-1", new DurableSteps(), {
+    services, mailer, appUrl: "https://neo.example.test", env: { NODE_ENV: "production", AUTH_SECRET: WEEKLY_DIGEST_TEST_AUTH_SECRET }, now: () => new Date("2026-10-05T15:00:00.000Z"),
+  });
+  expect(result).toEqual({ status: "failed" });
+  expect(mailer.send).not.toHaveBeenCalled();
+  expect(await store.getPayload({ tenantId, userId, isoWeek: event.isoWeek, runId: "run-1" })).toBeUndefined();
+  expect((await store.getDelivery(tenantId, userId, event.isoWeek))?.state).toBe("failed");
+});
+
+it("does not send a prepared owner digest after the recipient becomes a member", async () => {
+  resetMemoryState();
+  const { store, services, setRole } = makeServices(reportable);
+  await store.setPreference(tenantId, userId, true);
+  class RoleChangesBeforeSend extends DurableSteps {
+    override async run<T>(id: string, fn: () => Promise<T> | T): Promise<T> {
+      if (id === "digest-send-email") setRole("member");
+      return super.run(id, fn);
+    }
+  }
+  const mailer: Mailer = { send: vi.fn(async () => ({ id: "unexpected" })) };
+  const result = await runWeeklyDigestDelivery(event, "run-1", new RoleChangesBeforeSend(), {
+    services, mailer, appUrl: "https://neo.example.test", env: { AUTH_SECRET: WEEKLY_DIGEST_TEST_AUTH_SECRET }, now: () => new Date("2026-10-05T15:00:00.000Z"),
+  });
+  expect(result).toEqual({ status: "failed" });
+  expect(mailer.send).not.toHaveBeenCalled();
+  expect((await store.getDelivery(tenantId, userId, event.isoWeek))?.state).toBe("failed");
+  expect(await store.getPayload({ tenantId, userId, isoWeek: event.isoWeek, runId: "run-1" })).toBeUndefined();
+});
+
+it("records a mock-mode digest in memorySentEmails on localhost", async () => {
+  resetMemoryState();
+  memorySentEmails().length = 0;
+  const { services } = makeServices(reportable);
+  const result = await runWeeklyDigestDelivery(event, "run-mock", new DurableSteps(), {
+    services,
+    mailer: createMockMailer("Neo <security@neo.example.test>"),
+    appUrl: "http://localhost:3210",
+    env: { MOCK_MODE: "true" },
+    now: () => new Date("2026-10-05T15:00:00.000Z"),
+  });
+  expect(result.status).toBe("sent");
+  expect(memorySentEmails()).toHaveLength(1);
+  expect(memorySentEmails()[0]?.to).toBe("owner@example.test");
+  expect(memorySentEmails()[0]?.html).toContain("http://localhost:3210/api/digest/unsubscribe");
+});
+
+it("purges stale in-memory encrypted payloads after 24 hours", async () => {
+  resetMemoryState();
+  const store = createMemoryWeeklyDigestStore();
+  const now = new Date("2026-10-05T14:00:00Z");
+  const claim = {
+    tenantId, userId, isoWeek: event.isoWeek,
+    periodStart: new Date(event.periodStart), periodEnd: new Date(event.periodEnd),
+    runId: "run-memory-purge", now,
+  };
+  expect((await store.claimDelivery(claim)).result).toBe("claimed");
+  const ciphertext = new Uint8Array([7, 8, 9]);
+  expect(await store.savePayload({ ...claim, payload: ciphertext })).toBe(true);
+  const takeover = { ...claim, runId: "run-memory-purge-late", now: new Date(+now + 23 * 60 * 60_000) };
+  expect((await store.claimDelivery(takeover)).result).toBe("claimed");
+  expect(await store.getPayload({ tenantId, userId, isoWeek: event.isoWeek, runId: takeover.runId })).toEqual(ciphertext);
+  expect(await store.purgeStalePayloads(new Date(+now + 24 * 60 * 60_000))).toBe(1);
+  expect(await store.getPayload({ tenantId, userId, isoWeek: event.isoWeek, runId: takeover.runId })).toBeUndefined();
 });
 
 it("does not automatically resend an unresolved request after the provider's 24-hour key window", async () => {

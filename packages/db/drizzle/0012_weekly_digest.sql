@@ -8,6 +8,7 @@ CREATE TABLE "digest_deliveries" (
 	"claimed_at" timestamp with time zone,
 	"run_id" text,
 	"provider_message_id" text,
+	"payload" bytea,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "digest_deliveries_state_check" CHECK ("digest_deliveries"."state" in ('sending', 'sent', 'empty', 'failed'))
@@ -58,5 +59,27 @@ REVOKE ALL ON FUNCTION public.list_digest_recipients(uuid, text, integer) FROM P
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
     GRANT EXECUTE ON FUNCTION public.list_digest_recipients(uuid, text, integer) TO app_user;
+  END IF;
+END $$;
+--> statement-breakpoint
+-- The encrypted send body is short-lived; application code sees only this count-returning sweeper.
+CREATE FUNCTION public.purge_weekly_digest_payloads(reference_time timestamptz DEFAULT clock_timestamp())
+RETURNS bigint
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+DECLARE cleared bigint;
+BEGIN
+  UPDATE public.digest_deliveries
+  SET payload = NULL, updated_at = reference_time
+  WHERE payload IS NOT NULL
+    AND (state <> 'sending' OR created_at <= reference_time - interval '24 hours');
+  GET DIAGNOSTICS cleared = ROW_COUNT;
+  RETURN cleared;
+END $$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION public.purge_weekly_digest_payloads(timestamptz) FROM PUBLIC;
+--> statement-breakpoint
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
+    GRANT EXECUTE ON FUNCTION public.purge_weekly_digest_payloads(timestamptz) TO app_user;
   END IF;
 END $$;

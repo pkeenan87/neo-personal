@@ -20,6 +20,7 @@ it("registers the weekly UTC cron and the typed per-recipient event function", (
   expect(limits).toHaveLength(2);
   expect(limits).toContainEqual(expect.objectContaining({ limit: 5 }));
   expect(limits).toContainEqual(expect.objectContaining({ limit: 1, key: "event.data.userId" }));
+  expect(digestGenerate.opts.throttle).toMatchObject({ limit: 2, period: "1s" });
 });
 
 it("runs the v4 cron handler without an event argument", async () => {

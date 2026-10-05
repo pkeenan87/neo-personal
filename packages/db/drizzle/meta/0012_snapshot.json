@@ -3508,6 +3508,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "payload": {
+          "name": "payload",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",

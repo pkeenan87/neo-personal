@@ -43,17 +43,21 @@ describe("privacy policy page", () => {
     expect(screen.getByText(/mark a remote-access tool as expected on a device/)).toBeInTheDocument();
   });
 
-  it("discloses digest content, Inngest retry-state storage, and personal opt-out", () => {
+  it("discloses encrypted digest retries, payload retention, secret rotation, and personal opt-out", () => {
     render(<PrivacyPage />);
+    const text = document.body.textContent ?? "";
     expect(screen.getByText("Weekly digests.")).toBeInTheDocument();
-    expect(screen.getByText(/Resend receives your address and the rendered digest/)).toBeInTheDocument();
-    expect(screen.getByText(/receives forwarded email for your household address and sends sign-in links, result emails, and weekly digests/)).toBeInTheDocument();
-    expect(screen.getByText(/For weekly digest retries, it durably stores the recipient address and rendered digest in function state/)).toBeInTheDocument();
-    expect(screen.getByText(/never member verdict details/)).toBeInTheDocument();
-    expect(screen.getByText(/Inngest durably stores the recipient address and rendered digest in\s+function state/)).toBeInTheDocument();
-    expect(screen.getByText(/not in the database delivery records or digest fan-out events/)).toBeInTheDocument();
-    expect(screen.getByText(/not verified a retention period for Inngest function state/)).toBeInTheDocument();
-    expect(screen.getByText(/For weekly digest retries, it durably stores the recipient address and rendered digest in function state; digest fan-out events carry only record identifiers/)).toBeInTheDocument();
+    expect(text).toContain("Resend receives your address and the rendered digest to deliver it.");
+    expect(text).toContain("phone-like digit runs and long alphanumeric tokens redacted");
+    expect(text).toContain("stores the exact request encrypted in the tenant-scoped delivery ledger");
+    expect(text).toContain("Inngest step state and digest fan-out events contain no address or rendered request");
+    expect(text).toContain("The daily sweep removes non-sending payloads and sending payloads at least 24 hours old");
+    expect(text).toContain("under the daily schedule, encrypted request bytes may remain roughly 24–48 hours after creation");
+    expect(text).not.toContain("within 24 hours");
+    expect(text).toContain("Rotating `AUTH_SECRET` invalidates existing digest unsubscribe links");
+    expect(text).toContain("Weekly digest events and step state carry only identifiers/status");
+    expect(text).toContain("Weekly digest request payloads");
+    expect(text).toContain("never member verdict details");
     expect(screen.getByRole("link", { name: "Settings → Digest" })).toHaveAttribute("href", "/settings/digest");
   });
 

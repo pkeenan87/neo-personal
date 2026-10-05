@@ -10,9 +10,16 @@ const migrationsFolder = fileURLToPath(new URL("../drizzle", import.meta.url));
 export type TestDb = { db: Db; client: PGlite; close: () => Promise<void> };
 
 /** Fresh in-memory Postgres (PGlite) with the committed migrations applied. */
-export async function createTestDb(): Promise<TestDb> {
+export async function createTestDb(options: { createAppUserBeforeMigrations?: boolean } = {}): Promise<TestDb> {
   const client = new PGlite();
   const db = drizzle({ client, schema });
+  if (options.createAppUserBeforeMigrations) {
+    await client.exec(`DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
+        CREATE ROLE app_user NOLOGIN NOBYPASSRLS;
+      END IF;
+    END $$;`);
+  }
   await migrate(db, { migrationsFolder });
   return { db, client, close: () => client.close() };
 }
@@ -36,7 +43,11 @@ export async function createUser(db: Db, name = "Test User"): Promise<string> {
  */
 export async function becomeAppUser(client: PGlite): Promise<void> {
   await client.exec(`
-    create role app_user nologin nobypassrls;
+    do $$ begin
+      if not exists (select 1 from pg_roles where rolname = 'app_user') then
+        create role app_user nologin nobypassrls;
+      end if;
+    end $$;
     grant usage on schema public to app_user;
     grant select, insert, update, delete on all tables in schema public to app_user;
     grant execute on function public.resolve_inbound_address(text) to app_user;

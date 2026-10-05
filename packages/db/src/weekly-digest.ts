@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
 import { digestDeliveries, memberships, type DigestDeliveryState } from "./schema/index.js";
 import { tenantScoped } from "./tenant.js";
@@ -10,7 +10,12 @@ export type DigestDelivery = {
 export type DigestClaim = { tenantId: string; userId: string; isoWeek: string; periodStart: Date; periodEnd: Date; runId: string; now: Date };
 export type DigestClaimResult = { result: "claimed" | "owned_live" | "terminal" | "household_move_collision"; delivery?: DigestDelivery };
 function delivery(row: typeof digestDeliveries.$inferSelect): DigestDelivery {
-  return { ...row, claimedAt: row.claimedAt ?? undefined, runId: row.runId ?? undefined, providerMessageId: row.providerMessageId ?? undefined };
+  return {
+    tenantId: row.tenantId, userId: row.userId, isoWeek: row.isoWeek, state: row.state,
+    periodStart: row.periodStart, periodEnd: row.periodEnd, claimedAt: row.claimedAt ?? undefined,
+    runId: row.runId ?? undefined, providerMessageId: row.providerMessageId ?? undefined,
+    createdAt: row.createdAt, updatedAt: row.updatedAt,
+  };
 }
 const key = (userId: string, isoWeek: string) => and(eq(digestDeliveries.userId, userId), eq(digestDeliveries.isoWeek, isoWeek));
 export const weeklyDigest = {
@@ -51,9 +56,27 @@ export const weeklyDigest = {
       return { result: "claimed", delivery: delivery(updated!) };
     });
   },
+  async savePayload(db: Db, input: { tenantId: string; userId: string; isoWeek: string; runId: string; payload: Uint8Array; now: Date }): Promise<boolean> {
+    const rows = await tenantScoped(db, input.tenantId).update(digestDeliveries, {
+      payload: input.payload, updatedAt: input.now,
+    }, and(key(input.userId, input.isoWeek), eq(digestDeliveries.runId, input.runId),
+      eq(digestDeliveries.state, "sending"), isNull(digestDeliveries.payload)));
+    return rows.length > 0;
+  },
+  async getPayload(db: Db, input: { tenantId: string; userId: string; isoWeek: string; runId: string }): Promise<Uint8Array | undefined> {
+    const row = await tenantScoped(db, input.tenantId).first(digestDeliveries, and(
+      key(input.userId, input.isoWeek), eq(digestDeliveries.runId, input.runId), eq(digestDeliveries.state, "sending"),
+    ));
+    return row?.payload ? new Uint8Array(row.payload) : undefined;
+  },
+  async purgeStalePayloads(db: Db, now: Date = new Date()): Promise<number> {
+    const result = await db.execute(sql`select public.purge_weekly_digest_payloads(${now}::timestamptz) as n`);
+    const [row] = (result as unknown as { rows: Array<{ n: number | string }> }).rows;
+    return Number(row?.n ?? 0);
+  },
   async finishDelivery(db: Db, input: { tenantId: string; userId: string; isoWeek: string; runId: string; state: "sent" | "empty" | "failed"; providerMessageId?: string; now: Date }): Promise<void> {
     await tenantScoped(db, input.tenantId).update(digestDeliveries, {
-      state: input.state, providerMessageId: input.providerMessageId, updatedAt: input.now,
+      state: input.state, providerMessageId: input.providerMessageId, payload: null, updatedAt: input.now,
     }, and(key(input.userId, input.isoWeek), eq(digestDeliveries.runId, input.runId), eq(digestDeliveries.state, "sending")));
   },
 };

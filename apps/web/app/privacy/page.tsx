@@ -93,11 +93,7 @@ function sections(email: string): Section[] {
             <strong>Weekly digests.</strong> If enabled, your digest summarizes your own security checks from the past
             week. Owners also receive aggregate household alerts and member-device health, never member verdict details,
             member names or device names. Checked message bodies, checked URLs and free-form alert text are excluded;
-            headlines have links and email addresses redacted. Resend receives your address and the rendered digest to
-            deliver it. For retry reliability, Inngest durably stores the recipient address and rendered digest in
-            function state. They are not in the database delivery records or digest fan-out events. We have not verified
-            a retention period for Inngest function state. We keep your membership preference and minimal delivery
-            identifiers, period, status, timestamps and provider message ID in the database.
+            headlines have links, email addresses, phone-like digit runs and long alphanumeric tokens redacted; the email contains only those redacted headlines. Resend receives your address and the rendered digest to deliver it. For retries, Neo stores the exact request encrypted in the tenant-scoped delivery ledger; only the active sending run can read it. Inngest step state and digest fan-out events contain no address or rendered request. Terminal delivery clears the payload. The daily sweep clears non-sending payloads and sending payloads after they reach 24 hours old; under the daily schedule, encrypted request bytes may remain roughly 24–48 hours after creation. A deployed digest requires the operator&apos;s `NEO_MASTER_KEY`; local/mock mode uses a development-only key. We keep your membership preference and minimal delivery identifiers, period, status, timestamps and provider message ID in the database. Rotating `AUTH_SECRET` invalidates existing digest unsubscribe links; you can opt out in Settings or use a fresh link from a later digest.
           </p>
           <p className="mt-3">
             Neo does not sell or rent your data, does not show ads, does not build advertising profiles, and does not use
@@ -146,8 +142,7 @@ function sections(email: string): Section[] {
               <strong>Vercel</strong> hosts the app, keeps request logs, and stores uploaded and forwarded evidence.{" "}
               <strong>Neon</strong> stores the database. <strong>Resend</strong> receives forwarded email for your
               household address and sends sign-in links, result emails, and weekly digests. <strong>Inngest</strong> runs
-              background jobs. For weekly digest retries, it durably stores the recipient address and rendered digest in
-              function state; digest fan-out events carry only record identifiers. <strong>Google</strong> handles Google
+              background jobs. Weekly digest events and step state carry only identifiers/status; the temporary email request is stored encrypted in the tenant-scoped database ledger and is cleared on completion or by the daily sweep when it is non-sending or reaches 24 hours of age. <strong>Google</strong> handles Google
               sign-in.
             </li>
           </ul>
@@ -174,6 +169,10 @@ function sections(email: string): Section[] {
           </li>
           <li>
             <strong>Your account</strong> is kept until you ask us to delete it.
+          </li>
+          <li>
+            <strong>Weekly digest request payloads</strong> are encrypted in the delivery ledger while a send is pending,
+            cleared when delivery becomes terminal. The daily sweep removes non-sending payloads and sending payloads at least 24 hours old; under the daily schedule, a pending payload may remain roughly 24–48 hours after creation.
           </li>
           <li>
             <strong>Provider logs</strong> follow each provider&apos;s own retention, typically days to a few weeks.

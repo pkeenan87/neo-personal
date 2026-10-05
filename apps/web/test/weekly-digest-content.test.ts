@@ -1,10 +1,36 @@
 // @vitest-environment node
-import { expect, it } from "vitest";
-import { selectDigestContent, type DigestFacts } from "@/lib/server/weekly-digest/content";
+import { expect, it, vi } from "vitest";
+import { digestHeadline, selectDigestContent, type DigestFacts } from "@/lib/server/weekly-digest/content";
 const at = new Date("2026-10-04T12:00:00Z");
 const periodStart = new Date("2026-09-28T14:00:00Z");
 const periodEnd = new Date("2026-10-05T14:00:00Z");
 const input = { tenantId: "a", userId: "owner", role: "owner" as const, periodStart, periodEnd };
+it("redacts phone-like digit runs and long alphanumeric tokens", () => {
+  const token = `0x${"a3".repeat(20)}`;
+  const result = digestHeadline(`Call 2025550199 or 1234567; key ${token}`);
+  expect(result).not.toMatch(/2025550199|1234567|0x[a3]+/i);
+  expect(result.match(/\[redacted\]/g)).toHaveLength(3);
+});
+
+it("measures offline devices at the frozen periodEnd, not retry time", () => {
+  const recent = new Date(+periodEnd - 47 * 60 * 60_000);
+  const facts: DigestFacts = {
+    members: [{ userId: "owner", role: "owner" }, { userId: "member", role: "member" }],
+    verdicts: [],
+    alerts: [],
+    devices: [{ userId: "member", lastSeenAt: recent, createdAt: recent, revokedAt: null }],
+  };
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date(+periodEnd + 10 * 24 * 60 * 60_000));
+  try {
+    expect(selectDigestContent(input, facts).household).toBeUndefined();
+    const boundaryFacts = { ...facts, devices: [{ ...facts.devices[0]!, lastSeenAt: new Date(+periodEnd - 48 * 60 * 60_000) }] };
+    expect(selectDigestContent(input, boundaryFacts).household?.devices.offline).toBe(1);
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
 it("summarizes only personal verdicts and eligible owner aggregates without names, URLs or bodies", () => {
   const facts: DigestFacts = {
     members: [{ userId: "owner", role: "owner" }, { userId: "member", role: "member" }],

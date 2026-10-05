@@ -413,11 +413,12 @@ describe("artifacts-expire job", () => {
         purgeOldDevices: async () => 2,
         purgeOldDeviceSignals: async () => 4,
         purgeExpiredReputationCache: async () => 5,
+        purgeWeeklyDigestPayloads: async () => 6,
       },
       steps,
     );
 
-    expect(steps.names).toEqual(["purge-artifacts", "purge-inbound-rows", "purge-alerts", "purge-devices", "purge-signals", "purge-reputation-cache"]);
+    expect(steps.names).toEqual(["purge-artifacts", "purge-inbound-rows", "purge-alerts", "purge-devices", "purge-signals", "purge-reputation-cache", "purge-digest-payloads"]);
     expect(result).toEqual({
       artifactsPurged: 1,
       artifactErrors: 0,
@@ -426,6 +427,7 @@ describe("artifacts-expire job", () => {
       devicesDeleted: 2,
       signalsDeleted: 4,
       reputationCacheDeleted: 5,
+      digestPayloadsDeleted: 6,
     });
     expect(blob.size).toBe(1); // only "fresh" is left
     expect(await artifacts.get(old.id, TENANT)).toBeUndefined();
@@ -451,6 +453,7 @@ describe("artifacts-expire job", () => {
       purgeOldDevices: async () => 0,
       purgeOldDeviceSignals: async () => 0,
       purgeExpiredReputationCache: async () => 0,
+      purgeWeeklyDigestPayloads: async () => 0,
     });
     expect(result).toMatchObject({ artifactsPurged: 1, artifactErrors: 1 });
   });

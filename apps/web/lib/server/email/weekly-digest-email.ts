@@ -1,8 +1,10 @@
 import { digestHeadline, type DigestContent } from "../weekly-digest/content";
+import { isDeployedEnvironment, type EnvSource } from "@/lib/env";
 import { escapeHtml, VERDICT_EMAIL_LABELS, type RenderedEmail } from "./verdict-email";
-export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string): RenderedEmail {
+export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string, source: EnvSource = process.env): RenderedEmail {
   const unsubscribe = new URL(unsubscribeUrl);
-  if (unsubscribe.protocol !== "https:" || unsubscribe.username || unsubscribe.password) throw new Error("digest unsubscribe must be HTTPS");
+  const localHttp = unsubscribe.protocol === "http:" && unsubscribe.hostname === "localhost" && !isDeployedEnvironment(source);
+  if ((!localHttp && unsubscribe.protocol !== "https:") || unsubscribe.username || unsubscribe.password) throw new Error("digest unsubscribe must be HTTPS (except non-deployed localhost)");
   const subject = "Your weekly Neo security digest";
   const text = [subject];
   const html = [`<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${subject}</title></head><body><h1>${subject}</h1>`];

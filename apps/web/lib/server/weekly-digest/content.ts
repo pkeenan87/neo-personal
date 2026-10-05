@@ -21,12 +21,12 @@ const safeAlertLabels: Record<string, string> = {
   scam_page: "Possible scam page", dangerous_site: "Dangerous site alert", remote_access: "Remote access alert",
   unwanted_software: "Unwanted software alert", permission_grant: "Device permission alert", scam_in_progress: "Possible scam in progress",
 };
-/** Redact network identifiers before truncation (including bare domains, IPs, emails and hashes). */
+/** Redact network identifiers before truncation (including bare domains, IPs, emails, hashes and phone/token runs). */
 export function digestHeadline(value: string): string {
   return truncate(cleanText(value)
-    .replace(/(?:https?:\/\/|www\.)\S+|\b[^\s<>@]+@[^\s<>@]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?|\b(?:\d{1,3}\.){3}\d{1,3}\b|\b[a-f0-9]{32,}\b/gi, "[redacted]"), 140) || "Security check";
+    .replace(/(?:https?:\/\/|www\.)\S+|\b[^\s<>@]+@[^\s<>@]+|\b(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/\S*)?|\b(?:\d{1,3}\.){3}\d{1,3}\b|\b[a-f0-9]{32,}\b|(?<!\d)\d{7,}(?!\d)|(?<![a-z0-9])[a-z0-9]{24,}(?![a-z0-9])/gi, "[redacted]"), 140) || "Security check";
 }
-export function selectDigestContent(input: DigestContentInput, facts: DigestFacts, now = new Date()): DigestContent {
+export function selectDigestContent(input: DigestContentInput, facts: DigestFacts): DigestContent {
   const member = facts.members.find(m => m.userId === input.userId);
   if (!member || member.role !== input.role) return {};
   const within = (row: { createdAt: Date }) => row.createdAt >= input.periodStart && row.createdAt < input.periodEnd;
@@ -40,7 +40,7 @@ export function selectDigestContent(input: DigestContentInput, facts: DigestFact
   if (member.role === "owner") {
     const memberIds = new Set(facts.members.filter(m => m.role === "member").map(m => m.userId));
     const eligible = facts.alerts.filter(a => a.subjectUserId !== input.userId && within(a) && verdictSeverityRank(a.severity) >= 2 && safeAlertLabels[a.kind]);
-    const offline = facts.devices.filter(d => memberIds.has(d.userId) && !d.revokedAt && +(d.lastSeenAt ?? d.createdAt) <= +now - 48 * 3600000).length;
+    const offline = facts.devices.filter(d => memberIds.has(d.userId) && !d.revokedAt && +(d.lastSeenAt ?? d.createdAt) <= +input.periodEnd - 48 * 3600000).length;
     if (eligible.length || offline) content.household = {
       alertCounts: (["critical", "high", "medium"] as Severity[]).map(severity => ({ severity, count: eligible.filter(a => a.severity === severity).length })).filter(a => a.count > 0),
       topAlerts: eligible.sort((a, b) => verdictSeverityRank(b.severity) - verdictSeverityRank(a.severity) || +b.createdAt - +a.createdAt || a.id.localeCompare(b.id)).slice(0, 3)
