@@ -193,6 +193,7 @@ Notes:
 // Artifact crypto (pure; AES-256-GCM, HKDF per tenant, AAD = artifact id)
 export function masterKeyFromEnv(source?: NodeJS.ProcessEnv): Uint8Array | undefined;   // NEO_MASTER_KEY base64 (32 bytes)
 export function deriveTenantKey(masterKey: Uint8Array, tenantId: string): Uint8Array;
+export function deriveKey(masterKey: Uint8Array, label: string, context: string): Uint8Array; // HKDF-SHA256 with the shared fixed salt; info is label plus optional context; 32 bytes
 export function encryptArtifact(key: Uint8Array, plaintext: Uint8Array, aad: string): Uint8Array;
 export function decryptArtifact(key: Uint8Array, blob: Uint8Array, aad: string): Uint8Array;  // throws ArtifactDecryptError
 export class ArtifactDecryptError extends Error {}
@@ -827,36 +828,65 @@ Agent service (macOS):
 ## @neo/db (spec `_specs/weekly-digest.md`)
 
 ```ts
-export type DigestDeliveryState = "sending" | "sent" | "empty" | "suppressed" | "failed";
-export type DigestDelivery = { tenantId: string; userId: string; isoWeek: string; state: DigestDeliveryState; periodStart: Date; periodEnd: Date; providerMessageId?: string; createdAt: Date; updatedAt: Date };
+export type DigestDeliveryState = "sending" | "sent" | "empty" | "failed";
+export type DigestDelivery = { tenantId: string; userId: string; isoWeek: string; state: DigestDeliveryState; periodStart: Date; periodEnd: Date; claimedAt?: Date; runId?: string; providerMessageId?: string; createdAt: Date; updatedAt: Date };
+// digest_deliveries: UNIQUE (user_id, iso_week); tenant_isolation RLS; registered in tenantTables; app_user grant.
+// memberships.weekly_digest_enabled boolean NOT NULL; role defaults are set on creation/change.
+// list_digest_recipients(cursor_tenant_id uuid, cursor_user_id text, limit integer) returns tenant_id/user_id only,
+// cursor-paginated with LIMIT 1000; SECURITY DEFINER; EXECUTE revoked from PUBLIC and granted to app_user.
 export const weeklyDigest: {
-  listRecipients(db: Db, opts: { cursor?: string; limit: number /* 1..1000 */ }): Promise<{ items: Array<{ tenantId: string; userId: string }>; nextCursor?: string }>;
+  listDigestRecipientPairs(db: Db, opts: { cursor?: string; limit: number /* 1..1000 */ }): Promise<{ items: Array<{ tenantId: string; userId: string }>; nextCursor?: string }>;
   getPreference(db: Db, tenantId: string, userId: string): Promise<boolean | undefined>;
   setPreference(db: Db, tenantId: string, userId: string, enabled: boolean): Promise<boolean>;
   getDelivery(db: Db, tenantId: string, userId: string, isoWeek: string): Promise<DigestDelivery | undefined>;
-  upsertDelivery(db: Db, input: Omit<DigestDelivery, "createdAt" | "updatedAt">): Promise<DigestDelivery>;
+  claimDelivery(db: Db, input: { tenantId: string; userId: string; isoWeek: string; periodStart: Date; periodEnd: Date; runId: string; now: Date }): Promise<{ result: "claimed" | "owned_live" | "terminal" | "household_move_collision"; delivery?: DigestDelivery }>;
+  finishDelivery(db: Db, input: { tenantId: string; userId: string; isoWeek: string; runId: string; state: "sent" | "empty" | "failed"; providerMessageId?: string; now: Date }): Promise<void>;
 };
 ```
 
 ## apps/web (spec `_specs/weekly-digest.md`)
 
 ```ts
-export type DigestGenerateEvent = { tenantId: string; userId: string; scheduledAt: string; periodStart: string; periodEnd: string; isoWeek: string };
+export type DigestGenerateEvent = {
+  tenantId: string;       // UUID of the current household
+  userId: string;         // recipient id
+  scheduledAt: string;    // ISO-8601 UTC schedule boundary
+  periodStart: string;    // inclusive ISO-8601 UTC
+  periodEnd: string;      // exclusive ISO-8601 UTC
+  isoWeek: string;        // ISO week YYYY-Www
+};
 export const digestGenerateEventSchema: z.ZodType<DigestGenerateEvent>;
 export const DIGEST_GENERATE_EVENT = "neo/digest.generate";
-export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string): { subject: string; html: string; text: string };
+export type PersonalDigestSlot = { verdictCounts: Array<{ label: VerdictLabel; count: number }>; topVerdicts: Array<{ id: string; label: VerdictLabel; headline: string; createdAt: string; href: string }> };
+export type HouseholdDigestSlot = { alertCounts: Array<{ severity: Severity; count: number }>; topAlerts: Array<{ label: string; severity: Severity; createdAt: string; href: string }>; devices: { offline: number; removedOrUninstalled: number } };
+export type BreachStatusSlot = { status: "clean" | "breached" | "not_checked"; href: string };
+export type HardeningScoreSlot = { scorePercent: number | null; href: string };
 export interface DigestRendererSlots { personal?: PersonalDigestSlot; household?: HouseholdDigestSlot; breachStatus?: BreachStatusSlot; hardeningScore?: HardeningScoreSlot }
 export type DigestContent = DigestRendererSlots;
-export interface Mailer { send(input: MailInput & { headers?: Record<string, string> }): Promise<MailResult> }
-// apps/web HTTP routes
-// GET|POST /api/settings/digest
-// GET|POST /api/digest/unsubscribe
-// Inngest event: neo/digest.generate (DigestGenerateEvent)
-export const weeklyDigestCron = "TZ=UTC 0 14 * * 1";
-export function digestPeriod(eventTs: number | undefined, now: Date, fallback?: (now: Date) => Date): DigestPeriod;
+export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string): { subject: string; html: string; text: string };
+export interface OutgoingEmail { to: string; subject: string; html: string; text: string; idempotencyKey: string; headers?: Record<string, string> }
+export interface Mailer { send(email: OutgoingEmail): Promise<{ id: string }> }
+export interface SentEmail extends OutgoingEmail { from: string; id: string; sentAt: Date }
+export class MailerHttpError extends Error { readonly status: number }
 export type DigestPeriod = { scheduledAt: Date; periodStart: Date; periodEnd: Date; isoWeek: string };
-// MOCK_MODE uses these in-memory stores.
+export function digestPeriod(eventTs: number | undefined, firstStepReceivedAt: Date): DigestPeriod;
+export const weeklyDigestCron = "TZ=UTC 0 14 * * 1";
+export const DIGEST_RESUME_LEASE_MS = 15 * 60_000;
+export function digestResendIdempotencyKey(userId: string, isoWeek: string): string; // digest:<userId>:<ISO week>
+export interface WeeklyDigestStore {
+  getPreference(tenantId: string, userId: string): Promise<boolean | undefined>;
+  setPreference(tenantId: string, userId: string, enabled: boolean): Promise<boolean>;
+  getDelivery(tenantId: string, userId: string, isoWeek: string): Promise<DigestDelivery | undefined>;
+  claimDelivery(input: { tenantId: string; userId: string; isoWeek: string; periodStart: Date; periodEnd: Date; runId: string; now: Date }): Promise<{ result: "claimed" | "owned_live" | "terminal" | "household_move_collision"; delivery?: DigestDelivery }>;
+  finishDelivery(input: { tenantId: string; userId: string; isoWeek: string; runId: string; state: "sent" | "empty" | "failed"; providerMessageId?: string; now: Date }): Promise<void>;
+}
+export interface DigestRecipientStore { listDigestRecipientPairs(cursor?: string, limit?: number): Promise<{ items: Array<{ tenantId: string; userId: string }>; nextCursor?: string }> }
+export interface DigestContentStore { loadDigestContent(input: { tenantId: string; userId: string; role: "owner" | "member"; periodStart: Date; periodEnd: Date }): Promise<DigestContent> }
 export function createMemoryWeeklyDigestStore(): WeeklyDigestStore;
 export function createMemoryDigestRecipientStore(): DigestRecipientStore;
 export function createMemoryDigestContentStore(): DigestContentStore;
 ```
+
+- `GET /api/settings/digest` → `{ enabled: boolean }`; `POST /api/settings/digest` `{ enabled: boolean }` → `{ enabled: boolean }` for the session user's own preference.
+- `GET /api/digest/unsubscribe?token=v1.<payload>.<mac>` → read-only confirmation; `POST /api/digest/unsubscribe` `{ token }` → 204 and idempotently disables only the token owner's preference.
+- `weeklyDigestCron` emits `neo/digest.generate` events using `DigestGenerateEvent`; recipient discovery returns IDs only, then re-resolves current membership and preference under tenant RLS.

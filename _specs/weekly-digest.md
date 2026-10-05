@@ -3,17 +3,17 @@
 branch: hermes/feature/weekly-digest
 plan: `_plans/deferred-roadmap-items.md` (step 1)
 
-Documentation-only proposal; do not implement before owner approval. The migration is the **next free number at implementation time**.
+Owner-approved; step 1 implementation is underway on this branch. The migration is the **next free number at implementation time**.
 
 ## Summary
 
 Send an opted-in user a deterministic weekly email with their own security activity. Owners may additionally receive household-level alert counts and aggregate member-device health; they never receive member verdict details. Member digests contain no household-wide activity. The UTC weekly window is `[scheduled_at - 7 days, scheduled_at)` for Monday 14:00 UTC.
 
-## Verified before implementation (2026-10-04)
+## Verified before implementation (2026-10-05)
 
-- Resend accepts custom `headers` in the Send Email JSON body and an `Idempotency-Key` request header; documented idempotency retention is 24 hours.[1][6] Its docs do not establish DKIM coverage of custom unsubscribe headers; do not claim verified RFC 8058 compliance or DKIM behavior without checking delivered mail.
+- Resend's current Send Email docs confirm that custom `headers` are part of the JSON request body and `Idempotency-Key` is an HTTP request header. Its idempotency keys are limited to 256 characters and retained for 24 hours.[1][6] The docs do not establish DKIM coverage of custom unsubscribe headers; do not claim verified RFC 8058 compliance or DKIM behavior without checking delivered mail.
 - RFC 8058 specifies HTTPS `List-Unsubscribe`, `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, DKIM coverage of both headers, a non-mutating GET and a non-redirecting POST.[2]
-- Inngest documents cron timezone and durable step retries/fan-out.[3][5][8] Its current TypeScript v4 cron-handler documentation and event-trigger documentation do not establish that `event.ts` is the scheduled occurrence boundary.[4][9] Verify `ts` at runtime during implementation; use a stable fallback if absent, never guess from wall clock/run ID.
+- Current Inngest TypeScript v4 docs confirm timezone-prefixed cron expressions, a unique `runId` per function run, durable `step.run` retries, and `step.sendEvent` fan-out.[3][4][5][8] A cron-triggered function has no `event` argument, and the docs do not establish a scheduled-occurrence timestamp at `event.ts`; the implementation therefore freezes a stable timestamp inside its first durable step and tests the receipt-time fallback.[4][7][9]
 
 ## Functional requirements
 
@@ -22,7 +22,7 @@ Send an opted-in user a deterministic weekly email with their own security activ
 - Store `weekly_digest_enabled` on each membership. Default owners on and members off; creation and role changes set the role-appropriate value explicitly. A role change resets the preference to the new role default. Users may change only their own setting; owners cannot inspect or change member preferences. The digest toggle is separate from alert-email threshold.
 - Name the Settings page (`/settings/digest`) and API: `GET|POST /api/settings/digest`; a user changes their own preference only.
 - At discovery and immediately before content selection/send, re-resolve current membership, role, verified deliverable email and preference. Fan-out carries both tenant and user IDs. Tenant data queries use `tenantScoped(db, tenantId)` and user filters. A stale event after leaving/moving cannot read or send former-household content.
-- Discovery is paginated, at most 1,000 recipients per batch, and subject to a global concurrency limit. Do not introduce cross-tenant user enumeration or SECURITY DEFINER delivery-ledger routines.
+- Recipient discovery uses a narrowly scoped SECURITY DEFINER function modelled on `list_stale_devices`, returning only `(tenant_id, user_id)` pairs. It is cursor-paginated with `LIMIT 1000`; revoke EXECUTE from PUBLIC and grant it to `app_user`. Discovery batches are at most 1,000 and subject to a global concurrency limit. It does not enumerate addresses or content, and there are no SECURITY DEFINER delivery-ledger claim/transition routines. A caller may only process a pair after re-resolving the current membership and preference under that tenant's RLS context.
 
 ### Reportable content and privacy
 
@@ -35,9 +35,9 @@ Send an opted-in user a deterministic weekly email with their own security activ
 
 ### Schedule and delivery
 
-- Register cron `TZ=UTC 0 14 * * 1`. Verify `event.ts` at runtime as the scheduled occurrence timestamp; freeze the period in a durable first Inngest step. If `event.ts` is absent or not that boundary, the named fallback is the first execution's receipt timestamp (`new Date()` inside the first durable `step.run("digest-period", ...)`), snapped to the most recent Monday 14:00 UTC and memoized; never recalculate it on retries. Fan out via `step.sendEvent` in batches of at most 1,000, with global concurrency limit and per-user concurrency key.
-- Use one tenant-scoped `digest_deliveries` row per user/week with unique `(user_id, iso_week)` and no user-owned/cross-tenant ledger. Include minimal status/timestamps/provider ID; no content or recipient address. Use `Resend Idempotency-Key: digest:<userId>:<ISO week>` (ISO week form `YYYY-Www`) plus Inngest step retries. A retry finding its own `sending` row must resume/retry the identical provider request with that same key, not drop the email; concurrent distinct runs must not send another request while the owning execution is live. If an unresolved provider outcome outlasts the documented 24-hour key retention, do not automatically resend. Persist terminal `sent`, `empty`, `suppressed` or `failed` states. Resend 4xx marks `failed` and is not retried; 5xx is retried. Do not claim provider idempotency lasts beyond its documented 24 hours.
-- If a user moves households during an ISO week and the global `(user_id, iso_week)` uniqueness collides with a row hidden by tenant RLS, do not read or mutate the former tenant's row; suppress the new tenant's duplicate delivery for that week and resume next week. This intentionally favors tenant isolation over a user-owned cross-tenant delivery ledger.
+- Register cron `TZ=UTC 0 14 * * 1`. Current Inngest v4 cron handlers receive no `event` argument, so freeze the first execution's receipt timestamp (`new Date()` inside the first durable `step.run("digest-period", ...)`), snapped to the most recent Monday 14:00 UTC and memoized; never use `event.ts` or a run ID as a timestamp and never recalculate on retries. Fan out via `step.sendEvent` in batches of at most 1,000, with global concurrency limit and per-user concurrency key.
+- Use one tenant-scoped `digest_deliveries` row per user/week with unique `(user_id, iso_week)` and no user-owned/cross-tenant ledger. Include minimal status/timestamps/provider ID; no content or recipient address. A `sending` row carries `claimed_at` and the Inngest `run_id`. A retry with the same Inngest run ID may resume its row and repeat the identical provider request regardless of claim age; a different run may take over only after `claimed_at` is at least 15 minutes old, replacing the claim/run ID and reusing the same Resend key `digest:<userId>:<ISO week>` (ISO week form `YYYY-Www`). Inngest step retries handle transient errors. If an unresolved provider outcome outlasts Resend's documented 24-hour key retention, do not automatically resend. Persist only `sent`, `empty`, or `failed` terminal states; a household-move uniqueness collision is logged but is not persisted as `suppressed`, because the unique row prevents inserting a second tenant's row. Resend 4xx marks `failed` and is not retried; 5xx is retried. Do not claim provider idempotency lasts beyond its documented 24 hours.
+- If a user moves households during an ISO week and the global `(user_id, iso_week)` uniqueness collides with a row hidden by tenant RLS, do not read or mutate the former tenant's row; suppress the new tenant's duplicate delivery for that week and resume next week. Log the collision only: do not persist `suppressed`, because the uniqueness constraint prevents inserting the duplicate row. This intentionally favors tenant isolation over a user-owned cross-tenant delivery ledger.
 - Empty periods are recorded without email. Re-check consent and live membership before sending. Changes after provider acceptance cannot recall mail.
 
 ### Unsubscribe and settings
@@ -48,8 +48,8 @@ Send an opted-in user a deterministic weekly email with their own security activ
 
 ### Persistence and mock mode
 
-- Add an additive migration at the next free number at implementation time. `digest_deliveries` is tenant-scoped, registered in `tenantTables`, has `tenant_isolation` RLS, and an explicit `app_user` grant (or document that default privileges in `create-app-user.sql` cover it). Unique `(user_id, iso_week)`; all access is tenant-scoped. No SECURITY DEFINER claim/transition functions.
-- In mock mode, use in-memory preference and delivery stores plus the in-memory recipient/content stores and mock mailer; these stores must match database semantics for unique user/week delivery and resumable retries. Mailer gains optional `headers`, retained in mock sent-email records.
+- Add an additive migration at the next free number at implementation time. `digest_deliveries` is tenant-scoped, registered in `tenantTables`, has `tenant_isolation` RLS, and an explicit `app_user` grant (or document that default privileges in `create-app-user.sql` cover it). Unique `(user_id, iso_week)`; all access is tenant-scoped. There are no SECURITY DEFINER delivery-ledger claim/transition functions; the narrowly scoped recipient-discovery function is specified above.
+- In mock mode, use in-memory preference and delivery stores plus the in-memory recipient/content stores and mock mailer; these stores must match database semantics for unique user/week delivery and resumable retries. Extend `OutgoingEmail` with optional `headers?: Record<string, string>`; send them in the Resend request body and retain them in mock `SentEmail` records. Resend HTTP failures throw typed `MailerHttpError { status: number }` so 4xx failures are terminal and 5xx failures retry.
 - Update privacy page and test during implementation. No DKIM coverage guarantee absent direct verification.
 
 ## Edge cases and acceptance criteria
@@ -60,14 +60,14 @@ Send an opted-in user a deterministic weekly email with their own security activ
 - `member_joined` and `device_enrolled` alone never produce a digest; only medium+ alerts count; device-offline alert and health do not double-count; removed/uninstalled is reportable.
 - Discovery is paginated, batches never exceed 1,000, and global concurrency is bounded.
 - Unsubscribe token starts `v1.`, GET does not mutate, POST is idempotent, and 10/hour/IP is enforced.
-- Cron boundary runtime check and fallback are specified; no future verification date is used.
+- Cron runtime test confirms the current Inngest v4 handler has no event argument; unit tests cover an absent or misaligned optional event timestamp falling back to the durable receipt-time boundary.
 - Tests cover role/content isolation, preference reset, empty weeks, alert threshold/kinds, device deduplication, retry ownership, provider 4xx/5xx behavior, pagination/concurrency, unsubscribe and mock stores.
 
 ## Testing Guidelines
 
 - `apps/web/test/weekly-digest*.test.ts`: role-specific content, reportability, offline dedupe, preferences and role reset, pagination/batch/concurrency, provider retries/statuses, unsubscribe, templates and in-memory stores.
 - `packages/db/test/weekly-digest.test.ts` (PGlite as `app_user`): tenant isolation, membership preference defaults/reset, unique `(user_id, iso_week)`, retrying the owning `sending` delivery.
-- Runtime Inngest test verifies `event.ts` occurrence semantics; tests stable fallback if absent.
+- Runtime Inngest test confirms the cron handler has no event argument; helper tests cover absent and misaligned timestamps and memoized receipt-time fallback.
 
 ## Sources
 
