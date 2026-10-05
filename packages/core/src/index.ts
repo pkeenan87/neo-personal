@@ -88,6 +88,7 @@ export {
   ARTIFACT_CIPHERTEXT_OVERHEAD,
   ArtifactDecryptError,
   decryptArtifact,
+  deriveKey,
   deriveTenantKey,
   encryptArtifact,
   masterKeyFromEnv,

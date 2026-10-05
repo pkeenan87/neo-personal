@@ -97,3 +97,10 @@ export function decryptArtifact(key: Uint8Array, blob: Uint8Array, aad: string):
     throw new ArtifactDecryptError();
   }
 }
+
+/** Purpose-bound HKDF-SHA256, with an optional context, using the artifact salt. */
+export function deriveKey(masterKey: Uint8Array, label: string, context: string): Uint8Array {
+  assertKey(masterKey, "master key");
+  return new Uint8Array(hkdfSync("sha256", masterKey, HKDF_SALT,
+    Buffer.from(context ? `${label}:${context}` : label, "utf8"), KEY_BYTES));
+}

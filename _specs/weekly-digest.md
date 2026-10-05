@@ -13,7 +13,10 @@ Send an opted-in user a deterministic weekly email with their own security activ
 
 - Resend's current Send Email docs confirm that custom `headers` are part of the JSON request body and `Idempotency-Key` is an HTTP request header. Its idempotency keys are limited to 256 characters and retained for 24 hours.[1][6] The docs do not establish DKIM coverage of custom unsubscribe headers; do not claim verified RFC 8058 compliance or DKIM behavior without checking delivered mail.
 - RFC 8058 specifies HTTPS `List-Unsubscribe`, `List-Unsubscribe-Post: List-Unsubscribe=One-Click`, DKIM coverage of both headers, a non-mutating GET and a non-redirecting POST.[2]
-- Current Inngest TypeScript v4 docs confirm timezone-prefixed cron expressions, a unique `runId` per function run, durable `step.run` retries, and `step.sendEvent` fan-out.[3][4][5][8] A cron-triggered function has no `event` argument, and the docs do not establish a scheduled-occurrence timestamp at `event.ts`; the implementation therefore freezes a stable timestamp inside its first durable step and tests the receipt-time fallback.[4][7][9]
+- Current Inngest TypeScript v4 docs confirm timezone-prefixed cron expressions and a unique `runId` per function run.[3][4]
+- Durable `step.run` retries and `step.sendEvent` fan-out are documented.[5][8]
+- A cron-triggered function has no `event` argument, and the docs do not establish a scheduled-occurrence timestamp at `event.ts`; therefore freeze the receipt time inside the first durable step and test its fallback.[4][7][9]
+- Current Inngest docs confirm successful step results are persisted in managed function state and replayed on retries.[10] Function state includes event and step data; the docs consulted do not establish a retention period for function state.[11]
 
 ## Functional requirements
 
@@ -36,6 +39,7 @@ Send an opted-in user a deterministic weekly email with their own security activ
 ### Schedule and delivery
 
 - Register cron `TZ=UTC 0 14 * * 1`. Current Inngest v4 cron handlers receive no `event` argument, so freeze the first execution's receipt timestamp (`new Date()` inside the first durable `step.run("digest-period", ...)`), snapped to the most recent Monday 14:00 UTC and memoized; never use `event.ts` or a run ID as a timestamp and never recalculate on retries. Fan out via `step.sendEvent` in batches of at most 1,000, with global concurrency limit and per-user concurrency key.
+- Owner privacy decision (2026-10-05): persist the exact recipient address and rendered request in Inngest durable function state so a retry can resend an identical provider request. Keep those values out of the fan-out event and `digest_deliveries` table. Inngest's successful step results are persisted as function state.[10] Do not claim a retention duration not established by its documentation.[11]
 - Use one tenant-scoped `digest_deliveries` row per user/week with unique `(user_id, iso_week)` and no user-owned/cross-tenant ledger. Include minimal status/timestamps/provider ID; no content or recipient address. A `sending` row carries `claimed_at` and the Inngest `run_id`. A retry with the same Inngest run ID may resume its row and repeat the identical provider request regardless of claim age; a different run may take over only after `claimed_at` is at least 15 minutes old, replacing the claim/run ID and reusing the same Resend key `digest:<userId>:<ISO week>` (ISO week form `YYYY-Www`). Inngest step retries handle transient errors. If an unresolved provider outcome outlasts Resend's documented 24-hour key retention, do not automatically resend. Persist only `sent`, `empty`, or `failed` terminal states; a household-move uniqueness collision is logged but is not persisted as `suppressed`, because the unique row prevents inserting a second tenant's row. Resend 4xx marks `failed` and is not retried; 5xx is retried. Do not claim provider idempotency lasts beyond its documented 24 hours.
 - If a user moves households during an ISO week and the global `(user_id, iso_week)` uniqueness collides with a row hidden by tenant RLS, do not read or mutate the former tenant's row; suppress the new tenant's duplicate delivery for that week and resume next week. Log the collision only: do not persist `suppressed`, because the uniqueness constraint prevents inserting the duplicate row. This intentionally favors tenant isolation over a user-owned cross-tenant delivery ledger.
 - Empty periods are recorded without email. Re-check consent and live membership before sending. Changes after provider acceptance cannot recall mail.
@@ -80,3 +84,5 @@ Send an opted-in user a deterministic weekly email with their own security activ
 [7] https://www.inngest.com/docs/durable-execution/guides-and-advanced/events-and-triggers/schedules-and-delayed-starts
 [8] https://www.inngest.com/docs/reference/typescript/v4/functions/step-send-event
 [9] https://www.inngest.com/docs/durable-execution/primitives/event-and-trigger-concepts
+[10] https://www.inngest.com/docs/learn/how-functions-are-executed
+[11] https://www.inngest.com/docs/usage-limits/inngest

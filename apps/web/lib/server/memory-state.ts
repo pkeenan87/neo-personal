@@ -35,6 +35,7 @@ export interface MemoryInboundAddress {
 interface MemoryState {
   verdicts: MemoryVerdictRow[];
   members: Map<string, HouseholdMember[]>;
+  digestPreferences: Map<string, boolean>;
   inboundAddresses: MemoryInboundAddress[];
   inboundMessages: InboundMessageRow[];
 }
@@ -44,7 +45,7 @@ const MAX_VERDICTS = 1000;
 const g = globalThis as typeof globalThis & { __neoMemoryState?: MemoryState };
 
 export function memoryState(): MemoryState {
-  g.__neoMemoryState ??= { verdicts: [], members: new Map(), inboundAddresses: [], inboundMessages: [] };
+  g.__neoMemoryState ??= { verdicts: [], members: new Map(), digestPreferences: new Map(), inboundAddresses: [], inboundMessages: [] };
   return g.__neoMemoryState;
 }
 
@@ -89,6 +90,13 @@ export function saveMemoryVerdict(input: {
 
 /** Test/demo helper: set the members of an in-memory household. */
 export function setMemoryMembers(tenantId: string, members: HouseholdMember[]): void {
+  const previous = memoryListMembers(tenantId);
+  for (const m of members) {
+    if (previous.find(old => old.userId === m.userId)?.role !== m.role) {
+      memoryState().digestPreferences.set(`${tenantId}:${m.userId}`, m.role === "owner");
+    }
+  }
+  for (const old of previous) if (!members.some(m => m.userId === old.userId)) memoryState().digestPreferences.delete(`${tenantId}:${old.userId}`);
   memoryState().members.set(tenantId, members.map((m) => ({ ...m })));
 }
 

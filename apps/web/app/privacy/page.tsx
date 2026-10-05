@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 /** Bump when the policy text changes materially. */
-export const PRIVACY_POLICY_UPDATED = "2026-09-29";
+export const PRIVACY_POLICY_UPDATED = "2026-10-05";
 
 const REPO_URL = "https://github.com/pkeenan87/neo-personal";
 
@@ -90,6 +90,16 @@ function sections(email: string): Section[] {
             devices in Settings → Household; removing one tells the owner.
           </p>
           <p className="mt-3">
+            <strong>Weekly digests.</strong> If enabled, your digest summarizes your own security checks from the past
+            week. Owners also receive aggregate household alerts and member-device health, never member verdict details,
+            member names or device names. Checked message bodies, checked URLs and free-form alert text are excluded;
+            headlines have links and email addresses redacted. Resend receives your address and the rendered digest to
+            deliver it. For retry reliability, Inngest durably stores the recipient address and rendered digest in
+            function state. They are not in the database delivery records or digest fan-out events. We have not verified
+            a retention period for Inngest function state. We keep your membership preference and minimal delivery
+            identifiers, period, status, timestamps and provider message ID in the database.
+          </p>
+          <p className="mt-3">
             Neo does not sell or rent your data, does not show ads, does not build advertising profiles, and does not use
             what you submit to train AI models.
           </p>
@@ -133,10 +143,12 @@ function sections(email: string): Section[] {
               <strong>Domain registries (RDAP)</strong> receive domain names to look up their age and registrar.
             </li>
             <li>
-              <strong>Vercel</strong> hosts the app, keeps request logs, and stores uploaded and forwarded evidence.
-              <strong> Neon</strong> stores the database. <strong>Resend</strong> receives forwarded email for your
-              household address and sends sign-in links and result emails. <strong>Inngest</strong> runs background jobs
-              and sees only record identifiers, not content. <strong>Google</strong> handles Google sign-in.
+              <strong>Vercel</strong> hosts the app, keeps request logs, and stores uploaded and forwarded evidence.{" "}
+              <strong>Neon</strong> stores the database. <strong>Resend</strong> receives forwarded email for your
+              household address and sends sign-in links, result emails, and weekly digests. <strong>Inngest</strong> runs
+              background jobs. For weekly digest retries, it durably stores the recipient address and rendered digest in
+              function state; digest fan-out events carry only record identifiers. <strong>Google</strong> handles Google
+              sign-in.
             </li>
           </ul>
         </>
@@ -192,6 +204,11 @@ function sections(email: string): Section[] {
         <ul className="list-disc space-y-2 pl-5">
           <li>Delete any verdict from its page; this also deletes the evidence attached to it.</li>
           <li>Delete any conversation from the chat sidebar.</li>
+          <li>
+            Control your own weekly digest in <Link href="/settings/digest" className="text-accent hover:text-accent-hover">Settings → Digest</Link>
+            {" "}or use its unsubscribe link. Owners default on and members default off; changing roles resets that default.
+            Empty weeks are skipped. Digest preferences are separate from alert emails, and owners cannot change a member&apos;s preference.
+          </li>
           <li>Rotate your household&apos;s forwarding address at any time from Settings; the old one stops working.</li>
           <li>
             Leave a household at any time from Settings → Household; your chats in it are deleted and the checks you ran

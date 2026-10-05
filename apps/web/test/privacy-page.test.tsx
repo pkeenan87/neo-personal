@@ -43,6 +43,20 @@ describe("privacy policy page", () => {
     expect(screen.getByText(/mark a remote-access tool as expected on a device/)).toBeInTheDocument();
   });
 
+  it("discloses digest content, Inngest retry-state storage, and personal opt-out", () => {
+    render(<PrivacyPage />);
+    expect(screen.getByText("Weekly digests.")).toBeInTheDocument();
+    expect(screen.getByText(/Resend receives your address and the rendered digest/)).toBeInTheDocument();
+    expect(screen.getByText(/receives forwarded email for your household address and sends sign-in links, result emails, and weekly digests/)).toBeInTheDocument();
+    expect(screen.getByText(/For weekly digest retries, it durably stores the recipient address and rendered digest in function state/)).toBeInTheDocument();
+    expect(screen.getByText(/never member verdict details/)).toBeInTheDocument();
+    expect(screen.getByText(/Inngest durably stores the recipient address and rendered digest in\s+function state/)).toBeInTheDocument();
+    expect(screen.getByText(/not in the database delivery records or digest fan-out events/)).toBeInTheDocument();
+    expect(screen.getByText(/not verified a retention period for Inngest function state/)).toBeInTheDocument();
+    expect(screen.getByText(/For weekly digest retries, it durably stores the recipient address and rendered digest in function state; digest fan-out events carry only record identifiers/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Settings → Digest" })).toHaveAttribute("href", "/settings/digest");
+  });
+
   it("falls back to the default contact address", () => {
     vi.stubEnv("NEO_CONTACT_EMAIL", "");
     render(<PrivacyPage />);

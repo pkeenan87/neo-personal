@@ -203,3 +203,5 @@ export {
 } from "./signals.js";
 // runMigrations lives in the "@neo/db/migrate" subpath so app bundles never see the migrations folder.
 export type { ConversationStore, MessageParam } from "@neo/core";
+
+export { weeklyDigest, type DigestDelivery, type DigestClaim, type DigestClaimResult } from "./weekly-digest.js";

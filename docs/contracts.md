@@ -865,6 +865,9 @@ export interface DigestRendererSlots { personal?: PersonalDigestSlot; household?
 export type DigestContent = DigestRendererSlots;
 export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string): { subject: string; html: string; text: string };
 export interface OutgoingEmail { to: string; subject: string; html: string; text: string; idempotencyKey: string; headers?: Record<string, string> }
+// Exact request payload plus safety metadata returned by a successful Inngest step and replayed for retries.
+// It is not stored in digest_deliveries or fan-out events.
+export type DigestSendPayload = { email: OutgoingEmail; role: "owner" | "member"; deliveryCreatedAt: string };
 export interface Mailer { send(email: OutgoingEmail): Promise<{ id: string }> }
 export interface SentEmail extends OutgoingEmail { from: string; id: string; sentAt: Date }
 export class MailerHttpError extends Error { readonly status: number }
@@ -890,3 +893,9 @@ export function createMemoryDigestContentStore(): DigestContentStore;
 - `GET /api/settings/digest` → `{ enabled: boolean }`; `POST /api/settings/digest` `{ enabled: boolean }` → `{ enabled: boolean }` for the session user's own preference.
 - `GET /api/digest/unsubscribe?token=v1.<payload>.<mac>` → read-only confirmation; `POST /api/digest/unsubscribe` `{ token }` → 204 and idempotently disables only the token owner's preference.
 - `weeklyDigestCron` emits `neo/digest.generate` events using `DigestGenerateEvent`; recipient discovery returns IDs only, then re-resolves current membership and preference under tenant RLS.
+
+Weekly-digest HTTP slices as built (2026-10-05):
+- Settings GET requires an API session; POST requires a browser session and accepts only `{ enabled: boolean }`. Both resolve the session user's current tenant membership; a stale membership returns 403. Responses use `Cache-Control: no-store`.
+- Unsubscribe GET returns a read-only HTML confirmation form. POST accepts the JSON contract, the confirmation form's token, or a query token with an RFC 8058 `List-Unsubscribe=One-Click` form body; success is 204 without a redirect, including removed memberships. All responses use `no-store` and `Referrer-Policy: no-referrer`; handlers do not log tokens or URLs.
+- Unsubscribe GET and POST share the existing process-local limiter at 10 requests/hour/IP, including invalid tokens. This is per app instance, not a distributed limit; a deployment-wide bound requires shared infrastructure.
+- Owner approved persisting the exact recipient address and rendered request in Inngest durable function state for identical-request retries (2026-10-05). Those values remain absent from fan-out events and the `digest_deliveries` table; no Inngest function-state retention duration is claimed.
