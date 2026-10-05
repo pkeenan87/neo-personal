@@ -84,7 +84,7 @@ do not depend on each other. Step 5 feeds step 4, so do step 4 first.
 10. **Commits.**
     - Format: `<emoji> <type>(<scope>): <summary>`, using ✨ feat · 🐛 fix · 🔒 security · 📝 docs · 🧪 test ·
       ⬆️ deps.
-    - End each message with this trailer: `Co-Authored-By: <TODO: owner to supply Hermes/Luna attribution>`.
+    - End each message with this trailer, exactly: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
     - Never commit directly to `main`.
 11. **Privacy page.** Any feature that stores new personal data, or sends any to a new third party, updates
     `apps/web/app/privacy/page.tsx` and its test `apps/web/test/privacy-page.test.tsx` in the same PR.
