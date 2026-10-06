@@ -7,6 +7,7 @@
 import type { SignalSeverity } from "@neo/db";
 import type { Verdict } from "@neo/verdict";
 import { cleanText, truncate } from "../email/verdict-email";
+import { sanitizeBreachName } from "../breach-monitoring/sanitize";
 
 export interface AlertText {
   severity: "low" | "medium" | "high" | "critical";
@@ -66,6 +67,16 @@ export function leftAlertText(memberName: string, removed: boolean): AlertText {
   return removed
     ? { severity: "low", title: `You removed ${memberName}`, body: `${memberName} is no longer a member of your household.` }
     : { severity: "low", title: `${memberName} left your household`, body: `${memberName} left the household. Their checks stay in your history.` };
+}
+
+export function breachDetectedAlertText(breachName: string, dataClasses: readonly string[]): AlertText {
+  const name = sanitizeBreachName(breachName);
+  const severity = dataClasses.some((value) => cleanText(value).toLowerCase() === "passwords") ? "high" : "medium";
+  return {
+    severity,
+    title: `New breach exposure: ${name}`,
+    body: "A monitored address appears in this breach. Change your password on the affected service and anywhere else you reused it, turn on two-factor authentication, and use unique passwords going forward.",
+  };
 }
 
 /** UTC hour bucket for membership dedupe keys. */

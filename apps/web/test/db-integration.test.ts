@@ -7,7 +7,7 @@
  * covered by packages/db/test/rls.test.ts, not here.
  */
 import { PGlite } from "@electric-sql/pglite";
-import { auditEvents, schema, tenantScoped, turns, usageEvents, users, verdicts, type Db } from "@neo/db";
+import { auditEvents, breachMonitoring, findTenantForUser, schema, tenantScoped, turns, usageEvents, users, verdicts, type Db } from "@neo/db";
 import { migrationsFolder } from "@neo/db/migrate";
 import { MOCK_URLS } from "@neo/tools";
 import { drizzle } from "drizzle-orm/pglite";
@@ -115,5 +115,28 @@ describe("with a database", () => {
     const google = { provider: "google", type: "oidc", providerAccountId: "1" };
     expect(await signIn({ account: google, profile: { email_verified: false }, user: {} } as never)).toBe(false);
     expect(await signIn({ account: google, profile: { email_verified: true }, user: {} } as never)).toBe(true);
+  });
+
+  it("seeds only verified sign-in addresses on Auth.js sign-in, encrypted and tenant-scoped", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://unused");
+    vi.stubEnv("NEO_MASTER_KEY", Buffer.alloc(32, 23).toString("base64"));
+    const config = buildAuthConfig();
+    const adapter = config.adapter!;
+    const verifiedEmail = "verified-breach@example.test";
+    const verifiedAt = new Date("2026-10-01T00:00:00.000Z");
+    const verified = (await adapter.createUser!({ id: crypto.randomUUID(), email: verifiedEmail, emailVerified: verifiedAt, name: "Vera" } as AdapterUser)) as AdapterUser;
+    await config.events!.createUser!({ user: verified });
+    await config.events!.signIn!({ user: verified, account: { provider: "email", type: "email", providerAccountId: verifiedEmail } } as never);
+    const membership = await findTenantForUser(db, verified.id!);
+    const stored = await breachMonitoring.listAddresses(db, membership!.tenantId, verified.id!);
+    expect(stored).toHaveLength(1);
+    expect(stored[0]).toMatchObject({ verificationSource: "sign_in", verifiedAt });
+    expect(Buffer.from(stored[0]!.encryptedAddress).includes(Buffer.from(verifiedEmail))).toBe(false);
+
+    const unverified = (await adapter.createUser!({ id: crypto.randomUUID(), email: "unverified-breach@example.test", emailVerified: null, name: "Una" } as AdapterUser)) as AdapterUser;
+    await config.events!.createUser!({ user: unverified });
+    await config.events!.signIn!({ user: unverified, account: { provider: "email", type: "email", providerAccountId: unverified.email! } } as never);
+    const unverifiedMembership = await findTenantForUser(db, unverified.id!);
+    expect(await breachMonitoring.listAddresses(db, unverifiedMembership!.tenantId, unverified.id!)).toEqual([]);
   });
 });

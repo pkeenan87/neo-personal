@@ -39,6 +39,7 @@ import { getMemberPreferences } from "./routing-settings";
 import { NEO_SYSTEM_PROMPT } from "./system-prompt";
 import { recordUsage } from "./usage";
 import { extractVerdict, saveChatVerdict } from "./verdicts";
+import { checkBreachesTool } from "./tools/check-breaches";
 
 const g = globalThis as typeof globalThis & { __neoUrlCache?: ReputationCache; __neoUrlCacheDbBacked?: boolean };
 
@@ -62,7 +63,7 @@ export function sharedUrlCache(): ReputationCache {
 /** check_url, analyze_email and analyze_sms with a shared reputation cache; MOCK_MODE adds a destructive demo tool. */
 export function buildToolRegistry(opts: { mock: boolean } = { mock: env().MOCK_MODE }): ToolRegistry {
   const cache = sharedUrlCache();
-  const tools: RegisteredTool[] = [createCheckUrlTool({ deps: { cache } })];
+  const tools: RegisteredTool[] = [createCheckUrlTool({ deps: { cache } }), checkBreachesTool];
   // ── Phase 1: intake tools (analyze_email, analyze_sms) ──
   tools.push(
     createAnalyzeEmailTool({ deps: { cache }, loadArtifact: loadArtifactForTool }),

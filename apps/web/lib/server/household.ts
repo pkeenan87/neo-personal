@@ -7,6 +7,7 @@
 import { hashPii, logger } from "@neo/core";
 import {
   acceptHouseholdInvite,
+  breachMonitoring,
   createHouseholdInvite,
   leaveHousehold,
   listPendingHouseholdInvites,
@@ -42,6 +43,7 @@ import {
   memoryRevokeInvite,
   memoryRotateInvite,
 } from "./memory-household";
+import { createMemoryBreachAddressStore } from "./breach-monitoring/store";
 import { takeRateSlot } from "./rate-limit";
 import { household, householdMembers } from "./verdict-data";
 
@@ -214,6 +216,10 @@ export async function acceptInvite(session: NeoSession, secret: string, confirmL
     const e = ACCEPT_ERRORS[r.status];
     return fail(e.status, r.status, e.message);
   }
+  if (r.previousTenantId) {
+    if (db) await breachMonitoring.deleteUserAddresses(db, r.previousTenantId, session.userId);
+    else await createMemoryBreachAddressStore().deleteUserAddresses(r.previousTenantId, session.userId);
+  }
   logger.info("Household invite accepted", "household", {
     tenantId: r.tenantId,
     userIdHash: hashPii(session.userId),
@@ -235,6 +241,8 @@ export async function removeMember(session: NeoSession, userId: string, origin: 
     : memoryRemoveMember(session.tenantId, userId);
   if (r.status === "not_found") return fail(404, "not_found", "That person is not in your household.");
   if (r.status === "cannot_remove_owner") return fail(400, "cannot_remove_owner", "The household owner cannot be removed.");
+  if (db) await breachMonitoring.deleteUserAddresses(db, session.tenantId, userId);
+  else await createMemoryBreachAddressStore().deleteUserAddresses(session.tenantId, userId);
   await alertMemberLeft(session.tenantId, { userId, name: target?.name ?? null, email: target?.email ?? null }, true);
   const mailer = getMailer();
   if (mailer && target?.email) {
@@ -257,6 +265,8 @@ export async function leave(session: NeoSession): Promise<Outcome<null>> {
   const r = db ? await leaveHousehold(db, { tenantId: session.tenantId, userId: session.userId }) : memoryLeave(session.tenantId, session.userId);
   if (r.status === "not_found") return fail(404, "not_found", "You are not in this household.");
   if (r.status === "owner_cannot_leave") return fail(400, "owner_cannot_leave", "The owner cannot leave their own household.");
+  if (db) await breachMonitoring.deleteUserAddresses(db, session.tenantId, session.userId);
+  else await createMemoryBreachAddressStore().deleteUserAddresses(session.tenantId, session.userId);
   await alertMemberLeft(session.tenantId, { userId: session.userId, name: session.name || null, email: session.email || null }, false);
   return { ok: true, value: null };
 }

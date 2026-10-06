@@ -12,7 +12,8 @@ export type AlertKindName =
   | "remote_access"
   | "unwanted_software"
   | "permission_grant"
-  | "scam_in_progress";
+  | "scam_in_progress"
+  | "breach_detected";
 export type AlertSeverityName = "low" | "medium" | "high" | "critical";
 export type AlertThreshold = "medium" | "high" | "critical" | "off";
 export const ALERT_THRESHOLD_VALUES: readonly AlertThreshold[] = ["medium", "high", "critical", "off"];

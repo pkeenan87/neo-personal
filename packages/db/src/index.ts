@@ -205,3 +205,12 @@ export {
 export type { ConversationStore, MessageParam } from "@neo/core";
 
 export { weeklyDigest, type DigestDelivery, type DigestClaim, type DigestClaimResult } from "./weekly-digest.js";
+export {
+  breachMonitoring,
+  type AddressRow,
+  type AddressRow as MonitoredAddressRow,
+  type ObservationRow as BreachObservationRow,
+  type BreachObservationInput,
+  type CheckStatus as BreachCheckStatus,
+  type RequestVerificationResult,
+} from "./breach-monitoring.js";

@@ -48,6 +48,11 @@ function sections(email: string): Section[] {
             numbers it extracted, your conversation history, and counts of how many checks your household has used.
           </li>
           <li>
+            <strong>Breach monitoring.</strong> Neo automatically monitors your verified sign-in email. Additional addresses
+            require email confirmation. Address values are encrypted at rest in tenant-scoped storage; Neo keeps only
+            selected breach names, dates and data types, never passwords or raw provider responses.
+          </li>
+          <li>
             <strong>Protected devices.</strong> When the household owner adds a browser or computer to protect a member,
             Neo keeps its name, kind, and platform, and the device checks in regularly with its app version and the time.
             An enrolled device also reports specific signals: the domain of a page that looked like a scam (never the
@@ -96,6 +101,13 @@ function sections(email: string): Section[] {
             headlines have links, email addresses, phone-like digit runs and long alphanumeric tokens redacted; the email contains only those redacted headlines. Resend receives your address and the rendered digest to deliver it. For retries, Neo stores the exact request encrypted in the tenant-scoped delivery ledger; only the active sending run can read it. Inngest step state and digest fan-out events contain no address or rendered request. Terminal delivery clears the payload. The daily sweep clears non-sending payloads and sending payloads after they reach 24 hours old; under the daily schedule, encrypted request bytes may remain roughly 24–48 hours after creation. A deployed digest requires the operator&apos;s `NEO_MASTER_KEY`; local/mock mode uses a development-only key. We keep your membership preference and minimal delivery identifiers, period, status, timestamps and provider message ID in the database. Rotating `AUTH_SECRET` invalidates existing digest unsubscribe links; you can opt out in Settings or use a fresh link from a later digest.
           </p>
           <p className="mt-3">
+            <strong>Breach monitoring.</strong> Neo sends each verified address to{" "}
+            <a href="https://haveibeenpwned.com/API/v3" rel="noreferrer" className="text-accent hover:text-accent-hover">Have I Been Pwned (HIBP)</a>{" "}
+            and the address is checked weekly against known breached-account records. HIBP receives the normalized email address for this lookup.
+            Neo stores selected breach names, dates and data types, not passwords or the raw HIBP response. HIBP data is attributed
+            under CC BY 4.0.
+          </p>
+          <p className="mt-3">
             Neo does not sell or rent your data, does not show ads, does not build advertising profiles, and does not use
             what you submit to train AI models.
           </p>
@@ -139,9 +151,13 @@ function sections(email: string): Section[] {
               <strong>Domain registries (RDAP)</strong> receive domain names to look up their age and registrar.
             </li>
             <li>
+              <strong>Have I Been Pwned (HIBP)</strong> receives verified email addresses only when Neo checks them against its
+              breached-account records. It does not receive passwords or message contents.
+            </li>
+            <li>
               <strong>Vercel</strong> hosts the app, keeps request logs, and stores uploaded and forwarded evidence.{" "}
               <strong>Neon</strong> stores the database. <strong>Resend</strong> receives forwarded email for your
-              household address and sends sign-in links, result emails, and weekly digests. <strong>Inngest</strong> runs
+              household address and sends sign-in links, result emails, weekly digests, and additional-address confirmation emails containing a single-use confirmation URL. Resend necessarily receives the destination address and that URL as part of delivery. <strong>Inngest</strong> runs
               background jobs. Weekly digest events and step state carry only identifiers/status; the temporary email request is stored encrypted in the tenant-scoped database ledger and is cleared on completion or by the daily sweep when it is non-sending or reaches 24 hours of age. <strong>Google</strong> handles Google
               sign-in.
             </li>
@@ -175,7 +191,11 @@ function sections(email: string): Section[] {
             cleared when delivery becomes terminal. The daily sweep removes non-sending payloads and sending payloads at least 24 hours old; under the daily schedule, a pending payload may remain roughly 24–48 hours after creation.
           </li>
           <li>
-            <strong>Provider logs</strong> follow each provider&apos;s own retention, typically days to a few weeks.
+            <strong>Breach-monitoring records</strong> are kept while an address is monitored. The encrypted address and breach observations are hard-deleted when an address is removed, when you leave the household, or when the owner removes you. Verification links expire after 24 hours;
+            Neo stores only their hashes and clears expired hashes daily.
+          </li>
+          <li>
+            <strong>Provider logs</strong> follow each provider&apos;s own retention, typically days to a few weeks. Encrypted copies in provider-managed backups may remain until those backups expire.
           </li>
         </ul>
       ),
@@ -207,6 +227,10 @@ function sections(email: string): Section[] {
             Control your own weekly digest in <Link href="/settings/digest" className="text-accent hover:text-accent-hover">Settings → Digest</Link>
             {" "}or use its unsubscribe link. Owners default on and members default off; changing roles resets that default.
             Empty weeks are skipped. Digest preferences are separate from alert emails, and owners cannot change a member&apos;s preference.
+          </li>
+          <li>
+            Manage additional addresses in <Link href="/settings/breaches" className="text-accent hover:text-accent-hover">Settings → Breaches</Link>.
+            You can remove an additional address at any time; leaving or being removed from a household deletes its breach records.
           </li>
           <li>Rotate your household&apos;s forwarding address at any time from Settings; the old one stops working.</li>
           <li>

@@ -28,6 +28,7 @@ import { headers } from "next/headers";
 import { authProviders, emailFrom, resendApiKey, type EnvSource } from "@/lib/env";
 import { resolveAuthRedirect } from "@/lib/safe-redirect";
 import { recordAudit } from "@/lib/server/audit";
+import { syncVerifiedSigninAddress } from "@/lib/server/breach-monitoring/address-sync";
 import { getDb } from "@/lib/server/db";
 import type { MembershipRole } from "@/lib/session";
 
@@ -182,6 +183,12 @@ export function buildAuthConfig(source: EnvSource = process.env): NextAuthConfig
           provider: account?.provider ?? "unknown",
           ...(ip ? { ipHash: ip } : {}),
         });
+        try {
+          await syncVerifiedSigninAddress({ db, tenantId: tenant.tenantId, userId: user.id });
+        } catch {
+          // Breach monitoring must not block authentication; no address or token is logged.
+          logger.warn("Verified sign-in address sync failed", "breach-monitoring", { userIdHash: hashPii(user.id) });
+        }
       },
       async signOut(message) {
         const userId = "session" in message ? message.session?.userId : message.token?.sub;

@@ -61,6 +61,22 @@ describe("privacy policy page", () => {
     expect(screen.getByRole("link", { name: "Settings → Digest" })).toHaveAttribute("href", "/settings/digest");
   });
 
+  it("discloses breach monitoring data, HIBP processing, weekly cadence, and deletion", () => {
+    render(<PrivacyPage />);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Have I Been Pwned");
+    expect(text).toContain("verified sign-in email");
+    expect(text).toContain("Additional addresses require email confirmation");
+    expect(text).toContain("checked weekly");
+    expect(text).toContain("encrypted at rest");
+    expect(text).toContain("breach names, dates and data types");
+    expect(text).toContain("when an address is removed, when you leave the household, or when the owner removes you");
+    expect(text).toContain("CC BY 4.0");
+    expect(text).toContain("additional-address confirmation emails containing a single-use confirmation URL");
+    expect(text).toContain("single-use confirmation URL");
+    expect(text).toContain("Encrypted copies in provider-managed backups may remain until those backups expire");
+  });
+
   it("falls back to the default contact address", () => {
     vi.stubEnv("NEO_CONTACT_EMAIL", "");
     render(<PrivacyPage />);

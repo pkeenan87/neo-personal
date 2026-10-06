@@ -4,6 +4,8 @@ import { MODEL_FAMILIES, ROUTING_PREFERENCES, type ModelFamily, type RoutingPref
 import type { Db, Tx } from "./client.js";
 import {
   digestDeliveries,
+  monitoredAddresses,
+  breachObservations,
   artifacts,
   auditEvents,
   conversations,
@@ -28,6 +30,8 @@ export const tenantTables = {
   turns,
   verdicts,
   digestDeliveries,
+  monitoredAddresses,
+  breachObservations,
   artifacts,
   auditEvents,
   usageEvents,

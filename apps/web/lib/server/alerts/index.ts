@@ -57,6 +57,7 @@ import {
   deviceLabel,
   deviceOfflineAlertText,
   deviceRemovedAlertText,
+  breachDetectedAlertText,
   displayName,
   hourBucket,
   joinedAlertText,
@@ -65,6 +66,7 @@ import {
 } from "./templates";
 
 export const ALERT_CREATED_EVENT = "neo/alert.created";
+export const BREACH_ALERT_KIND = "breach_detected" as const;
 /** Alert emails per household per UTC day before the "more than usual" notice. */
 export const ALERT_EMAIL_DAILY_CAP = 20;
 
@@ -169,6 +171,24 @@ export async function alertMemberLeft(
     kind: "member_left",
     ...leftAlertText(displayName(user.name, user.email), removed),
     dedupeKey: `member_left:${user.userId}:${hourBucket()}`,
+  });
+}
+
+/** New breach observation for one tenant-scoped address; alert text never contains the address. */
+export async function alertBreachDetected(input: {
+  tenantId: string;
+  userId: string;
+  addressId: string;
+  breachName: string;
+  dataClasses: readonly string[];
+}): Promise<void> {
+  const text = breachDetectedAlertText(input.breachName, input.dataClasses);
+  await raiseAlert({
+    tenantId: input.tenantId,
+    subjectUserId: input.userId,
+    kind: BREACH_ALERT_KIND,
+    ...text,
+    dedupeKey: `breach_detected:${input.addressId}:${input.breachName}`,
   });
 }
 
@@ -360,9 +380,11 @@ export async function deliverAlert(data: AlertCreatedData, deps: AlertDeliveryDe
     return "capped";
   }
 
-  const link = alert.verdictId
-    ? { url: `${deps.appUrl}/verdicts/${alert.verdictId}`, label: "See the check" }
-    : { url: `${deps.appUrl}/settings/household`, label: "Open household settings" };
+  const link = alert.kind === "breach_detected"
+    ? { url: `${deps.appUrl}/settings/breaches`, label: "Review breach status" }
+    : alert.verdictId
+      ? { url: `${deps.appUrl}/verdicts/${alert.verdictId}`, label: "See the check" }
+      : { url: `${deps.appUrl}/settings/household`, label: "Open household settings" };
   const email = renderAlertEmail({ severity: alert.severity, title: alert.title, body: alert.body, link });
   for (const o of recipients) {
     await deps.mailer.send({ to: o.email!, ...email, idempotencyKey: `alert:${alert.id}:${o.userId}` });
