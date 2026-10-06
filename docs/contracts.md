@@ -1115,3 +1115,49 @@ Outcomes (`applySigninAlertOverride`): a fake-alert rule fires -> `malicious`; v
 
 - `POST /api/verdicts/[id]/signin-response` `{ response: "yes" | "no" }` -> 200 `{ ok: true, playbook?: "account_takeover" }`; browser session only (desktop token 403); only the verdict's own user may answer (404 otherwise, owners included); last answer wins (yes remembers the provider/device pair, no forgets it); 409 `no_signin_check` if the verdict has no `signin_check`; `no` returns the `account_takeover` playbook id; 400 for any other body.
 - `GET /api/verdicts/[id]` adds `signinDeviceKnown?: boolean` (own verdicts with a first-seen check only).
+
+---
+
+## @neo/db (spec `_specs/outlook-connector.md`)
+
+```ts
+// Register in tenantTables; tenant_isolation RLS and app_user grants (or create-app-user.sql defaults).
+Export distinct credentials from the shared helper using the approved labels `neo-connector-oauth-state-v1`, `neo-connector-v1`, and `neo-connector-cursor-v1`, with the tenant id passed as context.
+// Migration number is next free at implementation time.
+export type OutlookOAuthState = { id: string; tenantId: string; userId: string; stateHash: Uint8Array; encryptedPkceVerifier: Uint8Array; expiresAt: Date; consumedAt?: Date };
+// UNIQUE state_hash; INDEX expires_at; UNIQUE connector (tenant_id,user_id); UNIQUE finding (tenant_id,connector_id,rule_key).
+outlook_oauth_states: { id; tenant_id; user_id; state_hash; encrypted_pkce_verifier; expires_at; consumed_at; created_at };
+outlook_connectors: { id; tenant_id; user_id; microsoft_user_id; display_address; status; token_version; connection_generation; encrypted_tokens; encrypted_delta_cursor; last_audit_at; last_poll_at; created_at; updated_at };
+outlook_rule_findings: { id; tenant_id; user_id; connector_id; rule_key; state; action; destination_domain; observed_at; resolved_at; alerted_at };
+outlook_seen_messages: { tenant_id; connector_id; message_key; seen_at };  // PK (connector_id, message_key)
+tenantScoped(db, tenantId).outlookConnectors.get(userId): Promise<OutlookConnector | undefined>;
+tenantScoped(db, tenantId).outlookOAuthStates.create(input): Promise<OutlookOAuthState>;
+tenantScoped(db, tenantId).outlookOAuthStates.consume(stateHash, userId, now): Promise<OutlookOAuthState | undefined>;
+tenantScoped(db, tenantId).outlookConnectors.compareAndSwapTokens(id, expectedVersion, ciphertext): Promise<boolean>;
+tenantScoped(db, tenantId).outlookConnectors.updateCursor(id, generation, cursorCiphertext): Promise<boolean>;  // fenced: status 'connected' and connection_generation = generation
+tenantScoped(db, tenantId).outlookRuleFindings.upsert(input): Promise<OutlookRuleFinding>;
+```
+
+## apps/web (spec `_specs/outlook-connector.md`)
+
+```ts
+export type OutlookConnectorStatus = "connected" | "reauth_required" | "paused" | "disconnected";
+export interface OutlookGraphClient { getMe(signal?: AbortSignal): Promise<GraphMe>; listInboxRules(nextLink?: string, signal?: AbortSignal): Promise<GraphRulePage>; getInboxDelta(input: { nextLink?: string; deltaLink?: string; signal?: AbortSignal }): Promise<GraphDeltaPage>; getCandidateMessage(id: string, signal?: AbortSignal): Promise<GraphMessage> }
+export const OUTLOOK_FORWARDING_ALERT_KIND = "mailbox_forwarding";
+```
+
+- `POST /api/connectors/outlook/start`; `GET /api/connectors/outlook/callback`; `GET /api/connectors/outlook`; `DELETE /api/connectors/outlook` (same-origin).
+- `auditOutlookRules(ctx: { tenantId; userId; connectorId }): Promise<void>`; `pollOutlookInbox(ctx: { tenantId; userId; connectorId }): Promise<void>`.
+- `SIGNIN_ALERT_SENDERS` from `_specs/signin-alerts.md`; parsed events use the table defined by `_specs/signin-alerts.md`.
+
+### As built: Outlook connector (migration 0016)
+
+- Tables as above; `outlook_oauth_states.state_hash` and the `encrypted_*` columns are `bytea`. Connectors are never deleted on disconnect: `status = 'disconnected'`, token and cursor ciphertext set to NULL (so findings keep their connector). `reauth_required` also nulls both. `UNIQUE (tenant_id, id)` on connectors backs the findings FK. `connection_generation` starts at 1 and is bumped by `upsertConnected`, `disconnect` and `markReauthRequired` (never by a token refresh, which only bumps `token_version`); `updateCursor`, `touch` and `outlookSeenMessages.claim` write only while the row is `connected` at the caller's generation. `outlook_seen_messages.message_key` is a hex HMAC-SHA256 of the Graph message id (`neo-connector-msgid-v1`, per-tenant key); `claim` is insert-if-absent and returns true only on first sight; the daily audit purges keys older than 45 days and `disconnect` deletes them. `outlook_rule_findings.alerted_at` is set only after the owner alert succeeded or was skipped by policy; re-activation clears it. `outlook_rule_findings.rule_key` is a SHA-256 hex digest of rule id, action and destination domain; `action` is `forward_to | redirect_to | forward_as_attachment_to`, `state` is `active | resolved`; `observed_at` is the first observation of the current activation.
+- No baseline column: the 30-day baseline state, the `since` floor and the pending-page `done` ids live inside the encrypted cursor JSON `{ kind: "next" | "delta", link, baselineComplete, since, done? }` (label `neo-connector-cursor-v1`). Baseline pages advance the cursor without fetching any message and raise nothing.
+- `SECURITY DEFINER public.list_outlook_connectors(uuid, text, integer)` (cron discovery, `connected` only, ids only); EXECUTE revoked from PUBLIC and granted to `app_user` in the migration and in `create-app-user.sql`. `outlookScheduler.listConnected(db, { cursor?, limit? })` wraps it.
+- Extra tenant-scoped methods: `outlookConnectors.{getById, listSummaries, upsertConnected, markReauthRequired, touch(id, generation, patch): Promise<boolean>, disconnect}`, `outlookOAuthStates.purge`, `outlookRuleFindings.{list, resolveMissing, listUnalerted(connectorId), markAlerted(id, at)}`, `outlookSeenMessages.{claim(connectorId, generation, messageKey, now): Promise<boolean>, release, purge(connectorId, before)}`; `outlookRuleFindings.upsert` returns the row plus `created` (new activation). `outlookOAuthStates.create` takes the caller's `id` (it is part of the AAD).
+- `OutlookGraphClient.getInboxDelta` also takes `since?: Date` (first request `$filter=receivedDateTime ge`). `pollOutlookInbox(ctx, deps)` returns `{ status: "ok" | "skipped" | "reauth_required" | "rate_limited" | "reset", pages, candidates, retryAfterSeconds? }` instead of `void` so Inngest can sleep (capped at 3600 s); `auditOutlookRules(ctx, deps)` returns `{ status, findings, raised }` (`raised` counts alerts newly sent, including retries of earlier failures) and re-raises active findings with `alerted_at IS NULL`. Candidates are analysed with `maxUrls: 0`: mail links are never fetched. `alertMailboxForwarding` returns `"raised" | "exists" | "skipped" | "failed"` (only `failed` leaves `alerted_at` null). Inngest `outlook-poll` and `outlook-audit` run with concurrency `[{ limit: 3, key: tenantId }, { limit: 1, key: connectorId }]`. Own addresses are Graph `mail` and `userPrincipalName` only; a non-plain destination address is indeterminate (external).
+- Routes: `POST /start` (browser session + same-origin; 503 `connector_unavailable` when off) returns `{ authorizeUrl }`; `GET /callback` (browser session; 404 when off) answers 303 to `/settings/outlook?connect=connected|denied|invalid_state|failed` (absolute URL built from `APP_URL`, never `req.url`); `GET /api/connectors/outlook` returns the status view (always 200, `mode: "live" | "mock" | "off"`); `DELETE` (browser session + same-origin; works when off) returns `{ ok, disconnected, appAccessUrl }`.
+- Mode: `outlookEnv().mode` is `mock` for MOCK_MODE on a non-deployed environment (fake authorize/callback and fixture mailbox, never Microsoft), `live` only when all three `OUTLOOK_*` vars and `NEO_MASTER_KEY` are set, else `off`.
+- Authenticated connector alerts get a deterministic baseline verdict (no model call, no usage) through `finalizeSigninVerdict({ source: "outlook" })`, saved with verdict source `inbound` (no new verdict source); unauthenticated ones only `persistSigninEvent` (`authenticated: false`, no verdict).
+- Events `neo/outlook.poll` and `neo/outlook.audit` (`{ tenantId, userId, connectorId }`), crons `*/15 * * * *` and `17 5 * * *`; alert `mailbox_forwarding` is raised for members only, dedupe key `mailbox_forwarding:<findingId>:<observedAt ms>`.

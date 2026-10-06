@@ -19,7 +19,7 @@ const labels: VerdictLabel[] = ["malicious", "suspicious", "likely_safe", "insuf
 const safeAlertLabels: Record<string, string> = {
   member_verdict: "Security check alert", member_left: "Household membership changed", device_removed: "Device removed or uninstalled",
   scam_page: "Possible scam page", dangerous_site: "Dangerous site alert", remote_access: "Remote access alert",
-  unwanted_software: "Unwanted software alert", permission_grant: "Device permission alert", scam_in_progress: "Possible scam in progress", breach_detected: "Breach exposure alert",
+  unwanted_software: "Unwanted software alert", permission_grant: "Device permission alert", scam_in_progress: "Possible scam in progress", breach_detected: "Breach exposure alert", mailbox_forwarding: "Mailbox forwarding alert",
 };
 /** Redact network identifiers before truncation (including bare domains, IPs, emails, hashes and phone/token runs). */
 export function digestHeadline(value: string): string {

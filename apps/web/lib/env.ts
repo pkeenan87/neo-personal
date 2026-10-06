@@ -247,3 +247,29 @@ export function breachMonitoringEnv(source: EnvSource = process.env): BreachMoni
     HIBP_USER_AGENT: nonEmpty(source.HIBP_USER_AGENT) ?? HIBP_USER_AGENT_DEFAULT,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Outlook.com connector (_specs/outlook-connector.md)
+// ---------------------------------------------------------------------------
+
+export interface OutlookEnv {
+  /** "live": real Microsoft endpoints (all three vars and NEO_MASTER_KEY set). "mock": MOCK_MODE on a non-deployed environment (fake authorize/callback, fixture mailbox). "off": the feature is disabled. */
+  mode: "live" | "mock" | "off";
+  OUTLOOK_CLIENT_ID: string | undefined;
+  OUTLOOK_CLIENT_SECRET: string | undefined;
+  OUTLOOK_REDIRECT_URI: string | undefined;
+}
+
+/**
+ * Connector availability. Unset client id, secret or redirect URI, or a missing NEO_MASTER_KEY (the token
+ * ciphertext needs it), turns the feature off; MOCK_MODE (never on a production/preview deployment) uses the
+ * fake Microsoft flow and never contacts Microsoft.
+ */
+export function outlookEnv(source: EnvSource = process.env): OutlookEnv {
+  const id = nonEmpty(source.OUTLOOK_CLIENT_ID);
+  const secret = nonEmpty(source.OUTLOOK_CLIENT_SECRET);
+  const redirect = nonEmpty(source.OUTLOOK_REDIRECT_URI);
+  const configured = Boolean(id && secret && redirect && nonEmpty(source.NEO_MASTER_KEY));
+  const mode = bool(source.MOCK_MODE) && !isDeployedEnvironment(source) ? "mock" : configured ? "live" : "off";
+  return { mode, OUTLOOK_CLIENT_ID: id, OUTLOOK_CLIENT_SECRET: secret, OUTLOOK_REDIRECT_URI: redirect };
+}

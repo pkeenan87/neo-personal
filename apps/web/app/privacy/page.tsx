@@ -122,6 +122,20 @@ function sections(email: string): Section[] {
             was me&rdquo; for a device so Neo stops asking about it.
           </p>
           <p className="mt-3">
+            <strong>Outlook.com connector.</strong> If you connect a personal Outlook.com mailbox in Settings → Outlook, Neo asks Microsoft for four
+            read-only permissions: offline_access, User.Read, Mail.Read and MailboxSettings.Read. Neo reads your inbox rule metadata to check for
+            forwarding to outside addresses, and polls your Inbox every 15 minutes; only messages from known sign-in alert senders have limited
+            content fetched for analysis. Neo stores your Microsoft account id and address, encrypted access and refresh tokens, an encrypted sync
+            position, the time of the last check, and for each risky rule only the destination domain (never the full address or the rule), plus
+            the sign-in alert facts described above. To avoid handling the same message twice, Neo also remembers a keyed fingerprint of each
+            processed message id (not the id, the sender or any content) for 45 days. Neo never visits or fetches links found in your mail. It
+            never stores message bodies, and never sends, changes or deletes your mail, rules or settings. Neo audits inbox rules only and cannot see account-level forwarding. Connection and rule records are removed when you leave
+            the household or the owner removes you; resulting alerts follow the alert retention. The household owner sees only that you are
+            connected, when it was last checked, and any forwarding alert with the destination domain. To disconnect, use Disconnect in Settings →
+            Outlook, which deletes Neo&apos;s stored tokens, then remove Neo&apos;s access at{" "}
+            <a href="https://account.microsoft.com/privacy/app-access" rel="noreferrer" className="text-accent hover:text-accent-hover">account.microsoft.com/privacy/app-access</a>.
+          </p>
+          <p className="mt-3">
             Neo does not sell or rent your data, does not show ads, does not build advertising profiles, and does not use
             what you submit to train AI models.
           </p>
