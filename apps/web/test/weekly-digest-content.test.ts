@@ -55,3 +55,19 @@ it("summarizes only personal verdicts and eligible owner aggregates without name
   expect(selectDigestContent(input, { ...facts, verdicts: [], alerts: facts.alerts.slice(0, 2), devices: [] })).toEqual({});
   expect(selectDigestContent({ ...input, userId: "gone" }, facts)).toEqual({});
 });
+
+it("counts breach_detected alerts at medium and above with a safe label, and skips low", () => {
+  const facts: DigestFacts = {
+    members: [{ userId: "owner", role: "owner" }, { userId: "member", role: "member" }],
+    verdicts: [],
+    alerts: [
+      { id: "1", subjectUserId: "member", kind: "breach_detected", severity: "medium", createdAt: at },
+      { id: "2", subjectUserId: "member", kind: "breach_detected", severity: "high", createdAt: at },
+      { id: "3", subjectUserId: "member", kind: "breach_detected", severity: "low", createdAt: at },
+    ],
+    devices: [],
+  };
+  const household = selectDigestContent(input, facts).household;
+  expect(household?.alertCounts).toEqual([{ severity: "high", count: 1 }, { severity: "medium", count: 1 }]);
+  expect(household?.topAlerts.map(a => a.label)).toEqual(["Breach exposure alert", "Breach exposure alert"]);
+});

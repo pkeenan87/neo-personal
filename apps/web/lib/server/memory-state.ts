@@ -38,6 +38,7 @@ interface MemoryState {
   digestPreferences: Map<string, boolean>;
   inboundAddresses: MemoryInboundAddress[];
   inboundMessages: InboundMessageRow[];
+  breachAddresses: Map<string, unknown>;
 }
 
 const MAX_VERDICTS = 1000;
@@ -45,7 +46,7 @@ const MAX_VERDICTS = 1000;
 const g = globalThis as typeof globalThis & { __neoMemoryState?: MemoryState };
 
 export function memoryState(): MemoryState {
-  g.__neoMemoryState ??= { verdicts: [], members: new Map(), digestPreferences: new Map(), inboundAddresses: [], inboundMessages: [] };
+  g.__neoMemoryState ??= { verdicts: [], members: new Map(), digestPreferences: new Map(), inboundAddresses: [], inboundMessages: [], breachAddresses: new Map() };
   return g.__neoMemoryState;
 }
 

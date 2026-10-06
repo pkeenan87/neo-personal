@@ -92,6 +92,13 @@
       "when": 1791190242185,
       "tag": "0012_weekly_digest",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791246420861,
+      "tag": "0013_breach_monitoring",
+      "breakpoints": true
     }
   ]
 }

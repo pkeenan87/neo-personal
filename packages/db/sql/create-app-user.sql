@@ -34,6 +34,10 @@ GRANT EXECUTE ON FUNCTION public.purge_old_devices() TO app_user;  -- 0009
 GRANT EXECUTE ON FUNCTION public.purge_old_device_signals() TO app_user;  -- 0010
 GRANT EXECUTE ON FUNCTION public.purge_expired_reputation_cache() TO app_user;  -- 0010
 GRANT EXECUTE ON FUNCTION public.lookup_device_tenant(uuid) TO app_user;  -- 0011
+GRANT EXECUTE ON FUNCTION public.list_digest_recipients(uuid, text, integer) TO app_user;  -- 0012
+GRANT EXECUTE ON FUNCTION public.purge_weekly_digest_payloads(timestamptz) TO app_user;  -- 0012
+GRANT EXECUTE ON FUNCTION public.list_monitored_breach_addresses(uuid, text, uuid, integer) TO app_user;  -- 0013
+GRANT EXECUTE ON FUNCTION public.purge_expired_breach_verification_tokens() TO app_user;  -- 0013
 
 -- reputation_cache is tenant-less (public reputation facts only); ALL TABLES above already
 -- covers it once created, but grant explicitly in case app_user predates the 0010 migration.

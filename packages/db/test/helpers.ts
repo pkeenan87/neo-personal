@@ -61,6 +61,8 @@ export async function becomeAppUser(client: PGlite): Promise<void> {
     grant execute on function public.purge_old_device_signals() to app_user;
     grant execute on function public.purge_expired_reputation_cache() to app_user;
     grant execute on function public.lookup_device_tenant(uuid) to app_user;
+    grant execute on function public.list_monitored_breach_addresses(uuid, text, uuid, integer) to app_user;
+    grant execute on function public.purge_expired_breach_verification_tokens() to app_user;
     set role app_user;
   `);
 }

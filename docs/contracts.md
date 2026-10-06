@@ -915,3 +915,76 @@ Weekly-digest HTTP slices as built (2026-10-05):
 - Headline offline health is calculated at `periodEnd` (48-hour threshold), so retry time does not change content. Headlines redact URLs, emails, phone-like digit runs and long alphanumeric tokens; rendered text is escaped and unsafe links fall back to the dashboard.
 - Resend digest sends are throttled to two requests per second; 408/409/429 and 5xx failures remain retryable, while other 4xx responses terminalize the delivery.
 - Rendering requires HTTPS except `http://localhost` outside deployed environments.
+## @neo/db (spec `_specs/breach-monitoring.md`)
+
+```ts
+export type VerificationSource = "sign_in" | "extra";
+export type BreachCheckStatus = "never_checked" | "clean" | "breached" | "failed";
+export type AddressRow = { id: string; tenantId: string; userId: string; digest: string; encryptedAddress: Uint8Array; verificationSource: VerificationSource; verificationTokenHash?: string; verificationExpiresAt?: Date; verifiedAt?: Date; verificationPending: boolean; checkStatus: BreachCheckStatus; lastCheckedAt?: Date; lastSuccessfulCheckAt?: Date };
+// The table also stores up to three verification_send_times per tenant digest; timestamps are synchronized across same-digest rows.
+export type BreachObservationInput = { breachName: string; domain?: string; breachDate?: Date; addedDate?: Date; dataClasses: string[]; retiredAt?: Date };
+export type ObservationRow = BreachObservationInput & { id: string; tenantId: string; monitoredAddressId: string; firstSeenAt: Date; lastSeenAt: Date };
+export type RequestVerificationResult = { status: "reserved" | "already_verified" | "rate_limited" | "address_limit"; address?: AddressRow };
+export const breachMonitoring: {
+  listAddresses(db: Db, tenantId: string, userId: string): Promise<AddressRow[]>;
+  getAddressForCheck(db: Db, input: { tenantId: string; userId: string; addressId: string }): Promise<AddressRow | undefined>; // verified only
+  addVerifiedAddress(db: Db, input: { tenantId: string; userId: string; addressId: string; digest: string; encryptedAddress: Uint8Array; verifiedAt: Date; now: Date }): Promise<AddressRow>;
+  requestVerification(db: Db, input: { tenantId: string; userId: string; addressId: string; digest: string; encryptedAddress: Uint8Array; tokenHash: string; expiresAt: Date; now: Date }): Promise<RequestVerificationResult>; // atomically enforces 3 sends / rolling 24h and 5 extra addresses / user
+  verifyAddress(db: Db, input: { tenantId: string; userId: string; tokenHash: string; verifiedAt: Date }): Promise<AddressRow | undefined>; // consumes single-use token only when unexpired
+  removeAddress(db: Db, input: { tenantId: string; userId: string; addressId: string }): Promise<boolean>;
+  deleteUserAddresses(db: Db, tenantId: string, userId: string): Promise<number>; // called by household leave/removal
+  updateCheck(db: Db, input: { tenantId: string; userId: string; addressId: string; status: "clean" | "breached" | "failed"; checkedAt: Date }): Promise<boolean>;
+  upsertObservations(db: Db, input: { tenantId: string; userId: string; addressId: string; observations: BreachObservationInput[]; now: Date }): Promise<{ newObservations: ObservationRow[] }>;
+  listObservations(db: Db, input: { tenantId: string; userId: string; addressId: string }): Promise<ObservationRow[]>;
+  listEligibleAddressIds(db: Db, opts?: { cursor?: string; limit?: number }): Promise<{ items: Array<{ tenantId: string; userId: string; addressId: string }>; nextCursor?: string }>;
+  purgeExpiredVerificationTokens(db: Db): Promise<number>; // DB clock only; one batch of at most 1000
+};
+```
+
+## apps/web (spec `_specs/breach-monitoring.md`)
+
+```ts
+export type HIBPBreach = { name: string; domain?: string; breachDate?: string; addedDate?: string; dataClasses: string[]; retired: boolean };
+export type HIBPResult =
+  | { status: "clean"; breaches: [] }
+  | { status: "breached"; breaches: HIBPBreach[] }
+  | { status: "retryable_failure"; retryAfterSeconds?: number }
+  | { status: "configuration_failure" }
+  | { status: "invalid_request" };
+export function lookupBreachedAccount(email: string, deps?: HIBPDeps): Promise<HIBPResult>; // full v3 model, no raw body
+export function breachMonitoringEnv(source?: EnvSource): { HIBP_API_KEY?: string; HIBP_RPM: number; HIBP_USER_AGENT: string }; // RPM 1..1000, default 10
+export type BreachSurfaceStatus = "pending" | "clean" | "breached" | "stale" | "never-checked" | "failed";
+export type BreachStatusObservation = { breachName: string; domain: string | null; breachDate: string | null; addedDate: string | null; dataClasses: string[]; firstSeenAt: string; lastSeenAt: string; retiredAt: string | null };
+export type BreachStatusAddress = { id: string; email: string; source: VerificationSource; verificationStatus: "pending" | "verified"; status: BreachSurfaceStatus; verifiedAt: string | null; lastCheckedAt: string | null; lastSuccessfulCheckAt: string | null; observations: BreachStatusObservation[] };
+export type BreachStatusSnapshot = { status: Exclude<BreachSurfaceStatus, "pending">; lastSuccessfulCheckAt: string | null; pendingCount: number; addresses: BreachStatusAddress[]; attribution: { label: "Have I Been Pwned"; url: "https://haveibeenpwned.com"; license: "CC BY 4.0" } };
+export const BREACH_STATUS_STALE_AFTER_MS: number; // 8 days from last success
+export type BreachCheckTarget = { tenantId: string; userId: string; addressId: string };
+export const BREACH_CHECK_EVENT = "neo/breach-monitoring.check";
+export type BreachCheckEvent = { id: string; name: typeof BREACH_CHECK_EVENT; data: { attempt: number; targets: BreachCheckTarget[] } };
+// Event ID: `neo/breach-monitoring.check:<UTC run date>:<tenantId>:<addressId>` of the group's lexicographically first target (+ `:retry-<n>` on retries). No address-derived value (including the global digest) is in an event ID or payload; data holds identifiers and attempt.
+// `lookupBreachedAccount`: GET breachedaccount/{email}?truncateResponse=false&IncludeUnverified=false; validates only the fields used (Name, Domain?, BreachDate, AddedDate, DataClasses, IsRetired) and ignores unknown fields. Mock fixtures (@example.com breached, else clean, no network) when MOCK_MODE or (no HIBP_API_KEY and not deployed); deployed without a key -> configuration_failure, no request.
+export const BREACH_MONITORING_WEEKLY_CRON = "0 15 * * 1";
+export const BREACH_TOKEN_CLEANUP_CRON = "0 4 * * *";
+export const breachMonitoringCron: InngestFunction;
+export const breachCheck: InngestFunction; // function-wide HIBP_RPM throttle and per-event ID concurrency, `retries: 1`; each provider retry is a new throttled run. `checkGroup(targets)` does exactly one lookup per group. The cron runs discovery, event build and `inngest.send` inside one `step.run` that returns only `{ queued }`
+export const breachVerificationCleanup: InngestFunction;
+export function getBreachStatusForUser(input: { tenantId: string; userId: string }): Promise<BreachStatusSnapshot>; // may idempotently seed verified sign-in row; never queries HIBP
+export const checkBreachesTool: RegisteredTool; // empty strict input; only session subject; result goes through wrapToolResult
+export function deriveMonitoredAddressDigest(tenantId: string, address: string, source?: EnvSource): Promise<string>; // deriveKey(masterKey, "neo-breach-addr-v1", tenantId), then HMAC-SHA256
+export function deriveGlobalBreachQueryDigest(address: string, source?: EnvSource): Promise<string>; // deriveKey(masterKey, "neo-breach-global-v1", ""); in-process single-flight grouping only, never sent to Inngest or persisted. Without NEO_MASTER_KEY a deterministic dev key is used only when `!isDeployedEnvironment()`; deployed fails closed (all breach crypto)
+export function encryptMonitoredAddress(address: string, identity: { tenantId: string; userId: string; addressId: string }, source?: EnvSource): Uint8Array;
+export function decryptMonitoredAddress(encrypted: Uint8Array, identity: { tenantId: string; userId: string; addressId: string }, source?: EnvSource): string;
+export function issueVerificationToken(): string; // cryptographically random 256-bit value, returned only to email sender
+export function hashVerificationToken(token: string): string; // SHA-256 hex, only hash stored
+export const BREACH_ALERT_KIND = "breach_detected";
+export function alertBreachDetected(input: { tenantId: string; userId: string; addressId: string; breachName: string; dataClasses: string[] }): Promise<void>;
+// GET /api/settings/breaches/addresses -> { addresses, maxExtraAddresses: 5 }
+// POST /api/settings/breaches/addresses { email } -> 202 { status: "pending_confirmation" }
+// DELETE /api/settings/breaches/addresses/[id] -> 204; only extra addresses can be removed
+// POST /api/settings/breaches/addresses/verify { token } -> { status: "verified" }
+// GET /api/settings/breaches -> session user's statuses, last successful check, selected observations, and HIBP attribution
+// Settings page: /settings/breaches; email confirmation page: /settings/breaches/verify (no-referrer; explicit click required)
+// All breach status and address APIs require a browser session; only the address owner receives decrypted address strings.
+```
+
+Address CRUD and status reads take tenant/user identity from the authenticated session, never request input; API responses are `Cache-Control: no-store`. The verified sign-in address is initialized from `users.email` only when `emailVerified` is non-null and cannot be removed through the extra-address DELETE endpoint. Extra addresses require confirmation and can be removed. Household leave/removal hard-deletes addresses and observations. Owner alert email subject/body contains the breach name and static guidance only, never the address; it uses existing owner thresholds and email caps. The chat tool accepts an empty object and reports stored status only; the agent wraps its result with `wrapToolResult`.

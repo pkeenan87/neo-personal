@@ -225,3 +225,25 @@ export function inboundStatus(source: EnvSource = process.env): "ok" | "unconfig
 }
 
 // END forward-to-address
+
+export interface BreachMonitoringEnv {
+  HIBP_API_KEY?: string;
+  HIBP_RPM: number;
+  HIBP_USER_AGENT: string;
+}
+
+export const HIBP_RPM_DEFAULT = 10;
+export const HIBP_USER_AGENT_DEFAULT = "Neo breach monitoring (https://www.neoshield.dev)";
+const HIBP_RPM_MAX = 1000;
+
+/** Server-only HIBP settings. Invalid RPM values fall back to the conservative default. */
+export function breachMonitoringEnv(source: EnvSource = process.env): BreachMonitoringEnv {
+  const key = nonEmpty(source.HIBP_API_KEY);
+  const rawRpm = nonEmpty(source.HIBP_RPM);
+  const rpm = rawRpm && /^\d+$/.test(rawRpm) ? Number(rawRpm) : NaN;
+  return {
+    ...(key ? { HIBP_API_KEY: key } : {}),
+    HIBP_RPM: Number.isSafeInteger(rpm) && rpm >= 1 && rpm <= HIBP_RPM_MAX ? rpm : HIBP_RPM_DEFAULT,
+    HIBP_USER_AGENT: nonEmpty(source.HIBP_USER_AGENT) ?? HIBP_USER_AGENT_DEFAULT,
+  };
+}
