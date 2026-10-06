@@ -30,26 +30,26 @@
     "migrate": "tsx src/migrate.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.128.0",
+    "@anthropic-ai/sdk": "^0.131.0",
     "@neo/core": "workspace:*",
     "@neo/verdict": "workspace:*",
-    "@neondatabase/serverless": "^1.1.0",
+    "@neondatabase/serverless": "^1.2.0",
     "@vercel/blob": "2.8.0",
     "drizzle-orm": "^0.45.3",
-    "pg": "^8.23.0"
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
     "@electric-sql/pglite": "^0.5.8",
     "@eslint/js": "^10.0.1",
-    "@types/node": "^26.6.2",
+    "@types/node": "^26.6.4",
     "@types/pg": "^8.23.1",
     "drizzle-kit": "^0.31.11",
     "eslint": "^10.11.0",
-    "globals": "^17.12.0",
+    "globals": "^17.13.0",
     "tsx": "^4.23.15",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.70.1",
-    "vitest": "^5.0.1"
+    "typescript-eslint": "^8.71.0",
+    "vitest": "^5.0.3"
   }
 }
