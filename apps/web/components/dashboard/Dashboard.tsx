@@ -17,7 +17,10 @@ import {
 } from "@/lib/dashboard-types";
 import { VERDICT_LABELS } from "@/lib/verdict-fence";
 import type { AlertListResponse } from "@/lib/alert-types";
+import type { AccountHardeningScore } from "@neo/core";
+import type { HardeningItemView, HardeningMemberPercent } from "@/lib/hardening-types";
 import { AlertsPanel } from "./AlertsPanel";
+import { HardeningCard } from "./HardeningCard";
 import { BarList, LABEL_BG, PerDayChart } from "./charts";
 import { SUBJECT_ICON, SUBJECT_LABEL } from "./subject-types";
 
@@ -27,6 +30,8 @@ export interface DashboardProps {
   forwardingUsed: boolean;
   /** Open alerts visible to the viewer (_specs/owner-alerts.md); omitted = none. */
   alerts?: AlertListResponse;
+  /** The viewer's own hardening score (_specs/hardening-score.md); omitted when it could not be loaded. */
+  hardening?: { score: AccountHardeningScore; items: HardeningItemView[]; members?: HardeningMemberPercent[] };
   initialRange?: SinceDays;
 }
 
@@ -64,7 +69,7 @@ interface Loaded {
   recent: VerdictListResponse;
 }
 
-export function Dashboard({ household, forwardingUsed, alerts, initialRange = 30 }: DashboardProps) {
+export function Dashboard({ household, forwardingUsed, alerts, hardening, initialRange = 30 }: DashboardProps) {
   const [range, setRange] = useState<SinceDays>(initialRange);
   const [member, setMember] = useState<string>("");
   const [data, setData] = useState<Loaded | null>(null);
@@ -179,6 +184,7 @@ export function Dashboard({ household, forwardingUsed, alerts, initialRange = 30
       </div>
 
       {alerts && <AlertsPanel initial={alerts} isOwner={isOwner} />}
+      {hardening && <HardeningCard {...hardening} />}
 
       {error && error.key === key && (
         <div role="alert" className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">

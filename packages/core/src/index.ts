@@ -107,3 +107,30 @@ export {
   triageModel,
 } from "./triage.js";
 export type { RunTriageInput, TriageEvidenceKind, TriageResult } from "./triage.js";
+
+// Account-hardening checklist and score (pure, deterministic)
+export {
+  ACCOUNT_HARDENING_MANIFESTS,
+  ACCOUNT_HARDENING_MAX_NEXT_ACTIONS,
+  ACCOUNT_HARDENING_MIN_ANSWERS,
+  ACCOUNT_HARDENING_STALE_AFTER_MS,
+  ACCOUNT_HARDENING_V1,
+  CURRENT_ACCOUNT_HARDENING_MANIFEST,
+  CURRENT_ACCOUNT_HARDENING_VERSION,
+  isAccountHardeningAnswerAllowed,
+  isAccountHardeningItemId,
+  isAccountHardeningStale,
+  scoreAccountHardening,
+} from "./account-hardening.js";
+export type {
+  AccountHardeningAnswerInput,
+  AccountHardeningEvidence,
+  AccountHardeningEvidenceId,
+  AccountHardeningHelpLink,
+  AccountHardeningItemId,
+  AccountHardeningManifest,
+  AccountHardeningManifestItem,
+  AccountHardeningScore,
+  AccountHardeningState,
+  AccountHardeningVersion,
+} from "./account-hardening.js";

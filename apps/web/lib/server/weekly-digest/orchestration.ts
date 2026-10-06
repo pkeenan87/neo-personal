@@ -66,8 +66,9 @@ export async function runWeeklyDigestCron(
   };
 }
 
+/** Only verdict/alert activity makes a week reportable; breach status and the hardening score ride along when one is sent. */
 function hasReportableContent(content: DigestContent): boolean {
-  return Boolean(content.personal || content.household || content.breachStatus || content.hardeningScore);
+  return Boolean(content.personal || content.household);
 }
 
 async function finish(

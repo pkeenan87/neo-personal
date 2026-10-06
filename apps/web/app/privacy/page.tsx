@@ -108,6 +108,12 @@ function sections(email: string): Section[] {
             under CC BY 4.0.
           </p>
           <p className="mt-3">
+            <strong>Account-hardening checklist.</strong> Your answers to the checklist in Settings → Hardening (for example, whether you
+            use a password manager) are self-reported: Neo stores what you tell it and does not verify it with your providers. Answers are
+            stored per household member, only you can see them, and they are deleted when you clear them, leave the household, or the owner
+            removes you. A household owner sees only your percentage score, or &ldquo;not enough answers&rdquo;, never your individual answers.
+          </p>
+          <p className="mt-3">
             Neo does not sell or rent your data, does not show ads, does not build advertising profiles, and does not use
             what you submit to train AI models.
           </p>

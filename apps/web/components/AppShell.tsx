@@ -24,12 +24,13 @@ export const SETTINGS_LINKS: { href: string; label: string }[] = [
   { href: "/settings/desktop", label: "Desktop" },
   { href: "/settings/digest", label: "Digest" },
   { href: "/settings/breaches", label: "Breaches" },
+  { href: "/settings/hardening", label: "Hardening" },
 ];
 
 function SettingsNav() {
   const pathname = usePathname();
   return (
-    <nav aria-label="Settings" className="mx-auto mb-7 grid w-full max-w-2xl grid-cols-2 gap-1 rounded-2xl border border-border bg-surface p-1.5 shadow-sm sm:grid-cols-6">
+    <nav aria-label="Settings" className="mx-auto mb-7 grid w-full max-w-2xl grid-cols-2 gap-1 rounded-2xl border border-border bg-surface p-1.5 shadow-sm sm:grid-cols-7">
       {SETTINGS_LINKS.map((l) => {
         const current = pathname === l.href;
         return (

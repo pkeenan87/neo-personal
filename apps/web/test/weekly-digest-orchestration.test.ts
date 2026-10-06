@@ -193,6 +193,31 @@ it("records empty weeks without attempting email", async () => {
   expect((await store.getDelivery(tenantId, userId, event.isoWeek))?.state).toBe("empty");
 });
 
+it("skips a week with only a hardening score or only breach status, and includes the score when there is activity", async () => {
+  const run = async (content: DigestContent) => {
+    resetMemoryState();
+    const { store, services } = makeServices(content);
+    await store.setPreference(tenantId, userId, true);
+    const mailer: Mailer = { send: vi.fn(async () => ({ id: "m-1" })) };
+    const result = await runWeeklyDigestDelivery(event, "run-1", new DurableSteps(), {
+      services, mailer, appUrl: "https://neo.example.test",
+      env: { AUTH_SECRET: WEEKLY_DIGEST_TEST_AUTH_SECRET, RESEND_FROM_EMAIL: "Neo <security@neo.example.test>" }, now: () => new Date("2026-10-05T15:00:00.000Z"),
+    });
+    return { result, mailer, state: (await store.getDelivery(tenantId, userId, event.isoWeek))?.state };
+  };
+  const score = { hardeningScore: { scorePercent: 45, href: "/settings/hardening" } };
+  const scoreOnly = await run(score);
+  expect(scoreOnly.result).toEqual({ status: "empty" });
+  expect(scoreOnly.mailer.send).not.toHaveBeenCalled();
+  expect(scoreOnly.state).toBe("empty");
+  const breachOnly = await run({ breachStatus: { status: "clear" } } as unknown as DigestContent);
+  expect(breachOnly.result).toEqual({ status: "empty" });
+  expect(breachOnly.mailer.send).not.toHaveBeenCalled();
+  const withActivity = await run({ ...reportable, ...score });
+  expect(withActivity.result).toMatchObject({ status: "sent" });
+  expect(JSON.stringify(vi.mocked(withActivity.mailer.send).mock.calls[0])).toContain("45%");
+});
+
 it("does not record a consent change during content loading as a legitimate empty week", async () => {
   resetMemoryState();
   const { store, services } = makeServices({});

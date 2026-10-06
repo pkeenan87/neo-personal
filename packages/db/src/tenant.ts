@@ -3,6 +3,7 @@ import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { MODEL_FAMILIES, ROUTING_PREFERENCES, type ModelFamily, type RoutingPreference } from "@neo/core";
 import type { Db, Tx } from "./client.js";
 import {
+  accountHardeningAnswers,
   digestDeliveries,
   monitoredAddresses,
   breachObservations,
@@ -30,6 +31,7 @@ export const tenantTables = {
   turns,
   verdicts,
   digestDeliveries,
+  accountHardeningAnswers,
   monitoredAddresses,
   breachObservations,
   artifacts,

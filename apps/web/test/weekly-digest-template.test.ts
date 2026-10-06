@@ -43,3 +43,13 @@ it("renders escaped owner/member summaries with only dashboard links and optiona
   expect(() => renderWeeklyDigest(personal, "http://neo.example.test/unsubscribe")).toThrow();
   expect(renderWeeklyDigest({ personal: { ...personal.personal!, topVerdicts: [{ ...personal.personal!.topVerdicts[0]!, href: "https://evil.test" }] } }, unsubscribe).html).not.toContain('href="https://evil.test');
 });
+
+it("renders the hardening slot as a percentage or not-enough-answers with a first-party Settings link only", () => {
+  const html = (hardeningScore: DigestContent["hardeningScore"]) => renderWeeklyDigest({ hardeningScore }, WEEKLY_DIGEST_TEST_UNSUBSCRIBE_URL);
+  const scored = html({ scorePercent: 72, href: "/settings/hardening" });
+  expect(scored.text).toContain("Your account-hardening score: 72%");
+  expect(scored.html).toContain('href="https://neo.example.test/settings/hardening"');
+  expect(html({ scorePercent: null, href: "/settings/hardening" }).text).toContain("not enough answers yet");
+  expect(html({ scorePercent: 50, href: "https://evil.example/x" }).html).not.toContain("evil.example");
+  expect(renderWeeklyDigest({}, WEEKLY_DIGEST_TEST_UNSUBSCRIBE_URL).text).not.toContain("hardening");
+});
