@@ -115,3 +115,7 @@ Everything in Phase 2 runs locally and in CI with `MOCK_MODE=true`. Details in `
 - [x] Run migrations `0005_desktop_tokens` and `0006_desktop_auth` as the owner (`MIGRATION_DATABASE_URL=... pnpm db:migrate`) **before** deploying the desktop-auth code (both additive; until then the desktop routes answer 503 `storage_unavailable`). (done 2026-09-26, verified on production)
 - [x] From the Omarchy bar: click **Sign in with Neo** (or run `omarchy-neo login`), approve in the browser with your Google account, confirm the token appears under **Settings → Desktop** named after the machine, and that the bar shows usage and recent verdicts. (done 2026-09-26)
 - [x] Put `~/Work/omarchy-neoshield-plugin` under git and push it to `pkeenan87/omarchy-neoshield-plugin`. (done 2026-09-26, `cbeb111` on `origin/main`)
+
+## 12. Mobile app (before store submission)
+
+- [ ] At mobile implementation, add an owner calendar reminder to rotate the Apple client-secret JWT before its maximum six-month lifetime.
