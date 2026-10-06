@@ -25,6 +25,7 @@ export const SETTINGS_LINKS: { href: string; label: string }[] = [
   { href: "/settings/digest", label: "Digest" },
   { href: "/settings/breaches", label: "Breaches" },
   { href: "/settings/hardening", label: "Hardening" },
+  { href: "/settings/outlook", label: "Outlook" },
 ];
 
 function SettingsNav() {

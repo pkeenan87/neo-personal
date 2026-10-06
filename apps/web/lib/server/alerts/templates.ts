@@ -81,6 +81,20 @@ export function breachDetectedAlertText(breachName: string, dataClasses: readonl
   };
 }
 
+/**
+ * `mailbox_forwarding` (high): an enabled Outlook.com inbox rule forwards or redirects mail to an external destination
+ * (_specs/outlook-connector.md). Names the destination domain only, never the address or the rule. `domain` is null when
+ * the destination could not be read.
+ */
+export function mailboxForwardingAlertText(memberName: string, domain: string | null): AlertText {
+  const where = domain && /^[a-z0-9.-]{1,253}$/i.test(domain) ? `an external destination at ${domain.toLowerCase()}` : "an external destination Neo could not read";
+  return {
+    severity: "high",
+    title: `${memberName} has an inbox rule forwarding mail outside their mailbox`,
+    body: `An enabled inbox rule in ${memberName}'s Outlook.com mailbox forwards or redirects incoming mail to ${where}. If ${memberName} did not set this up, someone else may be reading their mail: ask them to review Settings > Mail > Rules in Outlook and remove the rule, then change their Microsoft password. Neo audits inbox rules only; it cannot see account-level forwarding.`,
+  };
+}
+
 /** UTC hour bucket for membership dedupe keys. */
 export function hourBucket(now = new Date()): string {
   return now.toISOString().slice(0, 13);
