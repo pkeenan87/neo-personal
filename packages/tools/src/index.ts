@@ -29,6 +29,18 @@ export {
   type AnalyzeEmailInput,
   type CreateAnalyzeEmailToolOptions,
 } from "./email/tool.js";
+export {
+  SIGNIN_ALERT_SENDERS,
+  SIGNIN_ALERT_DOMAINS,
+  SIGNIN_ALERT_TEMPLATES,
+  assessSigninAlert,
+  parseSigninAlert,
+  type SigninAlertAssessment,
+  type SignInAlert,
+  type SignInAlertEvent,
+  type SignInAlertProvider,
+  type SigninFakeRule,
+} from "./signin/index.js";
 export { evaluateAuthentication, parseAuthResultsValue } from "./email/auth.js";
 export { analyzeHtml, type HtmlFacts, type HtmlAnchor } from "./email/html.js";
 export { triageAttachment, checkVirusTotalFile, parseVirusTotalFile } from "./email/attachments.js";

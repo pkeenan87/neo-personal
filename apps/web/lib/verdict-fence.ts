@@ -42,10 +42,11 @@ export type ContentSegment =
 const VERDICT_OPEN = /^ {0,3}(`{3,})[ \t]*verdict[ \t]*$/i;
 const ANY_OPEN = /^ {0,3}(`{3,}|~{3,})/;
 
-function isClose(line: string, fence: string): boolean {
+/** Matcher for the line that closes a fence opened with `fence` (built once per fence, not per line). */
+function closer(fence: string): (line: string) => boolean {
   const ch = fence[0] === "~" ? "~" : "`";
   const re = new RegExp(`^ {0,3}\\${ch}{${fence.length},}[ \\t]*$`);
-  return re.test(line);
+  return (line) => re.test(line);
 }
 
 /** True when `content` contains at least one ```verdict opening fence outside other code blocks. */
@@ -53,19 +54,17 @@ export function hasVerdictFence(content: string): boolean {
   return splitVerdictSegments(content).some((s) => s.kind !== "markdown");
 }
 
-/**
- * Split assistant content into Markdown and verdict segments.
- * @param streaming when true, an unterminated verdict block yields `verdict_pending`.
- */
-export function splitVerdictSegments(content: string, opts: { streaming?: boolean } = {}): ContentSegment[] {
+/** Line-level view of the content: runs of ordinary lines, and ```verdict blocks (close is undefined when unterminated). */
+type Block = { kind: "lines"; lines: string[] } | { kind: "verdict"; open: string; body: string[]; close?: string };
+
+/** One linear pass; the single place that decides what is a verdict fence (code blocks other than ```verdict are copied through). */
+function scanBlocks(content: string): Block[] {
   const lines = content.replace(/\r\n?/g, "\n").split("\n");
-  const out: ContentSegment[] = [];
+  const out: Block[] = [];
   let md: string[] = [];
   let i = 0;
-
-  const flushMd = () => {
-    const text = md.join("\n");
-    if (text.trim()) out.push({ kind: "markdown", text });
+  const flush = () => {
+    if (md.length) out.push({ kind: "lines", lines: md });
     md = [];
   };
 
@@ -73,34 +72,22 @@ export function splitVerdictSegments(content: string, opts: { streaming?: boolea
     const line = lines[i] ?? "";
     const vOpen = VERDICT_OPEN.exec(line);
     if (vOpen) {
-      const fence = vOpen[1] ?? "```";
+      const isClose = closer(vOpen[1] ?? "```");
       const body: string[] = [];
       let j = i + 1;
-      let closed = false;
+      let close: string | undefined;
       while (j < lines.length) {
         const l = lines[j] ?? "";
-        if (isClose(l, fence)) {
-          closed = true;
+        if (isClose(l)) {
+          close = l;
           break;
         }
         body.push(l);
         j++;
       }
-      flushMd();
-      const raw = body.join("\n");
-      if (!closed) {
-        out.push(opts.streaming ? { kind: "verdict_pending", raw } : { kind: "verdict_invalid", raw, reason: "unterminated" });
-        break;
-      }
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(raw);
-      } catch {
-        out.push({ kind: "verdict_invalid", raw, reason: "json" });
-        i = j + 1;
-        continue;
-      }
-      out.push(isVerdict(parsed) ? { kind: "verdict", verdict: parsed, raw } : { kind: "verdict_invalid", raw, reason: "schema" });
+      flush();
+      out.push({ kind: "verdict", open: line, body, ...(close !== undefined ? { close } : {}) });
+      if (close === undefined) break;
       i = j + 1;
       continue;
     }
@@ -109,14 +96,14 @@ export function splitVerdictSegments(content: string, opts: { streaming?: boolea
     if (anyOpen) {
       // Ordinary fenced code block: copy through verbatim, including any
       // ```verdict text inside it.
-      const fence = anyOpen[1] ?? "```";
+      const isClose = closer(anyOpen[1] ?? "```");
       md.push(line);
       i++;
       while (i < lines.length) {
         const l = lines[i] ?? "";
         md.push(l);
         i++;
-        if (isClose(l, fence)) break;
+        if (isClose(l)) break;
       }
       continue;
     }
@@ -124,8 +111,68 @@ export function splitVerdictSegments(content: string, opts: { streaming?: boolea
     md.push(line);
     i++;
   }
-  flushMd();
+  flush();
   return out;
+}
+
+function parseVerdict(raw: string): { ok: true; verdict: Verdict } | { ok: false; reason: "json" | "schema" } {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { ok: false, reason: "json" };
+  }
+  return isVerdict(parsed) ? { ok: true, verdict: parsed } : { ok: false, reason: "schema" };
+}
+
+/**
+ * Split assistant content into Markdown and verdict segments.
+ * @param streaming when true, an unterminated verdict block yields `verdict_pending`.
+ */
+export function splitVerdictSegments(content: string, opts: { streaming?: boolean } = {}): ContentSegment[] {
+  const out: ContentSegment[] = [];
+  for (const b of scanBlocks(content)) {
+    if (b.kind === "lines") {
+      const text = b.lines.join("\n");
+      if (text.trim()) out.push({ kind: "markdown", text });
+      continue;
+    }
+    const raw = b.body.join("\n");
+    if (b.close === undefined) {
+      out.push(opts.streaming ? { kind: "verdict_pending", raw } : { kind: "verdict_invalid", raw, reason: "unterminated" });
+      continue;
+    }
+    const r = parseVerdict(raw);
+    out.push(r.ok ? { kind: "verdict", verdict: r.verdict, raw } : { kind: "verdict_invalid", raw, reason: r.reason });
+  }
+  return out;
+}
+
+/**
+ * Replace the body of the LAST valid ```verdict block in `content` with `verdict` (everything else is kept
+ * byte for byte, apart from CRLF becoming LF), and append `note` as a last paragraph when given. Uses the same
+ * scan as `splitVerdictSegments`, so it targets exactly the block `extractVerdict` and the chat card read.
+ * Undefined when there is no valid verdict block.
+ */
+export function replaceLastVerdict(content: string, verdict: Verdict, note?: string): string | undefined {
+  const blocks = scanBlocks(content);
+  let target = -1;
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const b = blocks[i]!;
+    if (b.kind === "verdict" && b.close !== undefined && parseVerdict(b.body.join("\n")).ok) {
+      target = i;
+      break;
+    }
+  }
+  if (target < 0) return undefined;
+  const lines: string[] = [];
+  blocks.forEach((b, i) => {
+    if (b.kind === "lines") lines.push(...b.lines);
+    else if (i === target) lines.push(b.open, ...JSON.stringify(verdict, null, 2).split("\n"), b.close!);
+    else lines.push(b.open, ...b.body, ...(b.close !== undefined ? [b.close] : []));
+  });
+  const text = lines.join("\n");
+  return note ? `${text.replace(/\s+$/, "")}\n\n${note}` : text;
 }
 
 /** Plain-text report of a verdict, used by the "Copy report" button. */

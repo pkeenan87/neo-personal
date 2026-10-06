@@ -38,6 +38,8 @@ import {
 import { getArtifactStore } from "./artifacts";
 import { memoryHouseholdName } from "./memory-household";
 import { memoryState } from "./memory-state";
+import { isForeignSigninAlert, redactSigninAlertForOthers, signinAlertPublicHeadline } from "./signin/privacy";
+import { getSigninStore } from "./signin/store";
 import { memoryListMembers, memoryVerdictQueries } from "./verdict-memory";
 
 export const VERDICT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,7 +57,7 @@ async function queryGet(tenantId: string, id: string) {
   const d = db();
   return d ? verdictQueries.get(d, tenantId, id) : memoryVerdictQueries.get(tenantId, id);
 }
-async function querySummary(tenantId: string, opts: { userId?: string; sinceDays: SinceDays }) {
+async function querySummary(tenantId: string, opts: { userId?: string; sinceDays: SinceDays; viewerUserId?: string }) {
   const d = db();
   return d ? verdictQueries.summary(d, tenantId, opts) : memoryVerdictQueries.summary(tenantId, opts);
 }
@@ -88,13 +90,14 @@ export async function resolveUserFilter(session: NeoSession, requested: string |
   return members.some((m) => m.userId === requested) ? { ok: true, value: requested } : { ok: false, error: "not_found" };
 }
 
-export function toListItem(r: VerdictRow): VerdictListItem {
+/** `viewerUserId` hides a member's sign-in alert headline (model text may quote their device or location) from anyone else. */
+export function toListItem(r: VerdictRow, viewerUserId?: string): VerdictListItem {
   return {
     id: r.id,
     subjectType: r.subjectType,
     verdict: r.verdict,
     confidence: r.confidence,
-    headline: r.headline,
+    headline: viewerUserId !== undefined && isForeignSigninAlert(r.subjectType, r.userId, viewerUserId) ? signinAlertPublicHeadline(r.verdict) : r.headline,
     source: r.source,
     createdAt: r.createdAt.toISOString(),
     userId: r.userId,
@@ -110,7 +113,7 @@ export async function listVerdicts(
   const user = await resolveUserFilter(session, opts.userId);
   if (!user.ok) return user;
   const { items, nextCursor } = await queryList(session.tenantId, { ...opts, userId: user.value });
-  return { ok: true, value: { items: items.map(toListItem), nextCursor: nextCursor ?? null } };
+  return { ok: true, value: { items: items.map((r) => toListItem(r, session.userId)), nextCursor: nextCursor ?? null } };
 }
 
 export async function verdictSummary(
@@ -119,7 +122,7 @@ export async function verdictSummary(
 ): Promise<Result<VerdictSummaryResponse>> {
   const user = await resolveUserFilter(session, opts.userId);
   if (!user.ok) return user;
-  const s = await querySummary(session.tenantId, { sinceDays: opts.sinceDays, ...(user.value ? { userId: user.value } : {}) });
+  const s = await querySummary(session.tenantId, { sinceDays: opts.sinceDays, viewerUserId: session.userId, ...(user.value ? { userId: user.value } : {}) });
   return { ok: true, value: { sinceDays: opts.sinceDays, ...s } };
 }
 
@@ -141,11 +144,22 @@ export function verdictBody(row: VerdictRow): Verdict | null {
 export async function verdictDetail(session: NeoSession, id: string, now = new Date()): Promise<VerdictDetailResponse | null> {
   const row = await getVisibleVerdict(session, id);
   if (!row) return null;
-  const body = verdictBody(row);
-  if (!body) return null;
+  const parsedBody = verdictBody(row);
+  if (!parsedBody) return null;
+  // Sign-in details (device, location) are the member's own: anyone else sees the label, severity and static text.
+  const own = row.userId === session.userId;
+  const foreignSignin = isForeignSigninAlert(row.subjectType, row.userId, session.userId);
+  const { signin_check: check, ...rest } = parsedBody;
+  let body: Verdict = own && check ? { ...rest, signin_check: check } : rest;
+  if (isForeignSigninAlert(body.subject_type, row.userId, session.userId)) body = redactSigninAlertForOthers(body);
+  const signinDeviceKnown =
+    own && check?.first_seen
+      ? await safe(() => getSigninStore().isKnownDevice(session.tenantId, session.userId, check.provider, check.device_label), "sign-in device lookup")
+      : undefined;
 
   const [conversation, artifact, inboundRow, members] = await Promise.all([
-    row.conversationId ? conversationTitle(session.tenantId, row.userId, row.conversationId) : null,
+    // The chat title is model-written from the member's message: a foreign sign-in alert gets a generic one.
+    row.conversationId && foreignSignin ? { id: row.conversationId, title: "Sign-in alert check" } : row.conversationId ? conversationTitle(session.tenantId, row.userId, row.conversationId) : null,
     row.artifactId ? safe(async () => getArtifactStore()?.get(row.artifactId!, session.tenantId), "artifact lookup") : undefined,
     row.source === "inbound" ? safe(() => inboundByVerdictId(session.tenantId, row.id), "inbound lookup") : undefined,
     householdMembers(session),
@@ -157,7 +171,7 @@ export async function verdictDetail(session: NeoSession, id: string, now = new D
   };
 
   return {
-    ...toListItem(row),
+    ...toListItem(row, session.userId),
     body,
     conversation,
     artifact: artifact
@@ -175,6 +189,7 @@ export async function verdictDetail(session: NeoSession, id: string, now = new D
       ? { status: inboundRow.status, receivedAt: inboundRow.receivedAt.toISOString(), forwardedBy: nameOf(inboundRow.forwarderUserId) }
       : null,
     memberName: nameOf(row.userId),
+    ...(signinDeviceKnown !== undefined ? { signinDeviceKnown } : {}),
   };
 }
 

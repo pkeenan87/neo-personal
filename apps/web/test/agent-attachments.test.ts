@@ -178,8 +178,8 @@ describe("analyze_email is bound to the session tenant", () => {
     expect(foreign.errors).toContain("artifact_not_found");
   });
 
-  it("registers check_url, check_breaches, analyze_email and analyze_sms", () => {
-    expect(buildToolRegistry({ mock: false }).list().map((t) => t.name)).toEqual(["analyze_email", "analyze_sms", "check_breaches", "check_url"]);
+  it("registers check_url, check_breaches, review_my_signins, analyze_email and analyze_sms", () => {
+    expect(buildToolRegistry({ mock: false }).list().map((t) => t.name)).toEqual(["analyze_email", "analyze_sms", "check_breaches", "check_url", "review_my_signins"]);
   });
 });
 

@@ -1,6 +1,7 @@
 import { ChatInterface } from "@/components/ChatInterface";
 import { isPlaybookId, playbookPrompt } from "@/lib/playbooks";
 import { loadConversationList } from "@/lib/server/chat-data";
+import { isForeignSigninAlert, signinAlertPublicHeadline } from "@/lib/server/signin/privacy";
 import { getVisibleVerdict } from "@/lib/server/verdict-data";
 import { requireSession, type NeoSession } from "@/lib/session";
 
@@ -24,7 +25,10 @@ async function entryFor(session: NeoSession, params: SearchParams) {
   const verdictId = one(params.verdict);
   if (verdictId) {
     const row = await getVisibleVerdict(session, verdictId).catch(() => undefined);
-    if (row) return { autoStart: { message: `Tell me more about this check: "${row.headline}"`, verdictId: row.id } };
+    if (row) {
+      const headline = isForeignSigninAlert(row.subjectType, row.userId, session.userId) ? signinAlertPublicHeadline(row.verdict) : row.headline;
+      return { autoStart: { message: `Tell me more about this check: "${headline}"`, verdictId: row.id } };
+    }
   }
   const check = one(params.check);
   if (check && check.length <= 2048 && /^https?:\/\//i.test(check)) return { prefill: `Check this link again: ${check}` };

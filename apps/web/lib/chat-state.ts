@@ -12,12 +12,14 @@
  *   route                 → stored on the message (`route`), shown as a model chip
  *   usage                 → recorded on the message; `usage.model` → `servedModel`
  *   done                  → mark the message complete                     [—]
+ *   verdict_override      → rewrite the last verdict block (a server rule replaced the model's verdict; arrives after `done`)
  *   error                 → mark the message errored with the text         [error]
  */
 import type { AgentEvent, Route } from "@neo/core";
 import { parseAttachmentNote, type AttachmentRef } from "./attachments";
 import { isHiddenContextText } from "./hidden-context";
 import { stripPlaybookMarker } from "./playbooks";
+import { replaceLastVerdict } from "./verdict-fence";
 
 // Chat events are the core AgentEvent union (docs/contracts.md, Phase 2 adds `route` and `usage.model`).
 export type ChatEvent = AgentEvent;
@@ -184,6 +186,19 @@ function applyEvent(m: ChatMessage, e: ChatEvent, now: number): ChatMessage {
       return { ...m, status: m.status === "streaming" ? "complete" : m.status, stopReason: e.stop_reason };
     case "error":
       return { ...m, status: "error", error: e.message };
+    case "verdict_override": {
+      // Sent after `done`: rewrite the last verdict block of the last text part that has one, whatever the status.
+      for (let i = m.parts.length - 1; i >= 0; i--) {
+        const p = m.parts[i];
+        if (p?.kind !== "text") continue;
+        const text = replaceLastVerdict(p.text, e.verdict);
+        if (text === undefined) continue;
+        const parts = m.parts.slice();
+        parts[i] = { kind: "text", text };
+        return { ...m, parts };
+      }
+      return m;
+    }
   }
 }
 

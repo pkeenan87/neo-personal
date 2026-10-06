@@ -52,6 +52,7 @@ Tool definition
     spf: "pass" | "fail" | "softfail" | "neutral" | "none" | "temperror" | "permerror" | "absent";
     dkim: "pass" | "fail" | "none" | "absent";
     dkim_domains: string[];                   // d= values; alignment with from registrable
+    dkim_pass_domains: string[];              // d= of passing signatures only (added for sign-in alerts); [] in the DKIM-Signature fallback
     dmarc: "pass" | "fail" | "none" | "absent";
     aligned: boolean | null;                  // DKIM d= or SPF domain aligns with From registrable
     source: "authentication_results" | "arc" | "received_spf_and_dkim_signature" | "none";

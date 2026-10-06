@@ -115,6 +115,7 @@ function summarize(results: AuthResult[], fromRegistrable: string | undefined): 
   const compauth = results.find((r) => r.method === "compauth");
   const dkimDomainOf = (r: AuthResult) => domainOf(r.props["header.d"] ?? r.props["header.i"]);
   const dkim_domains = [...new Set(dkimRes.map(dkimDomainOf).filter((d): d is string => !!d))].slice(0, 10);
+  const dkim_pass_domains = [...new Set(dkimRes.filter((r) => r.result === "pass").map(dkimDomainOf).filter((d): d is string => !!d))].slice(0, 10);
   const spf = mapSpf(spfRes?.result);
   const dkim = mapDkim(dkimRes.map((r) => r.result));
   const dmarc = mapDmarc(dmarcRes?.result);
@@ -125,7 +126,7 @@ function summarize(results: AuthResult[], fromRegistrable: string | undefined): 
     const spfAligned = spf === "pass" && registrableDomain(spfDomain) === fromRegistrable;
     aligned = dkimAligned || spfAligned || dmarc === "pass";
   }
-  const out: Omit<EmailAuthentication, "source" | "evaluated_by"> = { spf, dkim, dkim_domains, dmarc, aligned };
+  const out: Omit<EmailAuthentication, "source" | "evaluated_by"> = { spf, dkim, dkim_domains, dkim_pass_domains, dmarc, aligned };
   if (compauth) out.compauth = compauth.result;
   return out;
 }
@@ -157,6 +158,11 @@ export function evaluateAuthentication(headers: Header[], fromRegistrable: strin
     }
     const result: EmailAuthentication = { ...summarize(merged, fromRegistrable), source: "authentication_results" };
     if (chosen.authservId) result.evaluated_by = chosen.authservId;
+    // Strict view: only the selected header (never merged), and only when it is the topmost one and was matched
+    // to the receiving provider's own Received `by` host. A lower header may have been written by the sender.
+    const matched = !!receiving && !!chosen.authservId && registrableDomain(chosen.authservId) === receiving;
+    const s = summarize(chosen.results, fromRegistrable);
+    result.strict = { spf: s.spf, dkim: s.dkim, dkim_pass_domains: s.dkim_pass_domains, dmarc: s.dmarc, aligned: s.aligned, untrusted: !matched || chosen !== ar[0] };
     return result;
   }
 
@@ -186,13 +192,14 @@ export function evaluateAuthentication(headers: Header[], fromRegistrable: strin
       spf,
       dkim: dkimSigs.length ? "none" : "absent",
       dkim_domains,
+      dkim_pass_domains: [],
       dmarc: "absent",
       aligned,
       source: "received_spf_and_dkim_signature",
     };
   }
 
-  return { spf: "absent", dkim: "absent", dkim_domains: [], dmarc: "absent", aligned: null, source: "none" };
+  return { spf: "absent", dkim: "absent", dkim_domains: [], dkim_pass_domains: [], dmarc: "absent", aligned: null, source: "none" };
 }
 
 /** Auth heuristic codes for an evaluation. */

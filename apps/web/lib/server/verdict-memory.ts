@@ -8,11 +8,12 @@
  */
 import { InvalidCursorError, type HouseholdMember, type VerdictListOptions, type VerdictRow, type VerdictSummary } from "@neo/db";
 import { SUBJECT_TYPES, VERDICTS, type SubjectType, type VerdictLabel } from "@neo/verdict";
-import { memoryListMembers as listMemoryMembers, memoryVerdicts, type MemoryVerdictRow } from "./memory-state";
+import { memoryListMembers as listMemoryMembers, memoryState, memoryVerdicts, type MemoryVerdictRow } from "./memory-state";
 
 export interface VerdictSummaryOpts {
   userId?: string;
   sinceDays: 7 | 30 | 90;
+  viewerUserId?: string;
 }
 
 export const MAX_VERDICT_PAGE = 50;
@@ -93,6 +94,7 @@ export const memoryVerdictQueries = {
       tenantRows(tenantId).filter((r) => !opts.userId || r.userId === opts.userId),
       opts.sinceDays,
       now,
+      opts.viewerUserId,
     );
   },
 
@@ -101,6 +103,9 @@ export const memoryVerdictQueries = {
     const idx = rows.findIndex((r) => r.tenantId === tenantId && r.id === id);
     if (idx < 0) return false;
     rows.splice(idx, 1);
+    // Sign-in events cascade with their verdict, like the foreign key.
+    const st = memoryState();
+    st.signinEvents = st.signinEvents.filter((e) => e.verdictId !== id);
     return true;
   },
 };
@@ -110,7 +115,7 @@ function utcDay(d: Date): string {
 }
 
 /** Aggregate rows into the contract's VerdictSummary (pure; also used by tests). */
-export function summarize(rows: readonly VerdictRow[], sinceDays: 7 | 30 | 90, now = new Date()): VerdictSummary {
+export function summarize(rows: readonly VerdictRow[], sinceDays: 7 | 30 | 90, now = new Date(), viewerUserId?: string): VerdictSummary {
   const since = new Date(now.getTime() - sinceDays * 86_400_000);
   const inRange = rows.filter((r) => r.createdAt >= since && r.createdAt <= now);
   const byLabel = Object.fromEntries(VERDICTS.map((v) => [v, 0])) as Record<VerdictLabel, number>;
@@ -122,11 +127,13 @@ export function summarize(rows: readonly VerdictRow[], sinceDays: 7 | 30 | 90, n
   for (const r of inRange) {
     byLabel[r.verdict]++;
     bySubjectType[r.subjectType]++;
+    // A member's sign-in alert text can quote their account activity: aggregated only for that member.
+    const aggregate = !(r.subjectType === "signin_alert" && r.userId !== viewerUserId);
     const body = r.body as { indicators?: Array<{ category?: unknown }>; iocs?: { domains?: unknown[] } };
-    for (const ind of body.indicators ?? []) {
+    for (const ind of aggregate ? (body.indicators ?? []) : []) {
       if (typeof ind.category === "string" && ind.category) indicators.set(ind.category, (indicators.get(ind.category) ?? 0) + 1);
     }
-    if (r.verdict !== "likely_safe") {
+    if (aggregate && r.verdict !== "likely_safe") {
       for (const d of new Set(body.iocs?.domains ?? [])) {
         if (typeof d === "string" && d) domains.set(d.toLowerCase(), (domains.get(d.toLowerCase()) ?? 0) + 1);
       }

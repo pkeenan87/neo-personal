@@ -5,13 +5,15 @@
  * event key and the tests pass `inlineSteps`.
  *
  * Steps: fetch-raw → store-artifact → identify-forwarder → check-caps →
- * analyze → triage → save-verdict → notify. Step return values are plain JSON
+ * analyze → triage → signin-alert → save-verdict → notify. Step return values are plain JSON
  * (Inngest memoizes them), so no Dates or byte arrays cross a step boundary.
  */
 import { hashPii, logger } from "@neo/core";
 import type { Verdict } from "@neo/verdict";
 import type { AuditEventType } from "../audit";
 import { overCapVerdict, renderNoticeEmail, renderVerdictEmail, type NoticeKind } from "../email/verdict-email";
+import { applySigninHookFailureCap } from "../signin/override";
+import { finalizeSigninVerdict, persistSigninEvent, type FinalizedSigninVerdict } from "../signin/service";
 import { TooLargeError, type Mailer, type ReceivedEmail, type ReceivedMailClient } from "../email/resend";
 import type { RunTriageInput, TriageResult } from "@neo/core";
 import type { ArtifactStore, HouseholdMember, InboundMessagePatch, InboundMessageRow, VerdictSource } from "@neo/db";
@@ -56,6 +58,10 @@ export interface EmailJobDeps {
   analyzeEmail(input: EmailInput, opts: Pick<AnalyzeEmailOptions, "maxUrls">): Promise<EmailAnalysis>;
   runTriage(input: RunTriageInput): Promise<TriageResult>;
   triageGuidance: string;
+  /** Sign-in alert hook between triage and save (default: the deterministic override + first-seen check). */
+  finalizeSignin?(input: { tenantId: string; userId: string; analysis: EmailAnalysis; verdict: Verdict }): Promise<FinalizedSigninVerdict>;
+  /** Store the parsed sign-in event once its verdict has an id (default: the sign-in store; never throws). */
+  persistSignin?(input: { tenantId: string; userId: string; verdictId: string; event: FinalizedSigninVerdict["event"] }): Promise<void>;
   saveVerdict(input: { tenantId: string; userId: string; artifactId?: string | null; source: VerdictSource; verdict: Verdict }): Promise<{ id: string }>;
   audit(tenantId: string, userId: string | null, type: AuditEventType, metadata: Record<string, unknown>): Promise<void>;
   appUrl: string;
@@ -223,9 +229,22 @@ export async function runEmailReceived(data: EmailReceivedData, deps: EmailJobDe
     deps.runTriage({ evidence: analysis, evidenceKind: "email", guidance: deps.triageGuidance }),
   );
 
-  const verdict: Verdict = { ...triage.verdict, raw_ref: artifactId };
+  // 6b. signin-alert: deterministic rules decide the verdict of a recognized sign-in alert (the model never does)
+  const signin = await step.run("signin-alert", async (): Promise<FinalizedSigninVerdict> => {
+    const input = { tenantId, userId: forwarder.userId, analysis, verdict: { ...triage.verdict, raw_ref: artifactId } };
+    try {
+      return await (deps.finalizeSignin ?? ((i) => finalizeSigninVerdict({ ...i, source: "forwarded" })))(input);
+    } catch (err) {
+      // Fail closed: a recognized sign-in alert whose rules did not run is never stored as the model's (possibly likely_safe) verdict.
+      if (!analysis.signin_alert) throw err;
+      logger.error("Sign-in alert hook failed", "inbound", { tenantId, errorMessage: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300) });
+      return { verdict: applySigninHookFailureCap(input.verdict), event: null };
+    }
+  });
+  const verdict: Verdict = signin.verdict;
   const verdictId = await step.run("save-verdict", async () => {
     const { id: vid } = await deps.saveVerdict({ tenantId, userId: forwarder.userId, artifactId, source: "inbound", verdict });
+    await (deps.persistSignin ?? persistSigninEvent)({ tenantId, userId: forwarder.userId, verdictId: vid, event: signin.event });
     await deps.recordUsage({
       tenantId,
       userId: forwarder.userId,

@@ -1,4 +1,5 @@
 import type { UrlAnalysis } from "../types.js";
+import type { SignInAlert } from "../signin/types.js";
 
 export type MagicType = "pdf" | "zip" | "ole" | "pe" | "html" | "lnk" | "iso" | "script" | "image" | "archive" | "unknown";
 
@@ -52,6 +53,8 @@ export type EmailAuthentication = {
   dkim: DkimResult;
   /** d= values of DKIM results (or DKIM-Signature headers in the fallback). */
   dkim_domains: string[];
+  /** d= values of the signatures that passed (empty in the DKIM-Signature fallback: a signature alone is never a pass). */
+  dkim_pass_domains: string[];
   dmarc: DmarcResult;
   /** DKIM d= (passing) or SPF domain (passing) aligns with the From registrable domain; null when unknown. */
   aligned: boolean | null;
@@ -60,6 +63,21 @@ export type EmailAuthentication = {
   evaluated_by?: string;
   /** Microsoft composite authentication (compauth=), when present. */
   compauth?: string;
+  /**
+   * Strict view for the sign-in "likely safe" gates: read from the single selected Authentication-Results header
+   * with no merging across headers. `untrusted` when that header cannot be tied to the receiving provider (no
+   * Received `by` host matched its authserv-id, or a header above it exists). Absent on analyses stored by older builds.
+   */
+  strict?: StrictAuthentication;
+};
+
+export type StrictAuthentication = {
+  spf: SpfResult;
+  dkim: DkimResult;
+  dkim_pass_domains: string[];
+  dmarc: DmarcResult;
+  aligned: boolean | null;
+  untrusted: boolean;
 };
 
 export type FileVirusTotalResult =
@@ -102,6 +120,19 @@ export type EmailUrlEntry = {
   skipped?: "limit" | "duplicate" | "unsupported_scheme";
 };
 
+export type EmailLinkSummary = {
+  /** Unique hosts of every http(s) link candidate (capped at 500). */
+  hosts: string[];
+  /** More unique hosts than `hosts` holds. */
+  hosts_truncated: boolean;
+  /** Candidates (web or not) beyond the listed `urls`. */
+  unlisted: number;
+  /** Web candidates with userinfo or an explicit port. */
+  nonstandard: number;
+  /** Candidates with a non-web scheme (javascript:, data:, ...). */
+  non_web: number;
+};
+
 export type EmailAnalysis = {
   input_kind: "raw" | "pasted";
   /** The analysis is of an inner (forwarded) message, not the wrapper. */
@@ -122,6 +153,8 @@ export type EmailAnalysis = {
   authentication: EmailAuthentication;
   received_hops: number;
   urls: EmailUrlEntry[];
+  /** Every link candidate, not just the listed `urls` (which are capped). Absent on analyses stored by older builds. */
+  link_summary?: EmailLinkSummary;
   attachments: EmailAttachmentAnalysis[];
   /** Phone numbers found in the body (E.164 where parseable): callback-scam IOCs. */
   phone_numbers: string[];
@@ -144,5 +177,7 @@ export type EmailAnalysis = {
   errors: string[];
   analyzed_at: string;
   mock?: true;
+  /** A recognized provider sign-in alert (_specs/signin-alerts.md). Absent for every other message. */
+  signin_alert?: SignInAlert;
 };
 

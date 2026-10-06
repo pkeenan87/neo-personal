@@ -9,7 +9,7 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const dir = path.join(here, "../lib/server/playbooks");
 // Keep in sync with PLAYBOOK_IDS in lib/playbooks.ts (the test checks this too).
-const IDS = ["clicked_link", "entered_password", "sent_gift_cards", "shared_code", "paid_scammer", "device_compromised"];
+const IDS = ["clicked_link", "entered_password", "sent_gift_cards", "shared_code", "paid_scammer", "device_compromised", "account_takeover"];
 
 export function renderGenerated(readFile = (id) => readFileSync(path.join(dir, `${id}.md`), "utf8")) {
   const entries = IDS.map((id) => `  ${id}: ${JSON.stringify(readFile(id).replace(/\r\n?/g, "\n").trimEnd() + "\n")},`);

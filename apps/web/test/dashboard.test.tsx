@@ -103,7 +103,7 @@ describe("Dashboard", () => {
     expect(screen.getByRole("link", { name: /Set up email forwarding/ })).toHaveAttribute("href", "/settings/forwarding");
     expect(screen.getByRole("link", { name: /Check a link/ })).toHaveAttribute("href", "/chat");
     expect(screen.getByRole("link", { name: "I clicked a link" })).toHaveAttribute("href", "/chat?playbook=clicked_link");
-    expect(screen.getAllByRole("link").filter((a) => a.getAttribute("href")?.startsWith("/chat?playbook="))).toHaveLength(6);
+    expect(screen.getAllByRole("link").filter((a) => a.getAttribute("href")?.startsWith("/chat?playbook="))).toHaveLength(7);
   });
 
   it("renders tiles, needs attention, charts, recent activity and load more from the APIs", async () => {

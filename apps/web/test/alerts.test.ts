@@ -127,6 +127,14 @@ describe("raising alerts from verdicts", () => {
     expect(memoryAlertRows()).toEqual([]);
   });
 
+  it("an owner alert for a member's sign-in alert never quotes the model's headline", async () => {
+    await saveVerdict({ tenantId: TENANT, userId: KID.userId, source: "inbound", verdict: verdict({ subject_type: "signin_alert", headline: "Windows laptop in Seattle at 203.0.113.24" }) });
+    const row = memoryAlertRows()[0]!;
+    expect(JSON.stringify(row)).not.toContain("Seattle");
+    expect(JSON.stringify(memorySentEmails())).not.toContain("Seattle");
+    expect(row.body).toContain("sign-in alert");
+  });
+
   it("alerts once per verdict", async () => {
     const input = { tenantId: TENANT, userId: KID.userId, verdictId: "11111111-1111-4111-8111-111111111111", verdict: verdict(), source: "chat" as const };
     await alertForVerdict(input);

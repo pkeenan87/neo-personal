@@ -14,6 +14,8 @@ import { analyzeAttachments } from "./attachments.js";
 import { authHeuristics, evaluateAuthentication, registrableDomain } from "./auth.js";
 import { EMAIL_CONTENT_SIGNALS, EMAIL_HEURISTIC_CODES, orderCodes } from "./codes.js";
 import { analyzeHtml, type HtmlFacts } from "./html.js";
+import { parseSigninAlert } from "../signin/parse.js";
+import { asksReplyWithCode, MAX_REPLY_SCAN_CHARS } from "../signin/reply.js";
 import { EmailParseError, isOle, parseEmail, parsePasted, toBytes } from "./parse.js";
 import type { EmailAnalysis, EmailAuthentication, EmailInput, EmailUrlEntry, ParsedEmail } from "./types.js";
 import { collectEmailUrls, MANY_URLS_THRESHOLD, MAX_LISTED_URLS } from "./urls.js";
@@ -37,7 +39,7 @@ export function isFreeMailDomain(registrable: string | undefined): boolean {
 /** Header names that mark input as an RFC 5322 message rather than plain text. */
 const MESSAGE_HEADERS = ["from", "to", "subject", "date", "received", "message-id", "mime-version", "return-path", "authentication-results", "dkim-signature"];
 
-const ABSENT_AUTH: EmailAuthentication = { spf: "absent", dkim: "absent", dkim_domains: [], dmarc: "absent", aligned: null, source: "none" };
+const ABSENT_AUTH: EmailAuthentication = { spf: "absent", dkim: "absent", dkim_domains: [], dkim_pass_domains: [], dmarc: "absent", aligned: null, source: "none" };
 
 function emptyAnalysis(inputKind: EmailAnalysis["input_kind"], analyzedAt: string, mock: boolean, errors: string[]): EmailAnalysis {
   const a: EmailAnalysis = {
@@ -53,7 +55,7 @@ function emptyAnalysis(inputKind: EmailAnalysis["input_kind"], analyzedAt: strin
       return_path_divergent: false,
       free_mail_provider: false,
     },
-    authentication: { ...ABSENT_AUTH, dkim_domains: [] },
+    authentication: { ...ABSENT_AUTH, dkim_domains: [], dkim_pass_domains: [] },
     received_hops: 0,
     urls: [],
     attachments: [],
@@ -243,7 +245,7 @@ export async function analyzeEmail(input: EmailInput, opts: AnalyzeEmailOptions 
   // Sender and authentication.
   const senderResult = analyzeSender(target, deps, knownSender);
   for (const h of senderResult.heuristics) heuristics.add(h);
-  const authentication = headersPresent ? evaluateAuthentication(target.headers, senderResult.fromRegistrable) : { ...ABSENT_AUTH, dkim_domains: [] };
+  const authentication = headersPresent ? evaluateAuthentication(target.headers, senderResult.fromRegistrable) : { ...ABSENT_AUTH, dkim_domains: [], dkim_pass_domains: [] };
   for (const h of authHeuristics(authentication, senderResult.fromRegistrable, headersPresent)) heuristics.add(h);
   const receivedHops = headersPresent ? target.headers.filter((h) => h.name.toLowerCase() === "received").length : 0;
 
@@ -313,6 +315,7 @@ export async function analyzeEmail(input: EmailInput, opts: AnalyzeEmailOptions 
     authentication,
     received_hops: receivedHops,
     urls,
+    link_summary: { hosts: collected.hosts, hosts_truncated: collected.hosts_truncated, unlisted: collected.candidates.length - listed.length, nonstandard: collected.nonstandard, non_web: collected.non_web },
     attachments: att.attachments,
     phone_numbers,
     content: {
@@ -326,6 +329,19 @@ export async function analyzeEmail(input: EmailInput, opts: AnalyzeEmailOptions 
     analyzed_at: analyzedAt,
   };
   if (deps.mock) result.mock = true;
+  // Sign-in alert facts come from the message already parsed above (no second pass), tried only when the body is present.
+  const signinAlert = parseSigninAlert({
+    ...(subject ? { subject } : {}),
+    body: bodyText,
+    ...(senderResult.sender.from.domain ? { senderDomain: senderResult.sender.from.domain } : {}),
+    analyzedAt,
+  });
+  if (signinAlert) {
+    // Rule 4 reads the whole body (the excerpt is cut), and a mailto: link may carry the request instead.
+    if (collected.mailto_asks_code || asksReplyWithCode(normalizeForMatch(`${subject ?? ""}\n${bodyText.slice(0, MAX_REPLY_SCAN_CHARS)}`))) signinAlert.reply_with_code = true;
+    if (collected.mailto_links > 0) signinAlert.mailto_links = collected.mailto_links;
+    result.signin_alert = signinAlert;
+  }
 
   logger.info(`email analyzed: analyzed=${analyzedCount} forwarded=${forwarded}`, "tools.email", {
     toolName: "analyze_email",
@@ -335,6 +351,7 @@ export async function analyzeEmail(input: EmailInput, opts: AnalyzeEmailOptions 
     dkim: authentication.dkim,
     dmarc: authentication.dmarc,
     urlCount: urls.length,
+    signinTemplate: !!signinAlert, // never the parsed values
     attachmentCount: att.attachments.length,
     // The analyzed sender's domain (bounded, lowercased): never the user's own address.
     ...(result.sender.from.registrable ? { senderDomain: result.sender.from.registrable.slice(0, 253) } : {}),

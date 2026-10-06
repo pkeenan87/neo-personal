@@ -40,7 +40,57 @@ describe("evaluateAuthentication", () => {
       ],
       "github.com",
     );
-    expect(a).toEqual({ spf: "pass", dkim: "pass", dkim_domains: ["github.com"], dmarc: "pass", aligned: true, source: "authentication_results", evaluated_by: "mx.google.com" });
+    expect(a).toEqual({
+      spf: "pass", dkim: "pass", dkim_domains: ["github.com"], dkim_pass_domains: ["github.com"], dmarc: "pass", aligned: true, source: "authentication_results", evaluated_by: "mx.google.com",
+      strict: { spf: "pass", dkim: "pass", dkim_pass_domains: ["github.com"], dmarc: "pass", aligned: true, untrusted: false },
+    });
+  });
+
+  describe("strict view (sign-in safe gates)", () => {
+    it("is read from the selected header alone: a lower same-domain header never fills a missing method", () => {
+      const a = evaluateAuthentication(
+        [
+          received("mx.example.test"),
+          h("Authentication-Results", "mx.example.test; spf=pass smtp.mailfrom=x@bounce.example.net"),
+          h("Authentication-Results", "mx2.example.test; dkim=pass header.d=google.com; dmarc=pass header.from=google.com"),
+        ],
+        "google.com",
+      );
+      // The merged view (used by general email analysis) still sees the lower header's dkim.
+      expect(a.dkim).toBe("pass");
+      expect(a.strict).toMatchObject({ spf: "pass", dkim: "absent", dkim_pass_domains: [], dmarc: "absent", untrusted: false });
+    });
+
+    it("is untrusted when the header was picked by falling back to the topmost one", () => {
+      const a = evaluateAuthentication(
+        [received("mx.google.com"), h("Authentication-Results", "mx.other.test; dkim=pass header.d=google.com")],
+        "google.com",
+      );
+      expect(a.strict?.untrusted).toBe(true);
+    });
+
+    it("is untrusted when the matching header sits below another header", () => {
+      const a = evaluateAuthentication(
+        [
+          received("mx.example.test"),
+          h("Authentication-Results", "mx.real.test; spf=pass"),
+          h("Authentication-Results", "mx.example.test; dkim=pass header.d=google.com"),
+        ],
+        "google.com",
+      );
+      expect(a.evaluated_by).toBe("mx.example.test");
+      expect(a.strict?.untrusted).toBe(true);
+    });
+  });
+
+  it("dkim_pass_domains lists only passing signatures (a failing d= is in dkim_domains only)", () => {
+    const a = evaluateAuthentication(
+      [h("Authentication-Results", "mx.example.test; dkim=fail header.d=google.com header.s=a; dkim=pass header.d=evil.com header.s=b; dmarc=fail header.from=google.com")],
+      "google.com",
+    );
+    expect(a.dkim).toBe("pass");
+    expect(a.dkim_domains).toEqual(["google.com", "evil.com"]);
+    expect(a.dkim_pass_domains).toEqual(["evil.com"]);
   });
 
   it("Microsoft: compauth is reported, no evaluated_by", () => {
@@ -64,7 +114,7 @@ describe("evaluateAuthentication", () => {
       ],
       "example.com",
     );
-    expect(a).toMatchObject({ spf: "pass", dkim: "pass", dkim_domains: ["mail.example.com"], dmarc: "pass", aligned: true, evaluated_by: "atlas-production.v2.mail.yahoo.com" });
+    expect(a).toMatchObject({ spf: "pass", dkim: "pass", dkim_domains: ["mail.example.com"], dkim_pass_domains: ["mail.example.com"], dmarc: "pass", aligned: true, evaluated_by: "atlas-production.v2.mail.yahoo.com" });
     expect(authHeuristics(a, "example.com", true)).toEqual([]);
   });
 
@@ -115,12 +165,12 @@ describe("evaluateAuthentication", () => {
       ],
       "example.com",
     );
-    expect(a).toEqual({ spf: "pass", dkim: "none", dkim_domains: ["example.com"], dmarc: "absent", aligned: true, source: "received_spf_and_dkim_signature" });
+    expect(a).toEqual({ spf: "pass", dkim: "none", dkim_domains: ["example.com"], dkim_pass_domains: [], dmarc: "absent", aligned: true, source: "received_spf_and_dkim_signature" });
   });
 
   it("absent headers are absent, not failures", () => {
     const a = evaluateAuthentication([received("mx.example.com"), h("Subject", "hi")], "example.com");
-    expect(a).toEqual({ spf: "absent", dkim: "absent", dkim_domains: [], dmarc: "absent", aligned: null, source: "none" });
+    expect(a).toEqual({ spf: "absent", dkim: "absent", dkim_domains: [], dkim_pass_domains: [], dmarc: "absent", aligned: null, source: "none" });
     expect(authHeuristics(a, "example.com", true)).toEqual(["auth_absent"]);
     expect(authHeuristics(a, "example.com", false)).toEqual([]);
   });

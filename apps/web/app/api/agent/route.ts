@@ -26,6 +26,7 @@ import { agentEffort, routeForTurn, streamAgentRun } from "@/lib/server/agent-ru
 // --- dashboard + incident playbooks ---
 import { HIDDEN_CONTEXT_PREFIX } from "@/lib/hidden-context";
 import { isPlaybookId } from "@/lib/playbooks";
+import { isForeignSigninAlert, redactSigninAlertForOthers } from "@/lib/server/signin/privacy";
 import { getVisibleVerdict, VERDICT_ID_RE, verdictBody } from "@/lib/server/verdict-data";
 // --- end dashboard + incident playbooks ---
 import { CONVERSATION_ID_RE, getConversationStore, titleFromMessage, toPendingConfirmation } from "@/lib/server/conversation-store";
@@ -70,8 +71,10 @@ export async function POST(req: Request): Promise<Response> {
   let verdictContext: string | undefined;
   if (typeof verdictId === "string") {
     const row = await getVisibleVerdict(session, verdictId).catch(() => undefined);
-    const verdict = row ? verdictBody(row) : null;
-    if (!row || !verdict) return jsonError(404, "Verdict not found.", "not_found");
+    const body = row ? verdictBody(row) : null;
+    if (!row || !body) return jsonError(404, "Verdict not found.", "not_found");
+    // An owner asking about a member's sign-in alert gets the redacted view: the model must not be able to repeat the member's device or location.
+    const verdict = isForeignSigninAlert(body.subject_type, row.userId, session.userId) ? redactSigninAlertForOthers(body) : body;
     // Loaded from the database, never from the client; its evidence came from
     // attacker-controlled content, so it enters the model wrapped.
     verdictContext = `${HIDDEN_CONTEXT_PREFIX} The user is asking about this stored Neo verdict (checked ${row.createdAt.toISOString().slice(0, 10)}):\n${wrapToolResult(

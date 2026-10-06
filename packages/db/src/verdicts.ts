@@ -188,7 +188,7 @@ type Rows<T> = { rows: T[] };
 async function summary(
   db: Db,
   tenantId: string,
-  opts: { userId?: string; sinceDays: 7 | 30 | 90; now?: Date },
+  opts: { userId?: string; sinceDays: 7 | 30 | 90; now?: Date; viewerUserId?: string },
 ): Promise<VerdictSummary> {
   const sinceDays = [7, 30, 90].includes(opts.sinceDays) ? opts.sinceDays : 30;
   const now = opts.now ?? new Date();
@@ -201,6 +201,9 @@ async function summary(
   if (opts.userId !== undefined) conds.push(eq(verdicts.userId, opts.userId));
   const where = and(...conds) as SQL;
   const TOP = 8;
+  // Model-written indicator categories and IOC domains of a sign-in alert can quote a member's account activity:
+  // only that member's own aggregates include them (no viewer: none do).
+  const signinVisible = opts.viewerUserId !== undefined ? sql`and (v.subject_type <> 'signin_alert' or v.user_id = ${opts.viewerUserId})` : sql`and v.subject_type <> 'signin_alert'`;
 
   return tenantScoped(db, tenantId).transaction(async (t) => {
     const counts = await t.tx
@@ -219,6 +222,7 @@ async function summary(
         and v.created_at >= ${since.toISOString()}::timestamptz
         and v.created_at < ${until.toISOString()}::timestamptz
         ${opts.userId !== undefined ? sql`and v.user_id = ${opts.userId}` : sql``}
+        ${signinVisible}
         and coalesce(ind->>'category', '') <> ''
       group by 1
       order by 2 desc, 1 asc
@@ -236,6 +240,7 @@ async function summary(
         and v.created_at < ${until.toISOString()}::timestamptz
         and v.verdict <> 'likely_safe'
         ${opts.userId !== undefined ? sql`and v.user_id = ${opts.userId}` : sql``}
+        ${signinVisible}
         and btrim(d) <> ''
       group by 1
       order by 2 desc, 1 asc

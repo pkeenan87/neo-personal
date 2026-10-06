@@ -8,6 +8,7 @@ import type { SignalSeverity } from "@neo/db";
 import type { Verdict } from "@neo/verdict";
 import { cleanText, truncate } from "../email/verdict-email";
 import { sanitizeBreachName } from "../breach-monitoring/sanitize";
+import { signinAlertPublicHeadline } from "../signin/privacy";
 
 export interface AlertText {
   severity: "low" | "medium" | "high" | "critical";
@@ -47,7 +48,8 @@ export function verdictAlertText(memberName: string, verdict: Verdict, source: "
   const what = SUBJECT_LABELS[verdict.subject_type] ?? "something";
   const how = source === "inbound" ? `forwarded ${what} to Neo` : `asked Neo about ${what}`;
   const label = verdict.verdict === "malicious" ? "malicious" : "suspicious";
-  const headline = truncate(cleanText(verdict.headline), HEADLINE_MAX);
+  // A sign-in alert's headline is never quoted to the owner: model text may carry the member's device or location.
+  const headline = verdict.subject_type === "signin_alert" ? signinAlertPublicHeadline(verdict.verdict) : truncate(cleanText(verdict.headline), HEADLINE_MAX);
   return {
     severity: verdict.verdict === "malicious" ? "high" : "medium",
     title: `${memberName} checked something ${label}`,

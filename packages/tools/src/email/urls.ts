@@ -1,4 +1,5 @@
 import { normalizeUrl, registrableOf } from "../checks/normalize.js";
+import { mailtoAsksForCode } from "../signin/reply.js";
 import { extractTextUrls } from "../textUrls.js";
 import { cleanLine, decodeEntities } from "../text.js";
 import type { HtmlFacts } from "./html.js";
@@ -6,14 +7,26 @@ import type { EmailUrlEntry } from "./types.js";
 
 export const MAX_LISTED_URLS = 50;
 export const MANY_URLS_THRESHOLD = 25;
+export const MAX_LINK_HOSTS = 500;
 
 export type UrlCandidate = EmailUrlEntry & { key: string; tier: number };
 
 export type CollectedUrls = {
   candidates: UrlCandidate[];
   mailto_domains: string[];
+  /** Number of distinct mailto: links. */
+  mailto_links: number;
+  /** A mailto: link pre-fills or displays a request for a code or password. */
+  mailto_asks_code: boolean;
   tel_numbers: string[];
   unique_http: number;
+  /** Unique hosts of every http(s) candidate (capped at MAX_LINK_HOSTS), whether or not it is listed. */
+  hosts: string[];
+  hosts_truncated: boolean;
+  /** Web candidates with userinfo or an explicit port. */
+  nonstandard: number;
+  /** Candidates with a non-web scheme (javascript:, data:, ...). */
+  non_web: number;
   mismatches: number;
 };
 
@@ -26,6 +39,14 @@ const TRACKING_HOST_RE = /^(?:click|clicks|link|links|l|email|e|trk|track|tracki
 const UNSUBSCRIBE_RE = /unsubscribe|opt-?out|email-?preferences|manage-?preferences|notification[-_]?settings/i;
 const URLISH_TEXT_RE = /^(?:https?:\/\/)?(?:www\.)?((?:[a-z0-9-]+\.)+[a-z]{2,})(?:[/:?#]\S*)?$/i;
 const EMBEDDED_URL_RE = /https?:\/\/((?:[a-z0-9-]+\.)+[a-z]{2,})/i;
+
+function safeDecode(v: string): string {
+  try {
+    return decodeURIComponent(v);
+  } catch {
+    return v;
+  }
+}
 
 /** Unwrap Microsoft Safe Links, Proofpoint URL Defense, and Google redirect wrappers to the real destination. */
 export function unwrapRedirector(url: string): string {
@@ -72,6 +93,8 @@ function isTracking(host: string, registrable: string, href: string): boolean {
 export function collectEmailUrls(input: { html?: HtmlFacts; text?: string }): CollectedUrls {
   const byKey = new Map<string, UrlCandidate>();
   const mailto = new Set<string>();
+  const mailtoLinks = new Set<string>();
+  let mailtoAsksCode = false;
   const tel = new Set<string>();
   let order = 0;
   const seenOrder = new Map<string, number>();
@@ -82,7 +105,10 @@ export function collectEmailUrls(input: { html?: HtmlFacts; text?: string }): Co
     const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(href)?.[1]?.toLowerCase();
     if (scheme === "cid") return;
     if (scheme === "mailto") {
-      const addr = decodeURIComponent(href.slice(7).split("?")[0] ?? "").trim();
+      const [addrPart = "", query = ""] = href.slice(7).split("?", 2);
+      const addr = safeDecode(addrPart).trim();
+      mailtoLinks.add(href.slice(0, 300).toLowerCase());
+      if (mailtoAsksForCode(safeDecode(query), displayText)) mailtoAsksCode = true;
       const domain = addr.includes("@") ? addr.slice(addr.lastIndexOf("@") + 1).toLowerCase() : "";
       if (domain) mailto.add(domain);
       return;
@@ -133,12 +159,37 @@ export function collectEmailUrls(input: { html?: HtmlFacts; text?: string }): Co
 
   for (const a of input.html?.anchors ?? []) add(a.href, a.text, "href");
   for (const r of input.html?.resource_urls ?? []) add(r, undefined, "resource");
-  for (const u of extractTextUrls(input.text ?? "")) add(u.url, undefined, "text");
+  const textUrls = extractTextUrls(input.text ?? "");
+  for (const u of textUrls) add(u.url, undefined, "text");
+  // An extractor that hit its cap dropped links: the host list is then incomplete.
+  const extractorCapped = (input.html?.anchors.length ?? 0) >= 1000 || (input.html?.resource_urls.length ?? 0) >= 200 || textUrls.length >= 200;
 
   const candidates = [...byKey.values()].sort((a, b) => a.tier - b.tier || seenOrder.get(a.key)! - seenOrder.get(b.key)!);
+  const hosts = new Set<string>();
+  let nonstandard = 0;
+  let nonWeb = 0;
+  for (const c of candidates) {
+    if (c.skipped === "unsupported_scheme") {
+      nonWeb++;
+      continue;
+    }
+    try {
+      const u = new URL(c.url);
+      if (u.username || u.password || u.port) nonstandard++;
+      hosts.add(u.hostname.toLowerCase());
+    } catch {
+      nonstandard++;
+    }
+  }
   return {
     candidates,
+    hosts: [...hosts].slice(0, MAX_LINK_HOSTS),
+    hosts_truncated: hosts.size > MAX_LINK_HOSTS || extractorCapped,
+    nonstandard,
+    non_web: nonWeb,
     mailto_domains: [...mailto].slice(0, 20),
+    mailto_links: mailtoLinks.size,
+    mailto_asks_code: mailtoAsksCode,
     tel_numbers: [...tel].slice(0, 10),
     unique_http: candidates.filter((c) => !c.skipped).length,
     mismatches: candidates.filter((c) => c.text_mismatch).length,

@@ -5,6 +5,7 @@
  * so a single bad line never kills a response.
  */
 import type { ChatEvent } from "./chat-state";
+import { isVerdict } from "./verdict-fence";
 
 function isObj(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
@@ -52,6 +53,8 @@ export function isAgentEvent(v: unknown): v is ChatEvent {
       return str(v.stop_reason);
     case "error":
       return str(v.message);
+    case "verdict_override":
+      return isVerdict(v.verdict);
     default:
       return false;
   }

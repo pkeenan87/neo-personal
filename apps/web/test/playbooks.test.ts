@@ -23,7 +23,7 @@ function phoneLike(text: string): string[] {
 describe("incident playbooks", () => {
   const playbooks = loadPlaybooks();
 
-  it("loads all six playbooks, in sync with the markdown sources", () => {
+  it("loads every playbook, in sync with the markdown sources", () => {
     expect([...PLAYBOOK_IDS].sort()).toEqual(Object.keys(PLAYBOOK_MARKDOWN).sort());
     expect(PLAYBOOK_ENTRIES.map((e) => e.id)).toEqual([...PLAYBOOK_IDS]);
     for (const id of PLAYBOOK_IDS) {

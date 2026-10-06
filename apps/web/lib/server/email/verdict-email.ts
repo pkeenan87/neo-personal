@@ -8,6 +8,7 @@
  * links from the analyzed message are ever included.
  */
 import { verdictSeverityRank, type Verdict, type VerdictLabel } from "@neo/verdict";
+import { PROVIDER_NAMES } from "@/lib/signin-providers";
 
 export interface RenderedEmail {
   subject: string;
@@ -91,6 +92,15 @@ function usageNote(usage: VerdictEmailOptions["usage"]): string | undefined {
   return `Your household has ${usage.remaining} of ${usage.limit} checks left this month.`;
 }
 
+/** The first-seen sign-in question: the device and location came from the alert (attacker-controlled), so they are cleaned and bounded here and escaped by the caller. */
+function signinQuestionText(verdict: Verdict): string | undefined {
+  const c = verdict.signin_check;
+  if (!c?.first_seen) return undefined;
+  const device = truncate(cleanText(c.device_label), 80);
+  const where = c.coarse_location ? `, near ${truncate(cleanText(c.coarse_location), 80)} (advisory, may be inaccurate)` : "";
+  return `We saw a ${PROVIDER_NAMES[c.provider]} sign-in alert for a device we have not seen before: ${device}${where}. Open Neo and answer Yes or No.`;
+}
+
 export function renderVerdictEmail(verdict: Verdict, opts: VerdictEmailOptions): RenderedEmail {
   const label = VERDICT_EMAIL_LABELS[verdict.verdict];
   const colors = LABEL_COLORS[verdict.verdict];
@@ -113,6 +123,7 @@ export function renderVerdictEmail(verdict: Verdict, opts: VerdictEmailOptions):
     action: truncate(cleanText(a.action), 200),
   }));
   const note = usageNote(opts.usage);
+  const signinQuestion = signinQuestionText(verdict);
 
   const html = layout(
     subject,
@@ -120,6 +131,7 @@ export function renderVerdictEmail(verdict: Verdict, opts: VerdictEmailOptions):
       `<span style="display:inline-block;padding:2px 10px;border-radius:999px;font-size:13px;font-weight:600;background:${colors.bg};color:${colors.fg}">${escapeHtml(label)}</span>`,
       `<h1 style="font-size:18px;line-height:1.4;margin:12px 0 4px">${escapeHtml(headline)}</h1>`,
       `<p style="font-size:13px;color:#6b7280;margin:0 0 16px">About the message you forwarded: &ldquo;${escapeHtml(fwd)}&rdquo;</p>`,
+      signinQuestion ? `<p style="font-size:14px;margin:0 0 16px"><strong>Was this you?</strong> ${escapeHtml(signinQuestion)}</p>` : "",
       indicators.length
         ? `<h2 style="font-size:14px;margin:16px 0 8px">Why</h2><ul style="padding-left:18px;margin:0">${indicators
             .map(
@@ -142,6 +154,7 @@ export function renderVerdictEmail(verdict: Verdict, opts: VerdictEmailOptions):
   const text = [
     `${label}: ${headline}`,
     `About the message you forwarded: "${fwd}"`,
+    ...(signinQuestion ? ["", `Was this you? ${signinQuestion}`] : []),
     "",
     ...(indicators.length
       ? ["Why:", ...indicators.map((i) => `- ${i.category} (${i.severity}): "${i.evidence}" ${i.explanation}`), ""]

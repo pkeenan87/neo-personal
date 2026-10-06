@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasVerdictFence, splitVerdictSegments, verdictToText } from "@/lib/verdict-fence";
+import { hasVerdictFence, replaceLastVerdict, splitVerdictSegments, verdictToText } from "@/lib/verdict-fence";
 import { isVerdict } from "@/lib/verdict-fence";
 import { VERDICT_FIXTURE } from "./fixtures";
 
@@ -66,5 +66,53 @@ describe("```verdict fence detection", () => {
     expect(text).toContain("Neo verdict: Suspicious (72% confidence)");
     expect(text).toContain("[high] Shortened link");
     expect(text).toContain("ips: 203.0.113.7");
+  });
+});
+
+describe("replaceLastVerdict", () => {
+  const block = (v: object, fence = "```") => `${fence}verdict\n${JSON.stringify(v, null, 2)}\n${fence}`;
+  const heads = (t: string) => splitVerdictSegments(t).flatMap((s) => (s.kind === "verdict" ? [s.verdict.headline] : []));
+  const over = { ...VERDICT_FIXTURE, headline: "Override" };
+
+  it("replaces the last valid block, keeps the text around it and appends a note", () => {
+    const text = `Intro\n\n${block({ ...VERDICT_FIXTURE, headline: "A" })}\n\nmiddle\n\n${block({ ...VERDICT_FIXTURE, headline: "B" })}\n\nOutro`;
+    const out = replaceLastVerdict(text, over, "Note.")!;
+    expect(heads(out)).toEqual(["A", "Override"]);
+    expect(out).toContain("Intro");
+    expect(out).toContain("Outro");
+    expect(out.endsWith("Outro\n\nNote.")).toBe(true);
+  });
+
+  it("targets the same block the card and extractVerdict read: an invalid later block is skipped", () => {
+    const text = `${block({ ...VERDICT_FIXTURE, headline: "Valid" })}\n\n\`\`\`verdict\n{not json}\n\`\`\``;
+    const out = replaceLastVerdict(text, over)!;
+    expect(heads(out)).toEqual(["Override"]);
+    expect(out).toContain("{not json}");
+  });
+
+  it("ignores verdict fences inside ~~~ and longer-backtick code blocks (no wrong target)", () => {
+    const decoy = `~~~\n${block({ ...VERDICT_FIXTURE, headline: "Decoy" })}\n~~~\n\n\`\`\`\`md\n${block({ ...VERDICT_FIXTURE, headline: "Decoy2" })}\n\`\`\`\``;
+    const text = `${block({ ...VERDICT_FIXTURE, headline: "Real" })}\n\n${decoy}`;
+    const out = replaceLastVerdict(text, over)!;
+    expect(heads(out)).toEqual(["Override"]);
+    expect(out).toContain("Decoy");
+    expect(out).toContain("Decoy2");
+    expect(replaceLastVerdict(decoy, over)).toBeUndefined();
+  });
+
+  it("handles longer fences, indentation, CRLF and returns undefined without a valid block", () => {
+    expect(heads(replaceLastVerdict(`  ${block(VERDICT_FIXTURE, "````")}`.replace(/\n/g, "\r\n"), over)!)).toEqual(["Override"]);
+    expect(replaceLastVerdict("plain", over)).toBeUndefined();
+    expect(replaceLastVerdict("```verdict\n{}\n```", over)).toBeUndefined();
+    expect(replaceLastVerdict("```verdict\n" + JSON.stringify(VERDICT_FIXTURE), over)).toBeUndefined();
+  });
+
+  it("is linear on adversarial input (many fences, long unterminated runs)", () => {
+    const many = Array.from({ length: 20000 }, (_, i) => `\`\`\`verdict\n{"i":${i}}\n\`\`\``).join("\n");
+    const t0 = performance.now();
+    replaceLastVerdict(`${many}\n${block(VERDICT_FIXTURE)}`, over);
+    replaceLastVerdict("```verdict\n" + "x\n".repeat(200_000), over);
+    replaceLastVerdict("~~~\n" + "```verdict\n".repeat(100_000), over);
+    expect(performance.now() - t0).toBeLessThan(2000);
   });
 });

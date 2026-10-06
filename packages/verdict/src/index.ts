@@ -5,6 +5,9 @@ export const VERDICTS = ["malicious", "suspicious", "likely_safe", "insufficient
 export const SEVERITIES = ["low", "medium", "high", "critical"] as const;
 export const URGENCIES = ["now", "soon", "optional"] as const;
 
+export const SIGNIN_ALERT_PROVIDERS = ["google", "microsoft", "apple", "meta", "amazon", "paypal"] as const;
+export const SIGNIN_ALERT_EVENTS = ["new_signin", "new_device", "password_changed", "mfa_or_recovery_changed", "suspicious_activity"] as const;
+
 export type SubjectType = (typeof SUBJECT_TYPES)[number];
 export type VerdictLabel = (typeof VERDICTS)[number];
 export type Severity = (typeof SEVERITIES)[number];
@@ -22,6 +25,20 @@ export type Verdict = {
   iocs: { urls: string[]; domains: string[]; ips: string[]; hashes: string[]; phone_numbers: string[] };
   /** artifact id */
   raw_ref?: string;
+  /**
+   * Set only by the deterministic sign-in alert hook (never by the model): the "Was this you?" question.
+   * Absent from `verdictJsonSchema`, so the model cannot emit it.
+   */
+  signin_check?: SigninCheck;
+};
+
+export type SigninCheck = {
+  provider: (typeof SIGNIN_ALERT_PROVIDERS)[number];
+  event: (typeof SIGNIN_ALERT_EVENTS)[number];
+  device_label: string;
+  first_seen: boolean;
+  /** Coarse, advisory location (IP-derived or stated in the alert), already sanitized. */
+  coarse_location?: string;
 };
 
 const IndicatorSchema = z
@@ -51,6 +68,16 @@ const IocsSchema = z
   })
   .strict();
 
+const SigninCheckSchema = z
+  .object({
+    provider: z.enum(SIGNIN_ALERT_PROVIDERS),
+    event: z.enum(SIGNIN_ALERT_EVENTS),
+    device_label: z.string().min(1).max(80),
+    first_seen: z.boolean(),
+    coarse_location: z.string().max(80).optional(),
+  })
+  .strict();
+
 export const VerdictSchema: z.ZodType<Verdict> = z
   .object({
     subject_type: z.enum(SUBJECT_TYPES),
@@ -61,6 +88,7 @@ export const VerdictSchema: z.ZodType<Verdict> = z
     recommended_actions: z.array(ActionSchema),
     iocs: IocsSchema,
     raw_ref: z.string().optional().describe("Stored artifact id this verdict refers to"),
+    signin_check: SigninCheckSchema.optional(),
   })
   .strict();
 
@@ -85,9 +113,16 @@ function sanitize(node: unknown): unknown {
  * `additionalProperties: false`, and unsupported numeric/string constraints are
  * removed (validate the result with `VerdictSchema` to enforce them).
  */
-export const verdictJsonSchema: Record<string, unknown> = sanitize(
-  z.toJSONSchema(VerdictSchema, { target: "draft-2020-12", io: "output" }),
-) as Record<string, unknown>;
+export const verdictJsonSchema: Record<string, unknown> = withoutServerFields(
+  sanitize(z.toJSONSchema(VerdictSchema, { target: "draft-2020-12", io: "output" })) as Record<string, unknown>,
+);
+
+/** Fields written only by server-side rules (`signin_check`) are never offered to the model. */
+function withoutServerFields(schema: Record<string, unknown>): Record<string, unknown> {
+  const props = { ...((schema.properties as Record<string, unknown> | undefined) ?? {}) };
+  delete props.signin_check;
+  return { ...schema, properties: props };
+}
 
 const VERDICT_RANK: Record<VerdictLabel, number> = {
   malicious: 3,

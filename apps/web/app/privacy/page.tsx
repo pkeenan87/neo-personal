@@ -114,6 +114,14 @@ function sections(email: string): Section[] {
             removes you. A household owner sees only your percentage score, or &ldquo;not enough answers&rdquo;, never your individual answers.
           </p>
           <p className="mt-3">
+            <strong>Sign-in alerts.</strong> When you forward or paste a sign-in alert from Google, Microsoft, Apple, Facebook or Instagram,
+            Amazon or PayPal, Neo stores the facts it reads from it: the provider, the kind of event, the device label, a coarse location,
+            and the time. It does not store the alert&apos;s links, codes or your full address in that record, and a location worked out from
+            an IP address is only a hint. Only you can see these records, and they are deleted when you leave the household or the owner
+            removes you. A household owner sees only the resulting alert, never the list of your sign-in events. You can say &ldquo;this
+            was me&rdquo; for a device so Neo stops asking about it.
+          </p>
+          <p className="mt-3">
             Neo does not sell or rent your data, does not show ads, does not build advertising profiles, and does not use
             what you submit to train AI models.
           </p>
