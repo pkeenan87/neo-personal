@@ -77,6 +77,16 @@ describe("privacy policy page", () => {
     expect(text).toContain("Encrypted copies in provider-managed backups may remain until those backups expire");
   });
 
+  it("discloses self-reported hardening answers and what the owner can see", () => {
+    render(<PrivacyPage />);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Account-hardening checklist.");
+    expect(text).toContain("self-reported");
+    expect(text).toContain("stored per household member");
+    expect(text).toContain("A household owner sees only your percentage score");
+    expect(text).toContain("never your individual answers");
+  });
+
   it("falls back to the default contact address", () => {
     vi.stubEnv("NEO_CONTACT_EMAIL", "");
     render(<PrivacyPage />);

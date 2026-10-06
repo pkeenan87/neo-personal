@@ -214,3 +214,11 @@ export {
   type CheckStatus as BreachCheckStatus,
   type RequestVerificationResult,
 } from "./breach-monitoring.js";
+export {
+  accountHardening,
+  type AccountHardeningAnswer,
+  type AccountHardeningEvidenceId,
+  type AccountHardeningItemId,
+  type AccountHardeningState,
+  type AccountHardeningVersion,
+} from "./account-hardening.js";

@@ -11,7 +11,7 @@ export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string,
   const line = (value: string) => { text.push(value); html.push(`<p>${escapeHtml(value)}</p>`); };
   const link = (label: string, path: string) => {
     // Renderer defends its boundary too: never accept caller-supplied external URLs.
-    const safe = /^\/verdicts\/[A-Za-z0-9_-]+$/.test(path) || path === "/settings/household" ? path : "/dashboard";
+    const safe = /^\/verdicts\/[A-Za-z0-9_-]+$/.test(path) || path === "/settings/household" || path === "/settings/hardening" ? path : "/dashboard";
     const href = new URL(safe, unsubscribe.origin).href;
     text.push(`${label}: ${href}`);
     html.push(`<p><a href="${escapeHtml(href)}">${escapeHtml(label)}</a></p>`);
@@ -28,7 +28,13 @@ export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string,
     if (input.household.devices.offline) line(`Offline member devices: ${input.household.devices.offline}`);
     if (input.household.devices.removedOrUninstalled) line(`Removed or uninstalled member devices: ${input.household.devices.removedOrUninstalled}`);
   }
-  // Optional breachStatus and hardeningScore slots intentionally have no renderer until steps 2/3.
+  if (input.hardeningScore) {
+    html.push("<h2>Account hardening</h2>"); text.push("Account hardening");
+    const { scorePercent } = input.hardeningScore;
+    line(scorePercent === null ? "Your account-hardening score: not enough answers yet" : `Your account-hardening score: ${Math.max(0, Math.min(100, Math.round(scorePercent)))}%`);
+    link("Review your checklist", "/settings/hardening");
+  }
+  // The optional breachStatus slot intentionally has no renderer until step 2.
   line("You receive this because weekly digests are enabled in your Neo settings.");
   text.push(`Unsubscribe: ${unsubscribe.href}`);
   html.push(`<p><a href="${escapeHtml(unsubscribe.href)}">Unsubscribe</a></p></body></html>`);

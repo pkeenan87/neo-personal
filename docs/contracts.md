@@ -988,3 +988,52 @@ export function alertBreachDetected(input: { tenantId: string; userId: string; a
 ```
 
 Address CRUD and status reads take tenant/user identity from the authenticated session, never request input; API responses are `Cache-Control: no-store`. The verified sign-in address is initialized from `users.email` only when `emailVerified` is non-null and cannot be removed through the extra-address DELETE endpoint. Extra addresses require confirmation and can be removed. Household leave/removal hard-deletes addresses and observations. Owner alert email subject/body contains the breach name and static guidance only, never the address; it uses existing owner thresholds and email caps. The chat tool accepts an empty object and reports stored status only; the agent wraps its result with `wrapToolResult`.
+
+---
+
+## @neo/core (spec `_specs/hardening-score.md`)
+
+```ts
+// Pure and deterministic (no model, no I/O). The types below are defined here and re-exported by @neo/db.
+export type AccountHardeningVersion = "account-hardening-v1";
+export type AccountHardeningItemId = /* the ten ids listed under @neo/db */ string;
+export type AccountHardeningState = "complete" | "needs_action" | "unanswered" | "stale" | "unknown" | "not_applicable";
+export interface AccountHardeningManifestItem { id: AccountHardeningItemId; source: "self_attested" | "neo_data"; weight: number; title: string; rule: string; action: string; notApplicableWhen?: string; compatiblePriorVersions: readonly AccountHardeningVersion[]; helpLinks: readonly { provider: string; href: string }[] }
+export interface AccountHardeningManifest { version: AccountHardeningVersion; items: readonly AccountHardeningManifestItem[] }
+export const ACCOUNT_HARDENING_V1: AccountHardeningManifest; // immutable once shipped
+export const CURRENT_ACCOUNT_HARDENING_VERSION: AccountHardeningVersion; export const CURRENT_ACCOUNT_HARDENING_MANIFEST: AccountHardeningManifest;
+export function scoreAccountHardening(input: { answers: readonly { itemId: AccountHardeningItemId; value: boolean | "not_applicable"; checklistVersion: AccountHardeningVersion; answeredAt: Date }[]; evidence: Partial<Record<"forwarding_used_30d" | "browser_extension_enrolled" | "desktop_agent_enrolled", "complete" | "needs_action" | "unknown">>; asOf: Date; manifest?: AccountHardeningManifest }): AccountHardeningScore; // same shape as the apps/web interface below
+export function isAccountHardeningItemId(value: unknown): value is AccountHardeningItemId;
+export function isAccountHardeningAnswerAllowed(itemId: unknown, value: unknown): value is boolean | "not_applicable"; // true/false only for self-attested items; not_applicable only where notApplicableWhen is set
+```
+
+Scoring rules beyond the spec text: a stale answer (including a stale `not_applicable`) still counts as "answered" for the three-answer threshold; only the seven self-attested items count toward it; a detected item with missing evidence is `unknown`; `not_applicable` on `desktop_agent_enrolled` applies only while the detection is not `complete`. Missing `scorePercent` (null) also covers a known denominator of zero.
+
+## @neo/db (spec `_specs/hardening-score.md`)
+
+```ts
+export type AccountHardeningVersion = "account-hardening-v1";
+export type AccountHardeningItemId = "primary_email_2fa" | "passkey_or_hardware_key" | "recovery_contacts_current" | "password_manager" | "carrier_port_out_pin" | "credit_freeze" | "os_browser_auto_update" | "forwarding_used_30d" | "browser_extension_enrolled" | "desktop_agent_enrolled";
+export type AccountHardeningState = "complete" | "needs_action" | "unanswered" | "stale" | "unknown" | "not_applicable";
+// Table `account_hardening_answers` (migration 0014): PK (tenant_id, user_id, item_id); FK (tenant_id, user_id) -> memberships ON DELETE CASCADE
+// (leaving, removal, or joining another household deletes the answers); `answer` boolean null when `not_applicable`; check constraints limit
+// item ids and N/A to credit_freeze, carrier_port_out_pin, desktop_agent_enrolled (desktop_agent_enrolled accepts only N/A).
+// Registered in tenantTables, protected by tenant_isolation RLS, granted SELECT/INSERT/UPDATE/DELETE to app_user. No SECURITY DEFINER function.
+// set() throws for a non-answerable item/value; evidence reads inbound_messages.forwarder_user_id and non-revoked devices in the tenant only.
+export interface AccountHardeningAnswer { tenantId: string; userId: string; itemId: AccountHardeningItemId; value: boolean | "not_applicable"; checklistVersion: AccountHardeningVersion; answeredAt: Date }
+export const accountHardening: { getAnswers(db: Db, tenantId: string, userId: string): Promise<AccountHardeningAnswer[]>; getEvidence(db: Db, tenantId: string, userId: string, asOf: Date): Promise<Record<"forwarding_used_30d" | "browser_extension_enrolled" | "desktop_agent_enrolled", "complete" | "needs_action" | "unknown">>; set(db: Db, answer: Omit<AccountHardeningAnswer, "answeredAt">, now?: Date): Promise<AccountHardeningAnswer>; clear(db: Db, tenantId: string, userId: string, itemId: AccountHardeningItemId): Promise<boolean> };
+```
+
+## apps/web (spec `_specs/hardening-score.md`)
+
+```ts
+export interface AccountHardeningScore { checklistVersion: AccountHardeningVersion; asOf: string; scorePercent: number | null; partial: boolean; items: Array<{ id: AccountHardeningItemId; state: AccountHardeningState; weight: number; answeredAt: string | null }>; nextActions: AccountHardeningItemId[] }
+export function loadAccountHardeningScore(session: NeoSession, asOf?: Date): Promise<AccountHardeningScore>;
+export function loadHouseholdHardeningPercents(session: NeoSession): Promise<Array<{ userId: string; scorePercent: number | null }>>; // owner only; members receive 403
+export function setAccountHardeningAnswer(session: NeoSession, input: { itemId: AccountHardeningItemId; checklistVersion: AccountHardeningVersion; value: boolean | "not_applicable" }): Promise<AccountHardeningScore>;
+export function clearAccountHardeningAnswer(session: NeoSession, itemId: AccountHardeningItemId): Promise<AccountHardeningScore>;
+```
+
+- The score shows `scorePercent: null` ("not enough answers") until at least 3 self-attested items have a fresh answer (`complete`, `needs_action`, `not_applicable`; `stale` does not count). `forwarding_used_30d` counts attributed inbound messages in the rolling 30 days of any status except `rejected`. Answering without a membership row is 403 `forbidden`. The weekly digest treats only personal/household activity as reportable; the score rides along when a week is sent.
+- Errors are `HardeningScoreError { status, code }` (`forbidden` 403, `storage_unavailable` 503, `checklist_version_mismatch` 409, `invalid_request` 400); routes map them to `{ error, code }` JSON. Evidence and answers are read through a `HardeningStore` (Postgres via @neo/db, or `memory-hardening.ts` without a database). The weekly digest fills `HardeningScoreSlot` with the recipient's own percentage and `/settings/hardening`, omitted while the percentage is null or unreadable. Pages: `/settings/hardening` (own checklist only) and a dashboard card (owners also see other members' percentages).
+- `GET /api/hardening-score` → personal score. `POST /api/hardening-score/answers` `{ itemId, checklistVersion, value: boolean | "not_applicable" | "clear" }` → updated personal score; `clear` removes that answer. This is the only answer mutation route. A stale checklist version returns 409 `checklist_version_mismatch`; session identity selects the subject; answer mutation requires a browser session.

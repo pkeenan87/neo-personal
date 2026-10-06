@@ -7,7 +7,7 @@
  * the one artifact store (lib/server/artifacts.ts), which is also in memory
  * without a database. Never used when DATABASE_URL is set.
  */
-import type { HouseholdMember, InboundMessageRow, VerdictSource } from "@neo/db";
+import type { AccountHardeningAnswer, HouseholdMember, InboundMessageRow, VerdictSource } from "@neo/db";
 import type { Verdict } from "@neo/verdict";
 import { env } from "@/lib/env";
 import { DEV_SESSION_IDS } from "@/lib/session";
@@ -39,6 +39,8 @@ interface MemoryState {
   inboundAddresses: MemoryInboundAddress[];
   inboundMessages: InboundMessageRow[];
   breachAddresses: Map<string, unknown>;
+  /** Keyed `tenantId:userId:itemId`; removed with the membership, like the DB foreign key. */
+  hardeningAnswers: Map<string, AccountHardeningAnswer>;
 }
 
 const MAX_VERDICTS = 1000;
@@ -46,7 +48,7 @@ const MAX_VERDICTS = 1000;
 const g = globalThis as typeof globalThis & { __neoMemoryState?: MemoryState };
 
 export function memoryState(): MemoryState {
-  g.__neoMemoryState ??= { verdicts: [], members: new Map(), digestPreferences: new Map(), inboundAddresses: [], inboundMessages: [], breachAddresses: new Map() };
+  g.__neoMemoryState ??= { verdicts: [], members: new Map(), digestPreferences: new Map(), inboundAddresses: [], inboundMessages: [], breachAddresses: new Map(), hardeningAnswers: new Map() };
   return g.__neoMemoryState;
 }
 
@@ -97,8 +99,18 @@ export function setMemoryMembers(tenantId: string, members: HouseholdMember[]): 
       memoryState().digestPreferences.set(`${tenantId}:${m.userId}`, m.role === "owner");
     }
   }
-  for (const old of previous) if (!members.some(m => m.userId === old.userId)) memoryState().digestPreferences.delete(`${tenantId}:${old.userId}`);
+  for (const old of previous) {
+    if (members.some(m => m.userId === old.userId)) continue;
+    memoryState().digestPreferences.delete(`${tenantId}:${old.userId}`);
+    deleteMemoryHardeningAnswers(tenantId, old.userId);
+  }
   memoryState().members.set(tenantId, members.map((m) => ({ ...m })));
+}
+
+/** Delete a member's (or, without `userId`, a whole household's) hardening answers. */
+export function deleteMemoryHardeningAnswers(tenantId: string, userId?: string): void {
+  const answers = memoryState().hardeningAnswers;
+  for (const [key, a] of answers) if (a.tenantId === tenantId && (userId === undefined || a.userId === userId)) answers.delete(key);
 }
 
 /** Registered members, else the DEV_AUTH_BYPASS identity for the dev tenant, else none. */

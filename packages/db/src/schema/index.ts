@@ -14,3 +14,4 @@ export * from "./alerts.js";
 export * from "./signals.js";
 export * from "./weekly-digest.js";
 export * from "./breach-monitoring.js";
+export * from "./account-hardening.js";
