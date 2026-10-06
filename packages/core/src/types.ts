@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
+import type { Verdict } from "@neo/verdict";
 import type { ModelFamily, Route, RouterKind, RoutingPreference, Tier } from "./routing.js";
 
 // ─────────────────────────────────────────────────────────────
@@ -74,7 +75,12 @@ export type AgentEvent =
       model?: string;
     }
   | { type: "done"; stop_reason: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  /**
+   * Sent by the server after `done` when a deterministic rule (sign-in alerts) replaced the verdict the model
+   * streamed: clients rewrite that message's last verdict block with it. Carries no `signin_check`.
+   */
+  | { type: "verdict_override"; verdict: Verdict };
 
 export type Effort = "low" | "medium" | "high";
 

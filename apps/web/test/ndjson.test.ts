@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { createNdjsonDecoder, isAgentEvent, parseEventLine, readAgentEvents } from "@/lib/ndjson";
 import type { AgentEvent } from "@neo/core";
-import { collect, ndjson, streamingResponse } from "./fixtures";
+import { collect, ndjson, streamingResponse, VERDICT_FIXTURE } from "./fixtures";
 
 const EVENTS: AgentEvent[] = [
   { type: "thinking", text: "hmm" },
@@ -76,5 +76,14 @@ describe("NDJSON AgentEvent parser", () => {
     expect(isAgentEvent({ ...route, reason: 1 })).toBe(false);
     expect(isAgentEvent({ type: "usage", input_tokens: 1, output_tokens: 2, model: "neo-mock-model" })).toBe(true);
     expect(isAgentEvent({ type: "usage", input_tokens: 1, output_tokens: 2, model: 3 })).toBe(false);
+  });
+});
+
+describe("verdict_override event", () => {
+  it("is whitelisted with a valid verdict and rejected with an invalid one", () => {
+    expect(isAgentEvent({ type: "verdict_override", verdict: VERDICT_FIXTURE })).toBe(true);
+    expect(parseEventLine(JSON.stringify({ type: "verdict_override", verdict: VERDICT_FIXTURE }))).toMatchObject({ type: "verdict_override" });
+    expect(isAgentEvent({ type: "verdict_override", verdict: { verdict: "malicious" } })).toBe(false);
+    expect(isAgentEvent({ type: "verdict_override" })).toBe(false);
   });
 });

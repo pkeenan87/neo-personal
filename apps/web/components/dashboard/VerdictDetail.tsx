@@ -10,6 +10,7 @@ import { useToast } from "@/components/toast-context";
 import { defang, VerdictCard } from "@/components/VerdictCard";
 import { artifactUrl as artifactHref } from "@/lib/attachments";
 import type { VerdictDetailResponse } from "@/lib/dashboard-types";
+import { SigninQuestion } from "./SigninQuestion";
 import { SubjectBadge } from "./subject-types";
 
 /**
@@ -132,6 +133,8 @@ export function VerdictDetail({ detail }: { detail: VerdictDetailResponse }) {
       </Link>
 
       <VerdictCard verdict={v} className="my-0!" />
+
+      {v.signin_check?.first_seen && !detail.signinDeviceKnown ? <SigninQuestion verdictId={detail.id} check={v.signin_check} /> : null}
 
       <div className="flex flex-wrap gap-2">
         <Link

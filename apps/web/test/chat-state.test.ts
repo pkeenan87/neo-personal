@@ -11,6 +11,8 @@ import {
   type RouteEvent,
 } from "@/lib/chat-state";
 import type { Route } from "@neo/core";
+import { splitVerdictSegments } from "@/lib/verdict-fence";
+import { VERDICT_FIXTURE } from "./fixtures";
 
 function run(events: ChatEvent[], state: ChatState = initialChatState()): ChatState {
   let s = chatReducer(state, { type: "send", userId: "u1", assistantId: "a1", text: "hi" });
@@ -196,5 +198,57 @@ describe("messagesFromStored: per-turn routes", () => {
     ]);
     expect(msgs).toHaveLength(4);
     expect(msgs.every((m) => m.route === undefined)).toBe(true);
+  });
+});
+
+describe("verdict_override", () => {
+  const block = (v: object) => `\`\`\`verdict\n${JSON.stringify(v, null, 2)}\n\`\`\``;
+  const card = (s: ChatState) => {
+    const text = (s.messages[1]!.parts.filter((p) => p.kind === "text") as { text: string }[]).map((p) => p.text).join("\n");
+    return splitVerdictSegments(text).find((x) => x.kind === "verdict");
+  };
+
+  it("swaps the card the model streamed for the server's verdict, even after done", () => {
+    const safe = { ...VERDICT_FIXTURE, verdict: "likely_safe" as const, headline: "Model says fine" };
+    const overridden = { ...VERDICT_FIXTURE, verdict: "malicious" as const, headline: "Rule says fake" };
+    const live = run([
+      { type: "text_delta", text: `Looks good.\n\n${block(safe)}` },
+      { type: "done", stop_reason: "end_turn" },
+    ]);
+    expect(card(live)).toMatchObject({ verdict: { verdict: "likely_safe" } });
+    let s = chatReducer(live, { type: "event", event: { type: "verdict_override", verdict: overridden } });
+    expect(card(s)).toMatchObject({ verdict: { verdict: "malicious", headline: "Rule says fake" } });
+    expect(s.messages[1]!.status).toBe("complete");
+    // the surrounding text and a later note are kept
+    s = chatReducer(s, { type: "event", event: { type: "text_delta", text: "\n\nA note." } });
+    expect(messageText(s.messages[1]!)).toContain("Looks good.");
+    expect(messageText(s.messages[1]!)).toContain("A note.");
+    expect(card(s)).toMatchObject({ verdict: { verdict: "malicious" } });
+  });
+
+  it("rewrites only the last verdict block and skips text parts without one", () => {
+    const first = { ...VERDICT_FIXTURE, headline: "First" };
+    const last = { ...VERDICT_FIXTURE, headline: "Last" };
+    const s = run([
+      { type: "text_delta", text: block(first) },
+      { type: "tool_start", id: "t", name: "check_url", input: {} },
+      { type: "tool_result", id: "t", name: "check_url", result: 1 },
+      { type: "text_delta", text: `Done.\n\n${block(last)}\n\nBye.` },
+      { type: "text_delta", text: "" },
+      { type: "verdict_override", verdict: { ...VERDICT_FIXTURE, headline: "Override" } },
+    ]);
+    const heads = (s.messages[1]!.parts.filter((p) => p.kind === "text") as { text: string }[]).flatMap((p) => splitVerdictSegments(p.text).flatMap((x) => (x.kind === "verdict" ? [x.verdict.headline] : [])));
+    expect(heads).toEqual(["First", "Override"]);
+  });
+
+  it("is a no-op when no text part has a valid verdict block", () => {
+    const s = run([{ type: "text_delta", text: "No card here." }, { type: "verdict_override", verdict: VERDICT_FIXTURE }]);
+    expect(messageText(s.messages[1]!)).toBe("No card here.");
+  });
+
+  it("ignores a verdict block inside another code block", () => {
+    const text = `~~~\n${block(VERDICT_FIXTURE)}\n~~~`;
+    const s = run([{ type: "text_delta", text }, { type: "verdict_override", verdict: { ...VERDICT_FIXTURE, headline: "Nope" } }]);
+    expect(messageText(s.messages[1]!)).toBe(text);
   });
 });

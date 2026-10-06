@@ -58,6 +58,8 @@ export interface VerdictDetailResponse extends VerdictListItem {
   inbound: { status: string; receivedAt: string; forwardedBy: string | null } | null;
   /** Display name of the member the verdict belongs to (null when unknown). */
   memberName: string | null;
+  /** The member's own first-seen sign-in device is already remembered (they answered yes); hides the prompt. */
+  signinDeviceKnown?: boolean;
 }
 
 /** GET /api/household */

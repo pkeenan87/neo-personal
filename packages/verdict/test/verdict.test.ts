@@ -95,3 +95,12 @@ describe("helpers", () => {
     expect(verdictSeverityRank("low")).toBe(1);
   });
 });
+
+describe("signin_check bounds", () => {
+  const check = { provider: "google", event: "new_signin", device_label: "d".repeat(80), first_seen: true, coarse_location: "l".repeat(80) } as const;
+  it("device_label and coarse_location accept 80 characters and reject 81 (the parser's bounds)", () => {
+    expect(VerdictSchema.safeParse({ ...safe, signin_check: check }).success).toBe(true);
+    expect(VerdictSchema.safeParse({ ...safe, signin_check: { ...check, device_label: "d".repeat(81) } }).success).toBe(false);
+    expect(VerdictSchema.safeParse({ ...safe, signin_check: { ...check, coarse_location: "l".repeat(81) } }).success).toBe(false);
+  });
+});

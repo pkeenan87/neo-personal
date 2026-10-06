@@ -24,6 +24,8 @@ import {
 import { memoryInbound } from "@/lib/server/inbound/memory";
 import { createInMemoryArtifactStore } from "@/lib/server/memory-artifact-store";
 import { memoryListMembers, memoryState, resetMemoryState, saveMemoryVerdict, setMemoryMembers } from "@/lib/server/memory-state";
+import { memorySigninStore } from "@/lib/server/signin/store";
+import { triaged } from "./signin-fixtures";
 import {
   GMAIL_CONFIRMATION_BODY,
   GMAIL_CONFIRMATION_SUBJECT,
@@ -143,7 +145,7 @@ describe("email-received job", () => {
     const out = await runEmailReceived(data, deps, steps);
 
     expect(out.status).toBe("done");
-    expect(steps.names).toEqual(["fetch-raw", "store-artifact", "identify-forwarder", "check-caps", "analyze", "triage", "save-verdict", "notify"]);
+    expect(steps.names).toEqual(["fetch-raw", "store-artifact", "identify-forwarder", "check-caps", "analyze", "triage", "signin-alert", "save-verdict", "notify"]);
     const r = row(data.inboundMessageId);
     expect(r).toMatchObject({ status: "done", forwarderUserId: MEMBER.userId });
     expect(r.completedAt).toBeInstanceOf(Date);
@@ -456,5 +458,102 @@ describe("artifacts-expire job", () => {
       purgeWeeklyDigestPayloads: async () => 0,
     });
     expect(result).toMatchObject({ artifactsPurged: 1, artifactErrors: 1 });
+  });
+});
+
+describe("email-received job: sign-in alerts", () => {
+  const alert = (from: string, link: string) =>
+    rawEmail({
+      from: `Sam <${MEMBER.email}>`,
+      to: ADDRESS,
+      subject: "Fwd: Security alert",
+      body: [
+        "---------- Forwarded message ---------",
+        `From: Google <${from}>`,
+        "Subject: Security alert",
+        "",
+        "A new sign-in on Windows",
+        "Your Google Account was just signed in to from a new Windows device.",
+        "Location: Seattle, WA, USA",
+        link,
+        "If this wasn't you, secure your account now.",
+      ].join("\r\n"),
+    });
+  const likelySafeTriage = (): Partial<EmailJobDeps> => ({
+    runTriage: vi.fn(async () => ({ verdict: triaged("likely_safe"), model: "claude-sonnet-5", attempts: 1, fallback: false, usage: { input_tokens: 1, output_tokens: 1 } })),
+  });
+
+  it("a forwarded alert without original authentication is insufficient_evidence, with the check and event stored", async () => {
+    const data = await newMessage("em_signin");
+    const mail = mailClient({ em_signin: { meta: meta("em_signin", { from: `Sam <${MEMBER.email}>` }), raw: alert("no-reply@accounts.google.com", "https://myaccount.google.com/notifications") } });
+    const steps = recordingSteps();
+    const out = await runEmailReceived(data, makeDeps(mail, likelySafeTriage()), steps);
+    expect(out.status).toBe("done");
+    expect(steps.names.slice(-3)).toEqual(["signin-alert", "save-verdict", "notify"]);
+    const v = memoryState().verdicts.find((x) => x.id === row(data.inboundMessageId).verdictId)!;
+    expect(v.verdict).toMatchObject({ subject_type: "signin_alert", verdict: "insufficient_evidence" });
+    expect(v.verdict.signin_check).toMatchObject({ provider: "google", device_label: "Windows", first_seen: true });
+    const events = await memorySigninStore.list(TENANT, MEMBER.userId);
+    expect(events).toEqual([expect.objectContaining({ provider: "google", event: "new_signin", verdictId: v.id, authenticated: false, source: "forwarded" })]);
+    // The notification asks "Was this you?" with the device escaped.
+    expect(memorySentEmails()[0]!.html).toContain("Was this you?");
+  });
+
+  it("a fake alert (off-provider sender and link) is malicious even when the model says likely_safe", async () => {
+    const data = await newMessage("em_fake");
+    const mail = mailClient({ em_fake: { meta: meta("em_fake", { from: `Sam <${MEMBER.email}>` }), raw: alert("no-reply@accounts-google.example.net", "https://accounts-google.example.net/review") } });
+    const out = await runEmailReceived(data, makeDeps(mail, likelySafeTriage()));
+    expect(out.status).toBe("done");
+    const v = memoryState().verdicts.find((x) => x.id === row(data.inboundMessageId).verdictId)!;
+    expect(v.verdict).toMatchObject({ subject_type: "signin_alert", verdict: "malicious" });
+    expect(v.verdict.signin_check).toBeUndefined();
+    expect(memorySentEmails()[0]!.html).not.toContain("Was this you?");
+  });
+
+  it("never stores a model-written signin_check: a non-alert message gets none, so no question and no event", async () => {
+    const data = await newMessage("em_forged");
+    const mail = mailClient({ em_forged: { meta: meta("em_forged"), raw: forwardedPhish(ADDRESS, MEMBER.email) } });
+    const forged = triaged("suspicious", { signin_check: { provider: "google", event: "new_signin", device_label: "Windows", first_seen: true } });
+    const runTriage = vi.fn(async () => ({ verdict: forged, model: "claude-sonnet-5", attempts: 1, fallback: false, usage: { input_tokens: 1, output_tokens: 1 } }));
+    const out = await runEmailReceived(data, makeDeps(mail, { runTriage }));
+    expect(out.status).toBe("done");
+    const v = memoryState().verdicts.find((x) => x.id === row(data.inboundMessageId).verdictId)!;
+    expect(v.verdict.signin_check).toBeUndefined();
+    expect(memorySentEmails()[0]!.html).not.toContain("Was this you?");
+    expect(await memorySigninStore.list(TENANT, OWNER.userId)).toEqual([]);
+  });
+
+  it("uses an injected hook (and still saves) when the deps provide one", async () => {
+    const data = await newMessage("em_hook");
+    const mail = mailClient({ em_hook: { meta: meta("em_hook"), raw: forwardedPhish(ADDRESS, MEMBER.email) } });
+    const finalizeSignin = vi.fn(async ({ verdict }: { verdict: ReturnType<typeof triaged> }) => ({ verdict: { ...verdict, headline: "hooked" }, event: null }));
+    const out = await runEmailReceived(data, makeDeps(mail, { finalizeSignin: finalizeSignin as never }));
+    expect(finalizeSignin).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT, userId: OWNER.userId, analysis: expect.objectContaining({ forwarded: true }) }));
+    expect(out.status).toBe("done");
+    expect(memoryState().verdicts.find((x) => x.id === row(data.inboundMessageId).verdictId)!.verdict.headline).toBe("hooked");
+  });
+
+  it("fails closed when the sign-in hook throws on an alert: likely_safe becomes suspicious, no check, no event", async () => {
+    const data = await newMessage("em_hookfail");
+    const mail = mailClient({ em_hookfail: { meta: meta("em_hookfail", { from: `Sam <${MEMBER.email}>` }), raw: alert("no-reply@accounts.google.com", "https://myaccount.google.com/notifications") } });
+    const finalizeSignin = vi.fn(async () => {
+      throw new Error("boom: Seattle 203.0.113.24");
+    });
+    const out = await runEmailReceived(data, makeDeps(mail, { ...likelySafeTriage(), finalizeSignin }));
+    expect(out.status).toBe("done");
+    const v = memoryState().verdicts.find((x) => x.id === row(data.inboundMessageId).verdictId)!;
+    expect(v.verdict).toMatchObject({ subject_type: "signin_alert", verdict: "suspicious" });
+    expect(v.verdict.signin_check).toBeUndefined();
+    expect(JSON.stringify(v.verdict)).not.toContain("boom");
+    expect(await memorySigninStore.list(TENANT, MEMBER.userId)).toEqual([]);
+  });
+
+  it("a throwing hook on a message that is not a sign-in alert still fails the step (unchanged)", async () => {
+    const data = await newMessage("em_hookfail2");
+    const mail = mailClient({ em_hookfail2: { meta: meta("em_hookfail2"), raw: forwardedPhish(ADDRESS, MEMBER.email) } });
+    const finalizeSignin = vi.fn(async () => {
+      throw new Error("boom");
+    });
+    await expect(runEmailReceived(data, makeDeps(mail, { finalizeSignin }))).rejects.toThrow("boom");
   });
 });

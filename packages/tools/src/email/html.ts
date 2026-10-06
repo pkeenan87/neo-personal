@@ -150,6 +150,10 @@ export function analyzeHtml(html: string): HtmlFacts {
     if (BLOCK.has(name)) emit("\n");
     if (name === "td" || name === "th") emit(" ");
 
+    // Active destinations that are not href/src: a submit button's formaction and an anchor's ping beacon list.
+    if ((name === "button" || name === "input") && attrs.get("formaction")) resources.push(attrs.get("formaction")!);
+    if ((name === "a" || name === "area") && attrs.get("ping")) resources.push(...attrs.get("ping")!.split(/\s+/).filter(Boolean).slice(0, 5));
+
     switch (name) {
       case "a":
         closeAnchor();

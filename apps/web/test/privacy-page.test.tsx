@@ -87,6 +87,14 @@ describe("privacy policy page", () => {
     expect(text).toContain("never your individual answers");
   });
 
+  it("discloses the sign-in alert facts it stores from forwarded mail", () => {
+    render(<PrivacyPage />);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Sign-in alerts.");
+    expect(text).toContain("the provider, the kind of event, the device label, a coarse location, and the time");
+    expect(text).toContain("A household owner sees only the resulting alert, never the list of your sign-in events");
+  });
+
   it("falls back to the default contact address", () => {
     vi.stubEnv("NEO_CONTACT_EMAIL", "");
     render(<PrivacyPage />);

@@ -23,7 +23,7 @@ import {
 import type { NeoSession } from "@/lib/session";
 // Circular with memory-devices.ts (household names); only used at call time.
 import { memoryDeleteTenantDevices, memoryDetachMemberDevices } from "./memory-devices";
-import { deleteMemoryHardeningAnswers, memoryListMembers, memoryState, memoryVerdicts, setMemoryMembers } from "./memory-state";
+import { deleteMemoryHardeningAnswers, deleteMemorySigninData, memoryListMembers, memoryState, memoryVerdicts, setMemoryMembers } from "./memory-state";
 
 interface MemInvite extends HouseholdInvitePublic {
   tenantId: string;
@@ -193,6 +193,7 @@ export function memoryAcceptInvite(session: NeoSession, secret: string, confirmL
   const state = memoryState();
   state.members.delete(session.tenantId);
   deleteMemoryHardeningAnswers(session.tenantId);
+  deleteMemorySigninData(session.tenantId);
   state.verdicts = state.verdicts.filter((v) => v.tenantId !== session.tenantId);
   state.inboundAddresses = state.inboundAddresses.filter((a) => a.tenantId !== session.tenantId);
   memoryDeleteTenantDevices(session.tenantId, now);

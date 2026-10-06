@@ -2,6 +2,7 @@ import { and, count, eq, sql, type SQL } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { MODEL_FAMILIES, ROUTING_PREFERENCES, type ModelFamily, type RoutingPreference } from "@neo/core";
 import type { Db, Tx } from "./client.js";
+import { createTenantSigninEvents, type TenantSigninEvents } from "./signin-events.js";
 import {
   accountHardeningAnswers,
   digestDeliveries,
@@ -18,7 +19,9 @@ import {
   householdInvites,
   inboundAddresses,
   inboundMessages,
+  knownSigninDevices,
   memberships,
+  signinEvents,
   turns,
   usageEvents,
   verdicts,
@@ -45,6 +48,8 @@ export const tenantTables = {
   deviceEnrollmentCodes,
   deviceSignals,
   deviceExpectedTools,
+  signinEvents,
+  knownSigninDevices,
 } as const;
 
 /** Any table with a `tenantId` column. */
@@ -105,6 +110,8 @@ export interface TenantDb extends TenantQueries {
   /** Run several statements in one transaction with app.tenant_id set once. */
   transaction<R>(fn: (t: TenantTx) => Promise<R>): Promise<R>;
   readonly memberships: TenantMemberships;
+  /** Sign-in alert events and known devices (_specs/signin-alerts.md). */
+  readonly signinEvents: TenantSigninEvents;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -227,6 +234,7 @@ export function tenantScoped(db: Db, tenantId: string): TenantDb {
     tenantId,
     transaction,
     memberships: memberQueries,
+    signinEvents: createTenantSigninEvents(transaction),
     select: once("select"),
     first: once("first"),
     insert: once("insert"),

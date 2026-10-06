@@ -298,6 +298,34 @@ describe("DELETE /api/verdicts/[id]", () => {
   });
 });
 
+describe("owner privacy for a member's sign-in alert", () => {
+  const signinPatch: Partial<Verdict> = {
+    subject_type: "signin_alert",
+    indicators: [{ severity: "low", category: "seattle_windows_laptop", evidence: "x", explanation: "y" }],
+    iocs: { urls: [], domains: ["leaky-member-domain.example"], ips: [], hashes: [], phone_numbers: [] },
+  };
+
+  it("hides the chat title and leaves the alert out of the household indicator and domain aggregates", async () => {
+    const id = seed(MEMBER.userId, signinPatch);
+    memoryVerdicts().find((r) => r.id === id)!.conversationId = "11111111-2222-4333-8444-555555555555";
+
+    signIn(OWNER);
+    const d = await json<VerdictDetailResponse>(verdictGET(get("/x"), params(id)));
+    expect(d.conversation).toEqual({ id: "11111111-2222-4333-8444-555555555555", title: "Sign-in alert check" });
+
+    for (const url of ["/api/verdicts/summary", `/api/verdicts/summary?userId=${MEMBER.userId}`]) {
+      const s = await json<VerdictSummaryResponse>(summaryGET(get(url)));
+      expect(JSON.stringify(s.topIndicators)).not.toContain("seattle_windows_laptop");
+      expect(JSON.stringify(s.topDomains)).not.toContain("leaky-member-domain");
+    }
+
+    // The member still sees their own aggregates and title.
+    signIn(MEMBER);
+    const own = await json<VerdictSummaryResponse>(summaryGET(get("/api/verdicts/summary")));
+    expect(JSON.stringify(own.topIndicators)).toContain("seattle_windows_laptop");
+  });
+});
+
 describe("end to end with the agent (MOCK_MODE, dev tenant)", () => {
   it("a chat verdict is listed and its detail links the conversation", async () => {
     const res = await agentPOST(post("/api/agent", { message: `Is ${MOCK_URLS.phish} safe?` }));
@@ -310,6 +338,31 @@ describe("end to end with the agent (MOCK_MODE, dev tenant)", () => {
 
     const d = await json<VerdictDetailResponse>(verdictGET(get("/x"), params(list.items[0]!.id)));
     expect(d.conversation).toEqual({ id: conversationId, title: `Is ${MOCK_URLS.phish} safe?` });
+  });
+
+  it("an owner asking about a member's sign-in alert gives the model only the redacted view", async () => {
+    const memberId = "00000000-0000-4000-8000-0000000000e1";
+    setMemoryMembers(DEV_SESSION_IDS.tenantId, [
+      { userId: DEV_SESSION_IDS.userId, role: "owner", email: "o@example.test", name: "Owner" },
+      { userId: memberId, role: "member", email: "m@example.test", name: "Max" },
+    ]);
+    const id = seed(
+      memberId,
+      {
+        subject_type: "signin_alert",
+        headline: "Sign-in on a Windows laptop in Seattle",
+        indicators: [{ severity: "low", category: "new_device", evidence: "Seattle", explanation: "From 203.0.113.24 in Seattle." }],
+        iocs: { urls: [], domains: [], ips: ["203.0.113.24"], hashes: [], phone_numbers: [] },
+      },
+      { tenantId: DEV_SESSION_IDS.tenantId },
+    );
+    const res = await agentPOST(post("/api/agent", { message: "Tell me more about this check", verdictId: id }));
+    expect(res.status).toBe(200);
+    const conversationId = res.headers.get("x-conversation-id")!;
+    await events(res);
+    const conv = await getConversationStore().get(conversationId, DEV_SESSION_IDS.tenantId);
+    const hidden = (conv!.messages[0]!.content as Array<{ text: string }>)[1]!.text;
+    for (const leak of ["Seattle", "203.0.113.24", "laptop"]) expect(hidden, leak).not.toContain(leak);
   });
 
   it("'Ask Neo about this' adds the stored verdict as a hidden, wrapped block loaded on the server", async () => {

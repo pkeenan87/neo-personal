@@ -1,6 +1,6 @@
 "use client";
 
-import { Banknote, Gift, KeyRound, Link2, MessageSquareLock, MonitorSmartphone } from "lucide-react";
+import { Banknote, Gift, KeyRound, Link2, MessageSquareLock, MonitorSmartphone, UserRoundX } from "lucide-react";
 import Link from "next/link";
 import { PLAYBOOK_ENTRIES, type PlaybookId } from "@/lib/playbooks";
 
@@ -11,13 +11,14 @@ const ICONS: Record<PlaybookId, typeof Link2> = {
   shared_code: MessageSquareLock,
   paid_scammer: Banknote,
   device_compromised: MonitorSmartphone,
+  account_takeover: UserRoundX,
 };
 
 const ITEM =
   "flex h-full min-h-12 w-full items-center gap-2.5 rounded-xl border border-border bg-surface p-3 text-left text-sm font-medium shadow-sm transition-colors hover:border-accent hover:bg-surface-2";
 
 /**
- * The six incident playbook entry points. With `onPick` they are buttons
+ * The incident playbook entry points. With `onPick` they are buttons
  * (chat empty state sends directly); without, links to `/chat?playbook=<id>`.
  * Two columns only when the containing element is wide enough (container
  * query), so the dashboard sidebar gets a single-column list.

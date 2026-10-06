@@ -45,7 +45,8 @@ export type AgentEvent =                      // NDJSON events streamed to clien
   | { type: "confirmation_required"; id: string; name: string; input: unknown; description: string }
   | { type: "usage"; input_tokens: number; output_tokens: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number }
   | { type: "done"; stop_reason: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "verdict_override"; verdict: Verdict };   // sign-in alerts: sent by the server AFTER `done` when a rule replaced the verdict the model streamed; no signin_check
 export interface RunAgentOptions {
   messages: MessageParam[];                   // from @anthropic-ai/sdk
   system: string;
@@ -267,7 +268,7 @@ export function getHouseholdName(db, tenantId): Promise<string | undefined>;   /
 Notes:
 - `ArtifactStore.get` / `read` treat expired artifacts as missing. `put` without a master key throws `ArtifactStoreUnavailableError` unless `allowPlaintext` (ignored when `VERCEL_ENV=production`). `retentionDays` defaults to `NEO_ARTIFACT_RETENTION_DAYS` (30). Also exported: `artifactBlobPath`, `artifactRetentionDays`, `DEFAULT_ARTIFACT_RETENTION_DAYS`, types `PutArtifactInput`, `ArtifactStoreOptions`, `ArtifactSource`.
 - `inbound.countRecent` is tenant-scoped (the webhook has the tenant from `findActiveByLocalPart`). `recordMessage` is idempotent on `providerMessageId` and bumps the address's `last_used_at`. `findActiveByLocalPart` lowercases/trims and returns undefined for anything not shaped like `check-<12 crockford>` without querying.
-- `saveVerdict` validates with `VerdictSchema` (throws on invalid), sets `raw_ref` from `artifactId` when absent, and throws on DB errors (callers that must not fail catch). `verdictQueries.list` throws `InvalidCursorError` on a malformed cursor (route → 400); the cursor carries microsecond precision. `summary` covers whole UTC days (today and the previous `sinceDays - 1`), `perDay` has one entry per day (zero-filled), `topIndicators` / `topDomains` count verdicts (not occurrences), domains lowercased; it also takes `now?`. `remove` does not delete the linked artifact (the app does, via `ArtifactStore.delete`). Types exported: `VerdictRow` (`body: Verdict`), `VerdictSummary`, `VerdictListOptions`, `HouseholdMember`, `InboundMessageRow`, `InboundStatus`, `VerdictSource`, `ArtifactKind`.
+- `saveVerdict` validates with `VerdictSchema` (throws on invalid), sets `raw_ref` from `artifactId` when absent, and throws on DB errors (callers that must not fail catch). `verdictQueries.list` throws `InvalidCursorError` on a malformed cursor (route → 400); the cursor carries microsecond precision. `summary` covers whole UTC days (today and the previous `sinceDays - 1`), `perDay` has one entry per day (zero-filled), `topIndicators` / `topDomains` count verdicts (not occurrences), domains lowercased; it also takes `now?` and `viewerUserId?`: `topIndicators` / `topDomains` include a `signin_alert` verdict only when its user is the viewer (no viewer: none). `remove` does not delete the linked artifact (the app does, via `ArtifactStore.delete`). Types exported: `VerdictRow` (`body: Verdict`), `VerdictSummary`, `VerdictListOptions`, `HouseholdMember`, `InboundMessageRow`, `InboundStatus`, `VerdictSource`, `ArtifactKind`.
 - New tables are in `tenantTables`.
 
 ## apps/web
@@ -1037,3 +1038,80 @@ export function clearAccountHardeningAnswer(session: NeoSession, itemId: Account
 - The score shows `scorePercent: null` ("not enough answers") until at least 3 self-attested items have a fresh answer (`complete`, `needs_action`, `not_applicable`; `stale` does not count). `forwarding_used_30d` counts attributed inbound messages in the rolling 30 days of any status except `rejected`. Answering without a membership row is 403 `forbidden`. The weekly digest treats only personal/household activity as reportable; the score rides along when a week is sent.
 - Errors are `HardeningScoreError { status, code }` (`forbidden` 403, `storage_unavailable` 503, `checklist_version_mismatch` 409, `invalid_request` 400); routes map them to `{ error, code }` JSON. Evidence and answers are read through a `HardeningStore` (Postgres via @neo/db, or `memory-hardening.ts` without a database). The weekly digest fills `HardeningScoreSlot` with the recipient's own percentage and `/settings/hardening`, omitted while the percentage is null or unreadable. Pages: `/settings/hardening` (own checklist only) and a dashboard card (owners also see other members' percentages).
 - `GET /api/hardening-score` → personal score. `POST /api/hardening-score/answers` `{ itemId, checklistVersion, value: boolean | "not_applicable" | "clear" }` → updated personal score; `clear` removes that answer. This is the only answer mutation route. A stale checklist version returns 409 `checklist_version_mismatch`; session identity selects the subject; answer mutation requires a browser session.
+
+---
+
+## @neo/verdict (spec `_specs/signin-alerts.md`)
+
+```ts
+export const SIGNIN_ALERT_PROVIDERS: readonly ["google", "microsoft", "apple", "meta", "amazon", "paypal"];
+export const SIGNIN_ALERT_EVENTS: readonly ["new_signin", "new_device", "password_changed", "mfa_or_recovery_changed", "suspicious_activity"];
+export type SigninCheck = { provider: SignInAlertProvider; event: SignInAlertEvent; device_label: string /* 1..80 */; first_seen: boolean; coarse_location?: string /* max 80, the parser's bounds */ };
+export type Verdict = { /* existing fields */ signin_check?: SigninCheck };
+```
+
+`signin_check` is the stored verdict data for the "Was this you?" question. It is written only by the sign-in alert hook; it is removed from `verdictJsonSchema` (the model is never offered it) and the chat path strips any `signin_check` a model emits inside `extractVerdict` (whether or not `analyze_email` ran; `extractModelVerdict` returns the raw block) and the inbound path via `finalizeSigninVerdict`. `coarse_location` is advisory.
+
+## @neo/tools (spec `_specs/signin-alerts.md`)
+
+```ts
+export type SignInAlertProvider = "google" | "microsoft" | "apple" | "meta" | "amazon" | "paypal";
+export type SignInAlertEvent = "new_signin" | "new_device" | "password_changed" | "mfa_or_recovery_changed" | "suspicious_activity";
+export type SignInAlert = { template_id: string; provider: SignInAlertProvider; event: SignInAlertEvent; event_time?: string; location?: string; ip_addresses: string[]; device?: string; account_hint?: string; evidence: { field: "subject" | "sender" | "body"; excerpt: string }[]; warnings: string[]; analyzed_at: string;
+  reply_with_code?: true;   // set by analyzeEmail: "reply with the code" in the first 200k chars of the full text, or a mailto: link that asks for a code
+  mailto_links?: number };  // mailto: links in the message (set when > 0)
+export type EmailAuthentication = { /* existing fields */ dkim_domains: string[]; dkim_pass_domains: string[] /* d= of PASSING signatures only; [] in the DKIM-Signature fallback */; strict?: { spf; dkim; dkim_pass_domains: string[]; dmarc; aligned: boolean | null; untrusted: boolean } /* sign-in gates only: the one selected Authentication-Results header, never merged; untrusted when no Received `by` host matched its authserv-id or a header sits above it */ };
+export type EmailAnalysis = { /* existing fields */ link_summary?: { hosts: string[] /* unique hosts of ALL http(s) candidates, cap 500 */; hosts_truncated: boolean; unlisted: number /* candidates beyond the 50 listed urls */; nonstandard: number /* userinfo or port */; non_web: number } };
+export type EmailAnalysis = { /* existing fields */ signin_alert?: SignInAlert };
+export const SIGNIN_ALERT_SENDERS: Readonly<Record<SignInAlertProvider, readonly string[]>>;
+export const SIGNIN_ALERT_DOMAINS: Readonly<Record<SignInAlertProvider, readonly string[]>>; // registrable domains allowed for DKIM d= and links
+export const SIGNIN_ALERT_LINK_HOSTS: Readonly<Record<SignInAlertProvider, readonly string[]>>; // exact link hosts for the likely_safe gate; verify against real alerts before verifying templates
+export const SIGNIN_ALERT_TEMPLATES: readonly { id: string; provider: SignInAlertProvider; event: SignInAlertEvent; verified: boolean }[];
+export type SigninFakeRule = "sender_provider_mismatch" | "off_provider_link" | "callback_number" | "reply_with_code";
+export function assessSigninAlert(a: EmailAnalysis, templates?: readonly { id: string; verified: boolean }[]): SigninAlertAssessment | null; // fake rules, auth_absent, authenticated, safe gates
+```
+
+`analyzeEmail` fills `signin_alert` from the already-parsed message (no separate analyze function). `parseSigninAlert` returns null for unknown, conflicting-provider, ambiguous or non-English messages. Rule 4 fires on `signin_alert.reply_with_code` (full text, bounded, or a mailto: link asking for a code), the existing `credential_request` signal, or the phrase in the excerpt.
+
+Safe gates (`assessSigninAlert().gates`; every one is required for `likely_safe`): `template_verified`; `sender_exact` (From address equals a listed `SIGNIN_ALERT_SENDERS` address, entries without `@` are pre-filter domains only); `dkim_pass` and `dkim_domain_allowlisted` (a PASSING signature's d= on the provider allowlist; a failing signature never counts) and `dkim_aligned` (a passing d= has the From registrable domain, or `aligned` with `dmarc=pass`), all read only from `authentication.strict` (the single selected Authentication-Results header, no merging with lower headers; `untrusted` fails the gates) and only when `authentication.source === "authentication_results"`; `links_on_provider` (registrable domains; runs over `link_summary.hosts`, so links beyond the 50 listed urls count, and an incomplete host list fires `off_provider_link`); `link_hosts_exact` (every candidate host is in `SIGNIN_ALERT_LINK_HOSTS`, none unlisted, no userinfo, port or non-web scheme, no mailto: link; `<button formaction>`, `<input formaction>` and `<a ping>` count as links); `no_injection`. Authentication that comes only from ARC, Received-SPF or DKIM-Signature headers (attacker-writable) counts as absent (`auth_absent`, so the `insufficient_evidence` path). A link on another host of the provider's registrable domain (sites.google.com, docs.google.com) fails the gate without being a fake-alert signal.
+
+## @neo/db (spec `_specs/signin-alerts.md`)
+
+```ts
+// Migration 0015. Both tables are in tenantTables with tenant_isolation RLS and app_user grants; both cascade with the (tenant_id, user_id) membership.
+signin_events: { id; tenant_id; user_id; provider; event; device_label (nullable); coarse_location; event_time; source: "forwarded" | "outlook"; authenticated: boolean; verdict_id (cascade with the verdict); created_at };
+known_signin_devices: { id; tenant_id; user_id; provider; device_label; first_seen_at; last_seen_at; UNIQUE (tenant_id, user_id, provider, device_label) };
+type SigninEvent = { /* signin_events row */ deviceKnown: boolean };
+tenantScoped(db, tenantId).signinEvents.list(userId, opts?): Promise<SigninEvent[]>;      // newest first, default 50, max 200
+tenantScoped(db, tenantId).signinEvents.record(input): Promise<SigninEvent>;
+tenantScoped(db, tenantId).signinEvents.isKnownDevice(userId, provider, deviceLabel): Promise<boolean>;
+tenantScoped(db, tenantId).signinEvents.rememberDevice(userId, provider, deviceLabel): Promise<void>;
+tenantScoped(db, tenantId).signinEvents.forgetDevice(userId, provider, deviceLabel): Promise<void>;
+tenantScoped(db, tenantId).signinEvents.deleteForUser(userId): Promise<number>;
+```
+
+## apps/web (spec `_specs/signin-alerts.md`)
+
+```ts
+export interface GeoLocator { locate(ip: string): Promise<{ coarseLocation?: string; advisory: true }> }
+export const mockGeoLocator: GeoLocator;
+export const reviewMySigninsTool: RegisteredTool; // "review_my_signins"; input { provider?: "" | provider; limit?: 1..50 }, blanks and null are absent
+// Registered through createToolRegistry in buildToolRegistry (apps/web/lib/server/agent-run.ts).
+export function applySigninAlertOverride(input: { analysis: EmailAnalysis; verdict: Verdict }): Verdict;
+export function finalizeSigninVerdict(input: { tenantId; userId; analysis; verdict; source }): Promise<{ verdict: Verdict; event: SigninEventPayload | null }>; // override + signin_check (first_seen); stores nothing
+export function persistSigninEvent(input: { tenantId; userId; verdictId?; event }): Promise<void>;   // never throws
+export type StoredSigninVerdictData = { signin_check?: SigninCheck };
+export const PLAYBOOK_IDS: readonly [..., "account_takeover"];
+// apps/web/lib/server/playbooks/account_takeover.md added; generated.ts regenerated (pnpm --filter @neo/web playbooks:generate).
+```
+
+Hook placement: inbound job step `signin-alert` between `triage` and `save-verdict` (event stored in `save-verdict` once the verdict has an id); chat path in `streamAgentRun` after `extractVerdict` and before `appendTurn`/`saveChatVerdict`, using the `analyze_email` result in that turn's messages (falling back to a copy captured when the tool ran, if the stored result was truncated). When a rule changes anything visible (label, headline, indicators, actions) the stored message's last valid verdict block is rewritten (`replaceLastVerdict` in `lib/verdict-fence.ts`, the same fence scan as `splitVerdictSegments`/`extractVerdict`), a `verdict_override` event is streamed (the client rewrites the card it rendered from the model's text, even though `done` already arrived), then one note line is appended and streamed. `signin_check` is never in the text or the event.
+
+Several emails in one chat turn (`selectSigninAnalysis`): one analysis uses it; several use the one whose subject, sender or link hosts the verdict quotes when exactly one does (no override if that one is not a sign-in alert); otherwise, when any is a sign-in alert, the choice is ambiguous and `applyAmbiguousSigninCap` runs: `likely_safe` becomes `suspicious`, other labels are kept, static headline, `subject_type: "signin_alert"`, no `signin_check`, no event. A model-claimed `signin_alert` subject with no alert analysis gets the same cap. If the hook itself throws and the turn touched a sign-in alert (or the verdict claims that subject), `applySigninHookFailureCap` applies the same cap (static headline, error logged without content) and a `verdict_override` is emitted; the inbound job does the same for a recognized alert (a throw on any other message still fails the step).
+
+Owner privacy (`lib/server/signin/privacy.ts`): for a `signin_alert` verdict viewed by anyone but its own user, `verdictDetail`, the verdict list headline, the `verdictId` chat context, the owner chat entry message and owner alert text replace `headline` with static text by label, every indicator's `evidence`/`explanation` and `recommended_actions` with generic text (category kept only when plain snake_case), drop `iocs.ips`, reduce `iocs.urls` to origins and remove `signin_check`. Stored override headlines are static for the same reason.
+
+Outcomes (`applySigninAlertOverride`): a fake-alert rule fires -> `malicious`; verified template + every safe gate above (and the triage verdict is not `malicious`) -> `likely_safe`; no authentication results (forwarded wrapper, pasted) -> `insufficient_evidence` (a `suspicious` or `malicious` triage verdict is kept); otherwise the triage verdict with `likely_safe` capped to `suspicious`. A fake alert gets no `signin_check`. Owners never receive `signin_check` in verdict detail.
+
+- `POST /api/verdicts/[id]/signin-response` `{ response: "yes" | "no" }` -> 200 `{ ok: true, playbook?: "account_takeover" }`; browser session only (desktop token 403); only the verdict's own user may answer (404 otherwise, owners included); last answer wins (yes remembers the provider/device pair, no forgets it); 409 `no_signin_check` if the verdict has no `signin_check`; `no` returns the `account_takeover` playbook id; 400 for any other body.
+- `GET /api/verdicts/[id]` adds `signinDeviceKnown?: boolean` (own verdicts with a first-seen check only).

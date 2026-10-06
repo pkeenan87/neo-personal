@@ -23,7 +23,7 @@ import {
 } from "@neo/core";
 import type { ArtifactMeta } from "@neo/db";
 import { PostgresReputationCache } from "@neo/db";
-import { createAnalyzeEmailTool, createAnalyzeSmsTool, createCheckUrlTool, createInMemoryCache, type ReputationCache } from "@neo/tools";
+import { createAnalyzeEmailTool, createAnalyzeSmsTool, createCheckUrlTool, createInMemoryCache, type EmailAnalysis, type ReputationCache } from "@neo/tools";
 import { parseAttachmentNote } from "@/lib/attachments";
 import { env } from "@/lib/env";
 import { playbookMarker, type PlaybookId } from "@/lib/playbooks";
@@ -38,8 +38,13 @@ import { routeTurn } from "./router";
 import { getMemberPreferences } from "./routing-settings";
 import { NEO_SYSTEM_PROMPT } from "./system-prompt";
 import { recordUsage } from "./usage";
-import { extractVerdict, saveChatVerdict } from "./verdicts";
+import type { Verdict } from "@neo/verdict";
+import { extractModelVerdict, extractVerdict, saveChatVerdict } from "./verdicts";
 import { checkBreachesTool } from "./tools/check-breaches";
+import { reviewMySigninsTool } from "./tools/review-my-signins";
+import { findEmailAnalyses, rewriteFinalVerdict, selectSigninAnalysis, signinOverrideNote, stripCheck } from "./signin/chat-hook";
+import { applyAmbiguousSigninCap, applySigninHookFailureCap } from "./signin/override";
+import { finalizeSigninVerdict, persistSigninEvent } from "./signin/service";
 
 const g = globalThis as typeof globalThis & { __neoUrlCache?: ReputationCache; __neoUrlCacheDbBacked?: boolean };
 
@@ -61,12 +66,23 @@ export function sharedUrlCache(): ReputationCache {
 }
 
 /** check_url, analyze_email and analyze_sms with a shared reputation cache; MOCK_MODE adds a destructive demo tool. */
-export function buildToolRegistry(opts: { mock: boolean } = { mock: env().MOCK_MODE }): ToolRegistry {
+export function buildToolRegistry(opts: { mock: boolean; onEmailAnalysis?: (analysis: EmailAnalysis) => void } = { mock: env().MOCK_MODE }): ToolRegistry {
   const cache = sharedUrlCache();
-  const tools: RegisteredTool[] = [createCheckUrlTool({ deps: { cache } }), checkBreachesTool];
+  const tools: RegisteredTool[] = [createCheckUrlTool({ deps: { cache } }), checkBreachesTool, reviewMySigninsTool];
   // ── Phase 1: intake tools (analyze_email, analyze_sms) ──
+  const analyzeEmail = createAnalyzeEmailTool({ deps: { cache }, loadArtifact: loadArtifactForTool });
   tools.push(
-    createAnalyzeEmailTool({ deps: { cache }, loadArtifact: loadArtifactForTool }),
+    // The sign-in alert hook reads the analysis from the turn's messages; a truncated tool result falls back to this copy.
+    opts.onEmailAnalysis
+      ? {
+          ...analyzeEmail,
+          execute: async (input, ctx) => {
+            const result = await analyzeEmail.execute(input, ctx);
+            if (result && typeof result === "object" && "authentication" in result) opts.onEmailAnalysis!(result as EmailAnalysis);
+            return result;
+          },
+        }
+      : analyzeEmail,
     createAnalyzeSmsTool({ deps: { cache } }),
   );
   // ── end Phase 1: intake tools ──
@@ -256,9 +272,11 @@ export function streamAgentRun(input: AgentRunInput): Response {
   const store = getConversationStore();
   const client = agentClient();
 
+  // Every analysis the tool produced this run: the fallback when a stored tool result was truncated.
+  const emailAnalyses: EmailAnalysis[] = [];
   const common: Omit<RunAgentOptions, "messages"> = {
     system: NEO_SYSTEM_PROMPT,
-    tools: buildToolRegistry(),
+    tools: buildToolRegistry({ mock: env().MOCK_MODE, onEmailAnalysis: (a) => void emailAnalyses.push(a) }),
     ctx: { tenantId: session.tenantId, userId: session.userId, conversationId, signal },
     effort: input.route?.effort ?? input.effort ?? agentEffort(),
     onEvent: send,
@@ -284,7 +302,69 @@ export function streamAgentRun(input: AgentRunInput): Response {
       for (const e of events) await send(e);
     }
 
-    const newMessages = result?.newMessages ?? [];
+    let newMessages = result?.newMessages ?? [];
+    // ── Sign-in alerts: the deterministic hook runs after the model's verdict and before it is stored ──
+    // extractVerdict drops any model-written `signin_check`: only finalizeSigninVerdict may set one.
+    let verdict = extractVerdict(newMessages);
+    let signinEvent: Awaited<ReturnType<typeof finalizeSigninVerdict>>["event"] = null;
+    if (verdict) {
+      // The user saw the model's verdict stream live: when a rule changed anything visible, rewrite the stored
+      // text, tell the client to redraw the card, and say why. `signin_check` is stored data, never in the text.
+      const publishFinal = async (finalVerdict: Verdict) => {
+        const shown = stripCheck(finalVerdict);
+        const modelShown = extractModelVerdict(newMessages);
+        if (JSON.stringify(shown) !== JSON.stringify(modelShown && stripCheck(modelShown))) {
+          const note = signinOverrideNote(finalVerdict);
+          newMessages = rewriteFinalVerdict(newMessages, shown, note);
+          await send({ type: "verdict_override", verdict: shown });
+          await send({ type: "text_delta", text: `\n\n${note}` });
+        } else if (modelShown?.signin_check) {
+          newMessages = rewriteFinalVerdict(newMessages, shown);
+        }
+      };
+      try {
+        const fromMessages = findEmailAnalyses(newMessages);
+        const choice = selectSigninAnalysis(emailAnalyses.length >= fromMessages.length ? emailAnalyses : fromMessages, verdict);
+        let finalVerdict = verdict;
+        // A model-claimed signin_alert subject with no alert analysis behind it is capped like an ambiguous one.
+        if (choice.kind === "none" && verdict.subject_type === "signin_alert") finalVerdict = applyAmbiguousSigninCap(verdict);
+        if (choice.kind === "analysis") {
+          const finalized = await finalizeSigninVerdict({ tenantId: session.tenantId, userId: session.userId, analysis: choice.analysis, verdict, source: "forwarded" });
+          signinEvent = finalized.event;
+          finalVerdict = finalized.verdict;
+        } else if (choice.kind === "ambiguous") {
+          finalVerdict = applyAmbiguousSigninCap(verdict);
+        }
+        await publishFinal(finalVerdict);
+        verdict = finalVerdict;
+      } catch (err) {
+        logger.error("Sign-in alert hook failed", "api.agent", {
+          conversationId,
+          tenantId: session.tenantId,
+          errorMessage: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
+        });
+        // Fail closed: the rules did not run, so a turn that touched a sign-in alert never keeps a `likely_safe`.
+        let touchedAlert = verdict.subject_type === "signin_alert";
+        try {
+          touchedAlert ||= [...emailAnalyses, ...findEmailAnalyses(newMessages)].some((a) => !!a.signin_alert);
+        } catch {
+          touchedAlert = true; // cannot tell: cap rather than trust the model
+        }
+        if (touchedAlert) {
+          try {
+            verdict = applySigninHookFailureCap(verdict); // stored even if telling the client fails below
+            await publishFinal(verdict);
+          } catch (err2) {
+            logger.error("Sign-in alert fail-closed cap failed", "api.agent", {
+              conversationId,
+              tenantId: session.tenantId,
+              errorMessage: err2 instanceof Error ? err2.message.slice(0, 300) : String(err2).slice(0, 300),
+            });
+          }
+        }
+      }
+    }
+    // ── end Sign-in alerts ──
     const usage = result?.usage ?? { input_tokens: 0, output_tokens: 0 };
     try {
       await store.appendTurn(conversationId, session.tenantId, {
@@ -314,12 +394,12 @@ export function streamAgentRun(input: AgentRunInput): Response {
       ...(input.route ? { tier: input.route.tier } : {}),
     });
     if (result?.errorCode === "budget_exhausted") await noteBudgetExhausted(session, conversationId, input.route);
-    const verdict = extractVerdict(newMessages);
     if (verdict) {
       // ── Phase 1: intake — link the verdict to the turn's first attachment ──
       const artifactId = firstAttachmentId(prefix);
       if (artifactId && !verdict.raw_ref) verdict.raw_ref = artifactId;
       const verdictId = await saveChatVerdict({ tenantId: session.tenantId, userId: session.userId, conversationId, verdict, ...(artifactId ? { artifactId } : {}) });
+      await persistSigninEvent({ tenantId: session.tenantId, userId: session.userId, verdictId, event: signinEvent });
       logger.info("Verdict stored", "api.agent", {
         conversationId,
         tenantId: session.tenantId,

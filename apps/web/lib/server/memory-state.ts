@@ -7,7 +7,7 @@
  * the one artifact store (lib/server/artifacts.ts), which is also in memory
  * without a database. Never used when DATABASE_URL is set.
  */
-import type { AccountHardeningAnswer, HouseholdMember, InboundMessageRow, VerdictSource } from "@neo/db";
+import type { AccountHardeningAnswer, HouseholdMember, InboundMessageRow, SigninEvent, VerdictSource } from "@neo/db";
 import type { Verdict } from "@neo/verdict";
 import { env } from "@/lib/env";
 import { DEV_SESSION_IDS } from "@/lib/session";
@@ -41,6 +41,9 @@ interface MemoryState {
   breachAddresses: Map<string, unknown>;
   /** Keyed `tenantId:userId:itemId`; removed with the membership, like the DB foreign key. */
   hardeningAnswers: Map<string, AccountHardeningAnswer>;
+  /** Sign-in alert events and known devices (key `tenantId:userId:provider:deviceLabel`); removed with the membership. */
+  signinEvents: SigninEvent[];
+  knownSigninDevices: Set<string>;
 }
 
 const MAX_VERDICTS = 1000;
@@ -48,7 +51,7 @@ const MAX_VERDICTS = 1000;
 const g = globalThis as typeof globalThis & { __neoMemoryState?: MemoryState };
 
 export function memoryState(): MemoryState {
-  g.__neoMemoryState ??= { verdicts: [], members: new Map(), digestPreferences: new Map(), inboundAddresses: [], inboundMessages: [], breachAddresses: new Map(), hardeningAnswers: new Map() };
+  g.__neoMemoryState ??= { verdicts: [], members: new Map(), digestPreferences: new Map(), inboundAddresses: [], inboundMessages: [], breachAddresses: new Map(), hardeningAnswers: new Map(), signinEvents: [], knownSigninDevices: new Set() };
   return g.__neoMemoryState;
 }
 
@@ -103,6 +106,7 @@ export function setMemoryMembers(tenantId: string, members: HouseholdMember[]): 
     if (members.some(m => m.userId === old.userId)) continue;
     memoryState().digestPreferences.delete(`${tenantId}:${old.userId}`);
     deleteMemoryHardeningAnswers(tenantId, old.userId);
+    deleteMemorySigninData(tenantId, old.userId);
   }
   memoryState().members.set(tenantId, members.map((m) => ({ ...m })));
 }
@@ -111,6 +115,14 @@ export function setMemoryMembers(tenantId: string, members: HouseholdMember[]): 
 export function deleteMemoryHardeningAnswers(tenantId: string, userId?: string): void {
   const answers = memoryState().hardeningAnswers;
   for (const [key, a] of answers) if (a.tenantId === tenantId && (userId === undefined || a.userId === userId)) answers.delete(key);
+}
+
+/** Delete a member's (or, without `userId`, a whole household's) sign-in events and known devices. */
+export function deleteMemorySigninData(tenantId: string, userId?: string): void {
+  const st = memoryState();
+  st.signinEvents = st.signinEvents.filter((e) => !(e.tenantId === tenantId && (userId === undefined || e.userId === userId)));
+  const prefix = userId === undefined ? `${tenantId}:` : `${tenantId}:${userId}:`;
+  for (const k of st.knownSigninDevices) if (k.startsWith(prefix)) st.knownSigninDevices.delete(k);
 }
 
 /** Registered members, else the DEV_AUTH_BYPASS identity for the dev tenant, else none. */

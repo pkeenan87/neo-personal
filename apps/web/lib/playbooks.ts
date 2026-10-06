@@ -11,6 +11,7 @@ export const PLAYBOOK_IDS = [
   "shared_code",
   "paid_scammer",
   "device_compromised",
+  "account_takeover",
 ] as const;
 
 export type PlaybookId = (typeof PLAYBOOK_IDS)[number];
@@ -38,6 +39,7 @@ export const PLAYBOOK_ENTRIES: readonly PlaybookEntry[] = [
     title: "Someone had remote access to my device",
     description: "let someone take remote control of my computer or phone",
   },
+  { id: "account_takeover", title: "Someone signed in to my account", description: "had someone else sign in to one of my accounts" },
 ];
 
 /** The message sent for a playbook entry point. */

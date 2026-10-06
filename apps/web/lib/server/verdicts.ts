@@ -27,14 +27,25 @@ export function finalAssistantText(messages: readonly MessageParam[]): string {
   return "";
 }
 
-/** The last valid verdict in the final assistant message, or null. */
-export function extractVerdict(messages: readonly MessageParam[]): Verdict | null {
+/** The last valid verdict in the final assistant message exactly as the model wrote it, or null. */
+export function extractModelVerdict(messages: readonly MessageParam[]): Verdict | null {
   const segments = splitVerdictSegments(finalAssistantText(messages));
   for (let i = segments.length - 1; i >= 0; i--) {
     const s = segments[i];
     if (s?.kind === "verdict") return s.verdict;
   }
   return null;
+}
+
+/**
+ * The last valid verdict in the final assistant message, or null, without any `signin_check`: only the
+ * server-side sign-in alert hook may set it (a model-written one would forge a "Was this you?" question).
+ */
+export function extractVerdict(messages: readonly MessageParam[]): Verdict | null {
+  const v = extractModelVerdict(messages);
+  if (!v) return null;
+  const { signin_check: _drop, ...rest } = v;
+  return rest;
 }
 
 export { memoryVerdicts, type MemoryVerdictRow } from "./memory-state";

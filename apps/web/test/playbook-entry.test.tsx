@@ -54,7 +54,7 @@ function renderChat(props: Partial<React.ComponentProps<typeof ChatInterface>> =
 }
 
 describe("playbook entry points", () => {
-  it("chat empty state shows the six playbooks; clicking one sends it with its id", async () => {
+  it("chat empty state shows every playbook; clicking one sends it with its id", async () => {
     renderChat();
     const group = screen.getByRole("list", { name: "Get help with something that already happened" });
     expect(within(group).getAllByRole("button").map((b) => b.textContent)).toEqual(PLAYBOOK_ENTRIES.map((e) => e.title));

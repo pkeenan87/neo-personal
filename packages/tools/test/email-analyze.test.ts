@@ -103,7 +103,7 @@ describe("fixtures", () => {
     const body = readFileSync(new URL("./fixtures/email/pasted-body.txt", import.meta.url), "utf8");
     const a = await analyzeEmail({ pasted: { body } }, { deps: MOCK });
     expect(a).toMatchObject({ input_kind: "pasted", headers_present: false, forwarded: false, received_hops: 0 });
-    expect(a.authentication).toEqual({ spf: "absent", dkim: "absent", dkim_domains: [], dmarc: "absent", aligned: null, source: "none" });
+    expect(a.authentication).toEqual({ spf: "absent", dkim: "absent", dkim_domains: [], dkim_pass_domains: [], dmarc: "absent", aligned: null, source: "none" });
     expect(a.sender.from).toMatchObject({ address: "info@netf1ix-billing.example.net", display_name: "Netflix" });
     expect(a.heuristics).toEqual([
       "spoofed_brand_in_display_name", "lookalike_sender_domain", "url_brand_lookalike", "urgency_language", "payment_request", "account_suspension_lure", "generic_greeting",

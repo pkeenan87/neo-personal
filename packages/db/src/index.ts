@@ -222,3 +222,4 @@ export {
   type AccountHardeningState,
   type AccountHardeningVersion,
 } from "./account-hardening.js";
+export type { SigninEvent, SigninEventInput, SigninEventSource, TenantSigninEvents } from "./signin-events.js";

@@ -233,6 +233,31 @@ describe("verdictQueries", () => {
     expect(empty.topIndicators).toEqual([]);
   });
 
+  it("leaves another member's sign-in alert out of indicator and domain aggregates", async () => {
+    const leaky = verdict({
+      subject_type: "signin_alert",
+      indicators: [{ severity: "low", category: "seattle_windows_laptop", evidence: "x", explanation: "y" }],
+      iocs: { urls: [], domains: ["leaky-member.example"], ips: [], hashes: [], phone_numbers: [] },
+    });
+    const id = await insertAt(t.db, tenantA, member, leaky, new Date(NOW.getTime() - 1000));
+    try {
+      const text = (s: Awaited<ReturnType<typeof verdictQueries.summary>>) => JSON.stringify([s.topIndicators, s.topDomains]);
+      // No viewer, the other user, and an owner filtering on the member: all excluded. Counts by label still include it.
+      for (const opts of [{}, { viewerUserId: owner }, { userId: member, viewerUserId: owner }]) {
+        const s = await verdictQueries.summary(t.db, tenantA, { sinceDays: 7, now: NOW, ...opts });
+        expect(text(s)).not.toContain("seattle_windows_laptop");
+        expect(text(s)).not.toContain("leaky-member");
+      }
+      expect((await verdictQueries.summary(t.db, tenantA, { sinceDays: 7, now: NOW })).bySubjectType.signin_alert).toBe(1);
+      // The member's own view includes it.
+      const own = await verdictQueries.summary(t.db, tenantA, { sinceDays: 7, now: NOW, userId: member, viewerUserId: member });
+      expect(text(own)).toContain("seattle_windows_laptop");
+      expect(text(own)).toContain("leaky-member.example");
+    } finally {
+      await verdictQueries.remove(t.db, tenantA, id);
+    }
+  });
+
   it("isolates tenants in list, get, summary and remove", async () => {
     expect((await verdictQueries.list(t.db, tenantB, {})).items).toHaveLength(1);
     expect(await verdictQueries.get(t.db, tenantB, ids[0]!)).toBeUndefined();
