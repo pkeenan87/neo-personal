@@ -62,6 +62,7 @@ import {
   hourBucket,
   joinedAlertText,
   leftAlertText,
+  mailboxForwardingAlertText,
   verdictAlertText,
 } from "./templates";
 
@@ -95,13 +96,18 @@ const members = tenantMembers;
 
 // ─── Raising ───────────────────────────────────────────────────────
 
+/** Insert (deduplicated) and queue delivery; throws when the insert fails (null means a deduplicated repeat). */
+async function insertAlert(input: CreateAlertInput): Promise<AlertRow | null> {
+  const db = getDb();
+  const row = db ? await createAlert(db, input) : memoryCreateAlert(input);
+  if (row) await queueDelivery({ alertId: row.id, tenantId: row.tenantId });
+  return row;
+}
+
 /** Insert (deduplicated) and queue delivery. Never throws. */
 export async function raiseAlert(input: CreateAlertInput): Promise<AlertRow | null> {
   try {
-    const db = getDb();
-    const row = db ? await createAlert(db, input) : memoryCreateAlert(input);
-    if (row) await queueDelivery({ alertId: row.id, tenantId: row.tenantId });
-    return row;
+    return await insertAlert(input);
   } catch (err) {
     logger.error("Alert creation failed", "alerts", { tenantId: input.tenantId, errorType: input.kind, errorMessage: errText(err) });
     return null;
@@ -190,6 +196,38 @@ export async function alertBreachDetected(input: {
     ...text,
     dedupeKey: `breach_detected:${input.addressId}:${input.breachName}`,
   });
+}
+
+export type ForwardingAlertResult = "raised" | "exists" | "skipped" | "failed";
+
+/**
+ * `mailbox_forwarding` (high): a new active forwarding finding on a member's Outlook.com mailbox. Members only (an
+ * owner's own mailbox never alerts the household). One alert per finding activation; the text names the domain only.
+ * Never throws. `raised` and `exists` (a deduplicated repeat) and `skipped` (policy: nobody to alert) are final;
+ * `failed` is transient and the caller retries it.
+ */
+export async function alertMailboxForwarding(input: {
+  tenantId: string;
+  userId: string;
+  findingId: string;
+  observedAt: Date;
+  destinationDomain: string | null;
+}): Promise<ForwardingAlertResult> {
+  try {
+    const member = (await members(input.tenantId)).find((m) => m.userId === input.userId);
+    if (!member || member.role !== "member") return "skipped";
+    const row = await insertAlert({
+      tenantId: input.tenantId,
+      subjectUserId: input.userId,
+      kind: "mailbox_forwarding",
+      ...mailboxForwardingAlertText(displayName(member.name, member.email), input.destinationDomain),
+      dedupeKey: `mailbox_forwarding:${input.findingId}:${input.observedAt.getTime()}`,
+    });
+    return row ? "raised" : "exists";
+  } catch (err) {
+    logger.error("Mailbox forwarding alert failed", "alerts", { tenantId: input.tenantId, userIdHash: hashPii(input.userId), errorMessage: errText(err) });
+    return "failed";
+  }
 }
 
 // ─── Devices (_specs/device-enrollment.md) ─────────────────────────
@@ -382,6 +420,8 @@ export async function deliverAlert(data: AlertCreatedData, deps: AlertDeliveryDe
 
   const link = alert.kind === "breach_detected"
     ? { url: `${deps.appUrl}/settings/breaches`, label: "Review breach status" }
+    : alert.kind === "mailbox_forwarding"
+      ? { url: `${deps.appUrl}/dashboard`, label: "Open the dashboard" }
     : alert.verdictId
       ? { url: `${deps.appUrl}/verdicts/${alert.verdictId}`, label: "See the check" }
       : { url: `${deps.appUrl}/settings/household`, label: "Open household settings" };

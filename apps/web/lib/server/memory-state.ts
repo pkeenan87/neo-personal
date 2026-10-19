@@ -7,7 +7,7 @@
  * the one artifact store (lib/server/artifacts.ts), which is also in memory
  * without a database. Never used when DATABASE_URL is set.
  */
-import type { AccountHardeningAnswer, HouseholdMember, InboundMessageRow, SigninEvent, VerdictSource } from "@neo/db";
+import type { AccountHardeningAnswer, HouseholdMember, InboundMessageRow, OutlookConnector, OutlookOAuthState, OutlookRuleFinding, SigninEvent, VerdictSource } from "@neo/db";
 import type { Verdict } from "@neo/verdict";
 import { env } from "@/lib/env";
 import { DEV_SESSION_IDS } from "@/lib/session";
@@ -44,6 +44,8 @@ interface MemoryState {
   /** Sign-in alert events and known devices (key `tenantId:userId:provider:deviceLabel`); removed with the membership. */
   signinEvents: SigninEvent[];
   knownSigninDevices: Set<string>;
+  /** Outlook.com connector rows (memory twin of the three outlook_* tables); removed with the membership. */
+  outlook: { connectors: OutlookConnector[]; states: OutlookOAuthState[]; findings: OutlookRuleFinding[]; seen: Array<{ tenantId: string; connectorId: string; messageKey: string; seenAt: Date }> };
 }
 
 const MAX_VERDICTS = 1000;
@@ -51,7 +53,7 @@ const MAX_VERDICTS = 1000;
 const g = globalThis as typeof globalThis & { __neoMemoryState?: MemoryState };
 
 export function memoryState(): MemoryState {
-  g.__neoMemoryState ??= { verdicts: [], members: new Map(), digestPreferences: new Map(), inboundAddresses: [], inboundMessages: [], breachAddresses: new Map(), hardeningAnswers: new Map(), signinEvents: [], knownSigninDevices: new Set() };
+  g.__neoMemoryState ??= { verdicts: [], members: new Map(), digestPreferences: new Map(), inboundAddresses: [], inboundMessages: [], breachAddresses: new Map(), hardeningAnswers: new Map(), signinEvents: [], knownSigninDevices: new Set(), outlook: { connectors: [], states: [], findings: [], seen: [] } };
   return g.__neoMemoryState;
 }
 
@@ -107,6 +109,7 @@ export function setMemoryMembers(tenantId: string, members: HouseholdMember[]): 
     memoryState().digestPreferences.delete(`${tenantId}:${old.userId}`);
     deleteMemoryHardeningAnswers(tenantId, old.userId);
     deleteMemorySigninData(tenantId, old.userId);
+    deleteMemoryOutlookData(tenantId, old.userId);
   }
   memoryState().members.set(tenantId, members.map((m) => ({ ...m })));
 }
@@ -123,6 +126,17 @@ export function deleteMemorySigninData(tenantId: string, userId?: string): void 
   st.signinEvents = st.signinEvents.filter((e) => !(e.tenantId === tenantId && (userId === undefined || e.userId === userId)));
   const prefix = userId === undefined ? `${tenantId}:` : `${tenantId}:${userId}:`;
   for (const k of st.knownSigninDevices) if (k.startsWith(prefix)) st.knownSigninDevices.delete(k);
+}
+
+/** Delete a member's (or a whole household's) Outlook connector, OAuth states, rule findings and seen-message keys. */
+export function deleteMemoryOutlookData(tenantId: string, userId?: string): void {
+  const o = memoryState().outlook;
+  const mine = (r: { tenantId: string; userId: string }) => r.tenantId === tenantId && (userId === undefined || r.userId === userId);
+  const gone = new Set(o.connectors.filter(mine).map((r) => r.id));
+  o.seen = o.seen.filter((r) => !gone.has(r.connectorId));
+  o.connectors = o.connectors.filter((r) => !mine(r));
+  o.states = o.states.filter((r) => !mine(r));
+  o.findings = o.findings.filter((r) => !mine(r));
 }
 
 /** Registered members, else the DEV_AUTH_BYPASS identity for the dev tenant, else none. */
