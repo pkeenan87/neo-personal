@@ -51,6 +51,10 @@ const JEV_FIXTURES: Record<string, JevAnswers> = {
   [DRAINED]: answers(2, 2, 0.4),
 };
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
 /** A real `experimental_evaluate` call against the AI SDK mock evaluation model. */
 function mockModelEvaluate(confidence: Record<string, number> | null = CONFIDENT) {
   const calls: Array<{ state: unknown; providerOptions: unknown }> = [];
@@ -59,8 +63,13 @@ function mockModelEvaluate(confidence: Record<string, number> | null = CONFIDENT
     modelId: "jev",
     supportedQuestionTypes: ["choice", "score", "boolean"],
     doEvaluate: async (opts) => {
-      calls.push({ state: opts.state, providerOptions: opts.providerOptions });
-      const message = (opts.state as { message: string }).message;
+      // Since ai@7.0.133 a JSON object reaches the decision model as one json part.
+      const part = opts.state.find((candidate) => candidate.type === "json");
+      const value = part?.type === "json" ? part.value : undefined;
+      if (!isJsonObject(value)) throw new Error("expected json decision state");
+      calls.push({ state: value, providerOptions: opts.providerOptions });
+      const message = value.message;
+      if (typeof message !== "string") throw new Error(`no fixture for ${JSON.stringify(value)}`);
       const a = JEV_FIXTURES[message];
       if (!a) throw new Error(`no fixture for ${message}`);
       return {
