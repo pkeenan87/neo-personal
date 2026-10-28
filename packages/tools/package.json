@@ -29,7 +29,7 @@
   "dependencies": {
     "@neo/core": "workspace:*",
     "@neo/verdict": "workspace:*",
-    "postal-mime": "3.0.0",
+    "postal-mime": "4.0.8",
     "tldts": "7.4.18",
     "undici": "8.12.2",
     "zod": "^4.6.7"
