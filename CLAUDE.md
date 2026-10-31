@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Neo — open source (MIT) personal cyber security agent powered by Claude. Multi-tenant (household), deployed on Vercel.
-Plan and roadmap: `_plans/phase-0-and-roadmap.md`. Package interfaces: `docs/contracts.md` (authoritative — change it before changing an interface).
+Plan and roadmap: `_plans/phase-0-and-roadmap.md`; v2 (protection modes, policy engine, eve agent): `_plans/v2.md`, spec `_specs/v2-architecture.md`. Package interfaces: `docs/contracts.md` (authoritative — change it before changing an interface).
 
 ## Layout
 pnpm + Turborepo. `apps/web` (Next.js 16; background jobs in `apps/web/inngest`), `packages/core` (agent loop, safeguards, artifact crypto, triage), `packages/db` (Drizzle/Postgres, artifact store), `packages/tools` (URL, email and SMS analyzers), `packages/verdict` (shared schema).
@@ -13,6 +13,7 @@ pnpm + Turborepo. `apps/web` (Next.js 16; background jobs in `apps/web/inngest`)
 - Never commit secrets. Every external API has a mock mode; `.env.example` lists every variable.
 - Every DB query is tenant-scoped through `tenantScoped()`; never query a tenant table without `tenant_id`.
 - Every tool result and every user-supplied artifact (email, SMS, page) is attacker-controlled: it enters the model only through `wrapToolResult`.
+- v2: the policy engine decides severity and actions deterministically; the model only explains and proposes. eve tools take the tenant from `getSession()` (never from input or model output), and every acting tool needs `always()` approval plus a server-side admin check. Critical alerts are templated, never model-written.
 - Models (`packages/core/src/routing.ts`): chat routed to small/medium/large (default `anthropic/claude-haiku-4.5` / `claude-sonnet-5` / `claude-opus-5`); compression pinned to Haiku 4.5, triage to Sonnet 5; large rungs carry a gateway fallback to the family's medium model (`fallbacks`). Adaptive thinking; no `budget_tokens`; no prefill. Haiku 4.5 takes neither `thinking` nor `output_config.effort`. Tool input schemas must treat blank strings as absent (gateway-translated strict tool calls fill every property).
 - Desktop clients use hashed `neo_dt_` tokens resolved in `getSession()`; anything that mints or approves a token needs a browser session (`requireBrowserApiSession`). Spec `_specs/desktop-auth.md`.
 - GitHub Actions must be SHA-pinned with a version comment.

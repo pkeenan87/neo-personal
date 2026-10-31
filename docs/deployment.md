@@ -20,7 +20,7 @@ Vercel detects pnpm and its version from the `packageManager` field and the lock
 
 ### Where `vercel.json` must live
 
-Vercel reads `vercel.json` from the project's **Root Directory**. With Root Directory set to `apps/web`, the file Vercel applies is `apps/web/vercel.json`, and paths in it (`functions`) are relative to `apps/web`. The repository-root `vercel.json` is the canonical copy of this configuration (headers, function durations, build commands) with paths already written relative to `apps/web`; `apps/web/vercel.json` must match it. If they diverge, the one in `apps/web` wins.
+Vercel reads `vercel.json` from the project's **Root Directory**. With Root Directory set to `apps/web`, the file Vercel applies is `apps/web/vercel.json`, and paths in it (`functions`) are relative to `apps/web`. It is the only copy; there is no repository-root `vercel.json` (an older duplicate there had drifted and was removed).
 
 Function duration is also declared in code: `export const maxDuration = 300` in `app/api/agent/route.ts` (Next.js route segment config). Keep both in sync.
 
