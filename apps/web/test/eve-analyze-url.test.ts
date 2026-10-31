@@ -18,3 +18,25 @@ describe("eve analyze_url tool", () => {
     expect(requireTenantCaller(ctx({ principalType: "user", principalId: "u", attributes: { tenantId: "t" } }))).toEqual({ tenantId: "t", userId: "u" });
   });
 });
+
+describe("eve channel auth", () => {
+  it("prefers NEO_APP_ORIGIN, then the Vercel deployment URL", async () => {
+    const { appOrigin } = await import("../agent/lib/app-session");
+    expect(appOrigin({ NEO_APP_ORIGIN: "https://www.neoshield.dev", VERCEL_URL: "x.vercel.app" } as never)).toBe("https://www.neoshield.dev");
+    expect(appOrigin({ VERCEL_URL: "x.vercel.app" } as never)).toBe("https://x.vercel.app");
+    expect(appOrigin({} as never)).toBe("http://127.0.0.1:3000");
+  });
+
+  it("treats an unreachable app as unauthenticated", async () => {
+    const { appSession } = await import("../agent/lib/app-session");
+    const original = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      throw new TypeError("fetch failed");
+    }) as typeof fetch;
+    try {
+      await expect(appSession(new Request("http://agent.local/eve/v1/session"))).resolves.toBeNull();
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
