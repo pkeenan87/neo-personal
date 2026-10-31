@@ -2,7 +2,7 @@
 
 branch: claude/feature/v2-architecture
 plan: `_plans/v2.md` (M0, items 3 and 5); design source: Notion "Neo personal v2 redesign plan" (2026-10-31)
-status: draft. eve spike (`claude/spike/eve`, 2026-10-31): **local GO; deploy GO pending a preview deployment** (§1).
+status: draft. eve spike (`claude/spike/eve`, 2026-10-31): **GO** — local and on a Vercel preview (§1).
 
 ## Summary
 
@@ -27,8 +27,8 @@ This spec records the architecture decisions M1–M3 build on. Each milestone ge
 - **Version pin:** `eve` exactly `1.0.0-rc.1` with an exact `minimumReleaseAgeExclude` entry. On Vercel Workflow, a session started on one eve version stays answerable after an upgrade (per-deployment routing); on self-hosted worlds any eve upgrade strands open sessions (`concepts/execution-model-and-durability.mdx`, "Stranded sessions"). Move to GA when it ships and pin exact versions from then on.
 - **Auth hop:** eve runs outside Next's request scope, so `getSession()` can't run in the agent. The eve channel's `AuthFn` forwards the caller's `cookie` / `Authorization` to `GET /api/eve-session` on a fixed origin (`NEO_APP_ORIGIN`, never from the request) and maps the result to the eve caller (`principalId` = user, `attributes.tenantId`). `localDev()` stays last in the walk; it only accepts requests on a local dev server. Before production: set `NEO_APP_ORIGIN` per environment, and check that Deployment Protection on previews doesn't block the self-call (it fails closed with a 401). M1 should consider resolving the Auth.js session and `neo_dt_` tokens in-process instead of over HTTP.
 - **Verified locally:** typecheck, lint, all tests and `next build` pass; under `next dev` a mock-mode chat calls `analyze_url` end to end; in a production build (`eve build` + `next start`) an anonymous request and a forged `neo_dt_` bearer both get 401 from `/eve/v1/session`, and `DEV_AUTH_BYPASS` is ignored.
-- **Build step:** `next build` alone does not build the agent; `next start` refuses to run without `apps/web/.output/` from `eve build`. Self-hosting needs `eve build && next build`. Whether a Vercel build runs `eve build` itself under `withEve` is not documented for a Root Directory of `apps/web`.
-- **The preview deployment must prove:** the build succeeds with the current build command (or with `eve build` added); `/eve/v1/health` answers; Vercel Workflow appears on the deployment; and the project's plan allows Workflow and Cron. A 401 from chat on a protected preview (the `/api/eve-session` self-call hitting Deployment Protection) is expected and is not a NO-GO.
+- **Build step:** locally, `next build` alone does not build the agent and `next start` needs `apps/web/.output/` from `eve build`, so self-hosting runs `eve build && next build`. **On Vercel the existing build command works unchanged:** `withEve` builds the agent into the deployment.
+- **Preview (2026-10-31, `cf62a49`, neo-6g0cccbco):** `/eve/v1/health` → 200 with the Workflow entry ready; `/eve/v1/info` and `POST /eve/v1/session` → 401 anonymous and with a forged `neo_dt_` bearer. The first preview returned 500 because the session lookup defaulted to `127.0.0.1:3000`; fixed by falling back to `https://$VERCEL_URL` and treating an unreachable app as unauthenticated. Not yet tested: a signed-in chat on a deployment. On protected previews the self-call to `/api/eve-session` hits Deployment Protection, so signed-in chat there needs a protection bypass for that call (or the in-process session lookup planned for M1).
 - `apps/web/.eve/` and `apps/web/.output/` are build output (gitignored and ESLint-ignored). The stale repo-root `vercel.json` is deleted on `claude/chore/v2-m0`.
 
 ### 2. Members and modes (M1)
