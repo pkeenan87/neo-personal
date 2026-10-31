@@ -1115,3 +1115,38 @@ Outcomes (`applySigninAlertOverride`): a fake-alert rule fires -> `malicious`; v
 
 - `POST /api/verdicts/[id]/signin-response` `{ response: "yes" | "no" }` -> 200 `{ ok: true, playbook?: "account_takeover" }`; browser session only (desktop token 403); only the verdict's own user may answer (404 otherwise, owners included); last answer wins (yes remembers the provider/device pair, no forgets it); 409 `no_signin_check` if the verdict has no `signin_check`; `no` returns the `account_takeover` playbook id; 400 for any other body.
 - `GET /api/verdicts/[id]` adds `signinDeviceKnown?: boolean` (own verdicts with a first-seen check only).
+
+---
+
+# Package contracts (v2, planned)
+
+Planned, not built. Spec `_specs/v2-architecture.md`, plan `_plans/v2.md`. Every change here is additive: shipped desktop and extension builds keep working against the v2 server.
+
+## @neo/db (M1)
+
+- `members` (`id`, `tenant_id`, `user_id` nullable and unique per tenant, `display_name`, `role` `owner|adult|child|elder`, `mode` `standard|child|elder`, `birth_year?`, `helper_member_ids uuid[]`, encrypted `contact`, timestamps); tenant RLS, in `tenantTables`, granted to `app_user`. Backfilled one per `memberships` row (`owner` → `owner`, `member` → `adult`, mode `standard`).
+- `devices.member_id` (backfilled from `user_id`); `device_enrollment_codes.member_id`. `devices.user_id` becomes nullable in a later migration.
+- `policies` (`tenant_id`, `scope` `household|member|device`, `scope_id`, `version`, `rules` jsonb, `created_by`, `created_at`), append-only.
+- `alerts` gains `member_id`, `status` `open|acknowledged|resolved|false_positive` (backfilled from `acknowledged_at`), `signal_ids uuid[]`, `eve_session_id`, `resolved_at`. An alert is the v2 "incident".
+- `incident_actions` (`alert_id`, `kind`, `requested_by` `agent|admin`, `approved_by`, `status`, `result`, timestamps).
+- `notification_outbox` (`tenant_id`, unique `idempotency_key`, `channel`, `destination`, `template`, `payload` jsonb, `attempts`, `lease_until`, `sent_at`, `provider_id`, `last_error`).
+- Migration numbers: 0016 is held by the Outlook connector (#50); v2 takes the next free number at implementation time.
+
+## @neo/verdict and @neo/core (M1)
+
+```ts
+PolicyRulesSchema: z.ZodType<PolicyRules>;           // web, apps, screen_time, remote_access, payments, notify
+MODE_DEFAULTS: Record<"standard" | "child" | "elder", PolicyRules>;
+effectivePolicy(layers: { household?, mode, member?, device? }) → PolicyRules;   // household → mode defaults → member → device
+evaluateSignal(policy: PolicyRules, signal: SignalEvent, recent: DeviceSignalRow[]) → Decision;   // pure: no I/O, no model
+type Decision = { action: "record" | "digest" | "incident"; kind?: string; severity?: Severity; dedupeKey?: string; notifyNow: boolean };
+```
+
+## apps/web (M1–M2)
+
+- `POST /api/signals` evaluates each accepted event with `evaluateSignal` inline; `incident` decisions create or update an alert and, when `notifyNow`, an outbox row in the same transaction. The Inngest `signal-escalate` function is removed in the same release.
+- `POST /api/devices/heartbeat` response adds `policyVersion: string | null` (M2).
+- `GET /api/devices/policy` (scope `device` + `deviceId`) → signed policy bundle; `ETag: "<policyVersion>"`, 304 on match (M2).
+- `member_id` is always resolved server-side from the device; clients never send it.
+- New `SIGNAL_DETECTORS` (M2): `web_blocked`, `app_installed`, `screen_time_exhausted`, `protection_disabled`, `payment_page`. Clients ship after the server (older servers reject unknown detectors as `invalid`).
+- eve tools: tenant from `getSession()` only, DB through `tenantScoped()`, results through `wrapToolResult`, acting tools `always()` approval with a server-side admin check.
