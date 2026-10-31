@@ -7,7 +7,7 @@ import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   {
-    ignores: ["node_modules/**", ".next/**", "next-env.d.ts", "coverage/**"],
+    ignores: ["node_modules/**", ".next/**", ".eve/**", ".output/**", "next-env.d.ts", "coverage/**"],
   },
   ...tseslint.configs.recommended,
   reactHooks.configs.flat.recommended,

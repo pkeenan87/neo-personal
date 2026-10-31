@@ -1,5 +1,6 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { withEve } from "eve/next";
 import type { NextConfig } from "next";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -36,4 +37,5 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+// eve runs as its own server next to Next and is reached through /eve/v1/* rewrites (spike: _plans/v2.md section 1.5).
+export default withEve(nextConfig);
