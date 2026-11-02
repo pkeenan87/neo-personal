@@ -84,7 +84,7 @@ Both documents are amended in this PR.
   - A `payment_page` on its own raises kind `payment_under_pressure` at medium.
   - Server signals (`protection_disabled`) aren't saved as `device_signals` rows; they only raise the alert, alongside today's `device_removed` and `device_offline` alerts.
   - Standard parity: the unchanged `apps/web/test/signal-rules.test.ts` passes against the engine.
-- **Migration ordering:** Drizzle skips a migration whose journal `when` is at or below the last applied one. 0017's `when` is set above 0016's. If 0017 reaches production before #50 merges, #50's migration has to be renumbered (0018) with a newer `when`, or it will be skipped silently.
+- **Migration ordering:** Drizzle skips a migration whose journal `when` is at or below the last applied one. 0017's `when` is set above 0016's. If 0017 reaches production before #50 merges, #50's migration has to be renumbered (now 0019, since slice 2 takes 0018) with a newer `when`, or it will be skipped silently.
 
 ### 5. Incidents (slice 1)
 - `alerts` gains `member_id`, `status` (`open|acknowledged|resolved|false_positive`, default `open`), `signal_ids uuid[]`, `eve_session_id` and `resolved_at`.
@@ -101,13 +101,14 @@ Both documents are amended in this PR.
   - Owners, filtered by their `alert_email_threshold`, as today.
   - Plus M's helpers (`helper_member_ids`) when the severity is at or above M's `notify.helpersNotifyAt`. A helper with an account uses their account email; a helper without one uses their decrypted `contact`.
   - Recipients are deduped by address.
-  - M is never emailed about themselves.
+  - An Elder or Child member is never emailed about themselves, even if they are an owner. This self-exclusion applies only to those modes: a Standard-mode owner still gets alerts about their own devices, as today.
 - The idempotency key is `alert:<alertId>:<recipientMemberId>`. For owners and members with an account, the Resend idempotency key stays `alert:<alertId>:<userId>`, so moving off `alert-created` can't double-send.
-- **Drain:** the `alert-created` Inngest function becomes `outbox-drain`, triggered by the same event, plus a 5-minute Inngest cron sweep for rows past their lease.
+- **Drain:** the `alert-created` Inngest function keeps its id (so in-flight events are not orphaned) and drains the outbox, triggered by the same event, plus a 5-minute Inngest cron sweep for rows past their lease.
   - It claims rows with `UPDATE … SET lease_until = now() + 2 min … WHERE sent_at IS NULL AND (lease_until IS NULL OR lease_until < now()) RETURNING`, sends, and sets `sent_at`/`provider_id`.
-  - After 5 attempts it sets `last_error` and marks the alert `email_status = failed`.
+  - After 5 attempts it sets `last_error` and marks the alert `email_status = failed`. A permanent 4xx sets attempts to 5 at once. An alert with no rows (raised before this deploy) is enqueued by the function first.
+  - The sweep finds households with sendable rows through migration **0018** `list_outbox_tenants(max_attempts, page_limit)` (SECURITY DEFINER, tenant ids only, EXECUTE granted to `app_user`), then drains each household in its own tenant context.
   - It moves to an eve schedule in M3 with the other crons.
-- The daily cap stays at 20 emails per tenant. **Critical alerts are exempt** from the cap. Today's cap notice is otherwise unchanged.
+- The daily cap stays at 20 per tenant. It counts alerts, not emails: other alerts created that UTC day with `email_status` `pending` or `sent`, decided at enqueue under a per-tenant advisory lock (counting at send would let a burst pass before the first drain). **Critical alerts are exempt** from the cap. The cap notice is otherwise unchanged (same per-owner key, now an `alert_cap` outbox row, `ON CONFLICT DO NOTHING`).
 - Templates come from `renderAlertEmail`. A helper email names the member ("Mum's laptop") and says "stop, hang up, call them" first.
 
 ### 7. eve agent (slice 3)

@@ -171,6 +171,7 @@ export {
   countOpenAlerts,
   createAlert,
   getAlert,
+  insertAlertTx,
   getAlertEmailThreshold,
   listAlertOwners,
   listAlerts,
@@ -223,6 +224,25 @@ export {
   type AccountHardeningVersion,
 } from "./account-hardening.js";
 export type { SigninEvent, SigninEventInput, SigninEventSource, TenantSigninEvents } from "./signin-events.js";
+export {
+  OUTBOX_LEASE_MS,
+  OUTBOX_MAX_ATTEMPTS,
+  claimOutboxRows,
+  countOutboxForAlert,
+  createAlertWithOutbox,
+  decideEnqueue,
+  enqueueOutboxForAlert,
+  listPendingOutboxTenants,
+  markOutboxFailed,
+  markOutboxSent,
+  outboxDestination,
+  settleAlertEmail,
+  utcDayStart,
+  type AlertEnqueuePlan,
+  type EnqueueDecision,
+  type OutboxRow,
+  type OutboxRowInput,
+} from "./outbox.js";
 export {
   MAX_HELPERS_PER_MEMBER,
   createMemberForUser,

@@ -81,7 +81,7 @@ describe("migration 0017 backfill", () => {
     cpSync(migrationsFolder, old, { recursive: true });
     const journalPath = join(old, "meta", "_journal.json");
     const journal = JSON.parse(readFileSync(journalPath, "utf8")) as { entries: Array<{ tag: string }> };
-    journal.entries = journal.entries.filter((e) => e.tag !== "0017_v2_members");
+    journal.entries = journal.entries.filter((e) => e.tag < "0017");
     writeFileSync(journalPath, JSON.stringify(journal));
 
     client = new PGlite();
