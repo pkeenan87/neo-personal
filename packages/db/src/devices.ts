@@ -12,7 +12,7 @@
  * and filters on tenant_id. Only the SHA-256 of an enrollment code is stored.
  */
 import { createHash } from "node:crypto";
-import { and, count, desc, eq, gt, isNull, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gt, isNull, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db, Tx } from "./client.js";
 import { insertDeviceToken, type DesktopTokenPublic } from "./desktop-tokens.js";
@@ -21,6 +21,7 @@ import {
   deviceEnrollmentCodes,
   devices,
   desktopTokens,
+  members,
   memberships,
   tenants,
   users,
@@ -32,7 +33,7 @@ import {
   type DevicePlatform,
   type MembershipRole,
 } from "./schema/index.js";
-import { memberIdForUserTx } from "./members.js";
+import { ensureMemberForUserTx, memberIdOfUserSql, memberRoleForMembership } from "./members.js";
 import { assertTenantId, setTenantContext, tenantScoped } from "./tenant.js";
 import { USER_CODE_ALPHABET, groupCode, randomGroupedCode } from "./user-codes.js";
 
@@ -56,7 +57,10 @@ export interface DeviceInput {
 export interface DevicePublic {
   id: string;
   tenantId: string;
-  userId: string;
+  /** The protected member's account; null for a member without one. */
+  userId: string | null;
+  /** The protected member (the subject of the device's signals and alerts); null only for a revoked device whose member was deleted. */
+  memberId: string | null;
   memberName: string | null;
   kind: DeviceKind;
   platform: DevicePlatform;
@@ -73,7 +77,9 @@ export interface DevicePublic {
 
 export interface EnrollmentCodePublic {
   id: string;
-  userId: string;
+  /** The member's account; null for a member without one. */
+  userId: string | null;
+  memberId: string | null;
   memberName: string | null;
   createdBy: string | null;
   createdAt: Date;
@@ -181,24 +187,28 @@ async function lookupCode(tx: Tx, code: string): Promise<{ id: string; tenantId:
 
 const member = alias(users, "member");
 const enroller = alias(users, "enroller");
+const protectedMember = alias(members, "protected_member");
 
 /** Devices with member and enroller names. `tx` must have app.tenant_id = tenantId. */
 async function selectDevices(tx: Tx, tenantId: string, where?: SQL, limit?: number): Promise<DevicePublic[]> {
   const q = tx
-    .select({ row: devices, memberName: member.name, enrolledByName: enroller.name })
+    .select({ row: devices, memberName: member.name, memberDisplayName: protectedMember.displayName, enrolledByName: enroller.name })
     .from(devices)
     .leftJoin(member, eq(member.id, devices.userId))
+    .leftJoin(protectedMember, eq(protectedMember.id, devices.memberId))
     .leftJoin(enroller, eq(enroller.id, devices.enrolledBy))
     .where(where ? and(eq(devices.tenantId, tenantId), where) : eq(devices.tenantId, tenantId))
     .orderBy(desc(devices.createdAt), desc(devices.id))
     .$dynamic();
   if (limit !== undefined) q.limit(limit);
   const rows = await q;
-  return rows.map(({ row, memberName, enrolledByName }) => ({
+  return rows.map(({ row, memberName, memberDisplayName, enrolledByName }) => ({
     id: row.id,
     tenantId: row.tenantId,
     userId: row.userId,
-    memberName,
+    memberId: row.memberId,
+    // An account holder keeps the account name; a member without an account has only a display name.
+    memberName: row.userId ? memberName : memberDisplayName,
     kind: row.kind,
     platform: row.platform,
     name: row.name,
@@ -240,6 +250,39 @@ async function userName(tx: Tx, userId: string | null): Promise<string | null> {
   return u?.name ?? null;
 }
 
+async function memberRow(tx: Tx, tenantId: string, memberId: string) {
+  const [m] = await tx
+    .select({ id: members.id, userId: members.userId, displayName: members.displayName })
+    .from(members)
+    .where(and(eq(members.tenantId, tenantId), eq(members.id, memberId)))
+    .limit(1);
+  return m;
+}
+
+/**
+ * Who a code or device protects, from the code's own columns: an account holder must still have a
+ * membership (its role is the token's snapshot); a member without an account needs only the
+ * `members` row. Undefined when the target is gone.
+ */
+async function resolveTarget(
+  tx: Tx,
+  tenantId: string,
+  target: { userId: string | null; memberId: string | null },
+): Promise<{ userId: string | null; memberId: string; role: MembershipRole | null } | undefined> {
+  if (target.userId) {
+    const membership = await membershipOf(tx, tenantId, target.userId);
+    if (!membership) return undefined;
+    const memberId =
+      target.memberId ?? (await ensureMemberForUserTx(tx, tenantId, { userId: target.userId, role: memberRoleForMembership(membership.role) }));
+    return { userId: target.userId, memberId, role: membership.role };
+  }
+  if (!target.memberId) return undefined;
+  const m = await memberRow(tx, tenantId, target.memberId);
+  // A member who has since gained an account is an account holder: use the account path.
+  if (!m) return undefined;
+  return m.userId ? resolveTarget(tx, tenantId, { userId: m.userId, memberId: m.id }) : { userId: null, memberId: m.id, role: null };
+}
+
 /**
  * Insert an active device and its monitoring token, and audit `device.enrolled`.
  * Caller holds lockDevices and has checked membership and input. Null at the device cap.
@@ -248,8 +291,10 @@ async function insertDevice(
   tx: Tx,
   input: {
     tenantId: string;
-    userId: string;
-    role: MembershipRole;
+    /** The protected member's account and membership role; null for a member without an account. */
+    userId: string | null;
+    role: MembershipRole | null;
+    memberId: string;
     device: DeviceInput;
     enrollment: DeviceEnrollment;
     enrolledBy: string | null;
@@ -262,7 +307,7 @@ async function insertDevice(
     .values({
       tenantId: input.tenantId,
       userId: input.userId,
-      memberId: await memberIdForUserTx(tx, input.tenantId, input.userId),
+      memberId: input.memberId,
       kind: input.device.kind,
       platform: input.device.platform,
       name: input.device.name,
@@ -277,6 +322,7 @@ async function insertDevice(
     userId: input.userId,
     tenantId: input.tenantId,
     role: input.role,
+    memberId: input.memberId,
     name: input.device.name,
     deviceId: row.id,
     scopes: MONITORING_SCOPES,
@@ -294,22 +340,33 @@ async function insertDevice(
 
 // ─── Owner: enrollment codes ───────────────────────────────────────
 
+/**
+ * Mint a one-time code for a member: by `memberId` (any `members` row, with or without an account)
+ * or by `userId` (the account holder's own member). Codes for an account holder also record the
+ * user, so they stop working when the membership ends.
+ */
 export async function createEnrollmentCode(
   db: Db,
-  input: { tenantId: string; userId: string; createdBy: string; now?: Date },
+  input: { tenantId: string; createdBy: string; now?: Date } & ({ userId: string; memberId?: undefined } | { memberId: string; userId?: undefined }),
 ): Promise<{ code: string; record: EnrollmentCodePublic } | { error: "not_member" | "code_limit" | "device_limit" }> {
   const now = input.now ?? new Date();
+  if (input.memberId !== undefined && !UUID_RE.test(input.memberId)) return { error: "not_member" };
   return tenantScoped(db, input.tenantId).transaction(async (t) => {
     await lockDevices(t.tx, input.tenantId);
-    if (!(await membershipOf(t.tx, input.tenantId, input.userId))) return { error: "not_member" as const };
+    const target = await resolveTarget(
+      t.tx,
+      input.tenantId,
+      input.memberId !== undefined ? { userId: null, memberId: input.memberId } : { userId: input.userId, memberId: null },
+    );
+    if (!target) return { error: "not_member" as const };
     if ((await t.count(deviceEnrollmentCodes, pendingCodeWhere(now))) >= MAX_PENDING_ENROLLMENT_CODES) {
       return { error: "code_limit" as const };
     }
     if ((await activeDeviceCount(t.tx, input.tenantId)) >= MAX_DEVICES_PER_HOUSEHOLD) return { error: "device_limit" as const };
     const code = mintEnrollmentCode();
     const [row] = await t.insert(deviceEnrollmentCodes, {
-      userId: input.userId,
-      memberId: await memberIdForUserTx(t.tx, input.tenantId, input.userId),
+      userId: target.userId,
+      memberId: target.memberId,
       codeHash: hashEnrollmentCode(code),
       createdBy: input.createdBy,
       createdAt: now,
@@ -321,7 +378,8 @@ export async function createEnrollmentCode(
       record: {
         id: row.id,
         userId: row.userId,
-        memberName: await userName(t.tx, row.userId),
+        memberId: row.memberId,
+        memberName: row.userId ? await userName(t.tx, row.userId) : ((await memberRow(t.tx, input.tenantId, target.memberId))?.displayName ?? null),
         createdBy: row.createdBy,
         createdAt: row.createdAt,
         expiresAt: row.expiresAt,
@@ -337,15 +395,21 @@ export async function listPendingEnrollmentCodes(db: Db, tenantId: string, now =
       .select({
         id: deviceEnrollmentCodes.id,
         userId: deviceEnrollmentCodes.userId,
-        memberName: users.name,
+        memberId: deviceEnrollmentCodes.memberId,
+        accountName: users.name,
+        displayName: protectedMember.displayName,
         createdBy: deviceEnrollmentCodes.createdBy,
         createdAt: deviceEnrollmentCodes.createdAt,
         expiresAt: deviceEnrollmentCodes.expiresAt,
       })
       .from(deviceEnrollmentCodes)
       .leftJoin(users, eq(users.id, deviceEnrollmentCodes.userId))
+      .leftJoin(protectedMember, eq(protectedMember.id, deviceEnrollmentCodes.memberId))
       .where(and(eq(deviceEnrollmentCodes.tenantId, tenantId), pendingCodeWhere(now)))
-      .orderBy(desc(deviceEnrollmentCodes.createdAt)),
+      .orderBy(desc(deviceEnrollmentCodes.createdAt))
+      .then((rows) =>
+        rows.map(({ accountName, displayName, ...r }): EnrollmentCodePublic => ({ ...r, memberName: r.userId ? accountName : displayName })),
+      ),
   );
 }
 
@@ -376,14 +440,19 @@ export async function previewEnrollmentCode(db: Db, input: { code: string; now?:
     if (!ids) return null;
     await setTenantContext(tx, ids.tenantId);
     const [row] = await tx
-      .select({ code: deviceEnrollmentCodes, householdName: tenants.name, memberName: users.name })
+      .select({ code: deviceEnrollmentCodes, householdName: tenants.name, memberName: users.name, displayName: protectedMember.displayName })
       .from(deviceEnrollmentCodes)
       .innerJoin(tenants, eq(tenants.id, deviceEnrollmentCodes.tenantId))
       .leftJoin(users, eq(users.id, deviceEnrollmentCodes.userId))
+      .leftJoin(protectedMember, eq(protectedMember.id, deviceEnrollmentCodes.memberId))
       .where(and(eq(deviceEnrollmentCodes.tenantId, ids.tenantId), eq(deviceEnrollmentCodes.id, ids.id)))
       .limit(1);
     if (!row || row.code.redeemedAt || row.code.revokedAt || row.code.expiresAt.getTime() <= now.getTime()) return null;
-    if (!(await membershipOf(tx, ids.tenantId, row.code.userId))) return null;
+    // Read-only: a preview (no session) never creates a members row.
+    const stillThere = row.code.userId
+      ? Boolean(await membershipOf(tx, ids.tenantId, row.code.userId))
+      : Boolean(row.code.memberId && (await memberRow(tx, ids.tenantId, row.code.memberId)));
+    if (!stillThere) return null;
     const [owner] = await tx
       .select({ name: users.name })
       .from(memberships)
@@ -393,7 +462,7 @@ export async function previewEnrollmentCode(db: Db, input: { code: string; now?:
       .limit(1);
     return {
       householdName: row.householdName,
-      memberName: row.memberName,
+      memberName: row.code.userId ? row.memberName : row.displayName,
       ownerName: owner?.name ?? null,
       expiresAt: row.code.expiresAt,
     };
@@ -426,13 +495,14 @@ export async function redeemEnrollmentCode(
       .for("update");
     if (!row || row.redeemedAt || row.revokedAt || row.expiresAt.getTime() <= now.getTime()) return { status: "not_found" };
     await lockDevices(tx, ids.tenantId);
-    const membership = await membershipOf(tx, ids.tenantId, row.userId);
-    if (!membership) return { status: "not_found" };
+    const target = await resolveTarget(tx, ids.tenantId, row);
+    if (!target) return { status: "not_found" };
 
     const enrolled = await insertDevice(tx, {
       tenantId: ids.tenantId,
-      userId: row.userId,
-      role: membership.role,
+      userId: target.userId,
+      role: target.role,
+      memberId: target.memberId,
       device,
       enrollment: "code",
       enrolledBy: row.createdBy,
@@ -476,6 +546,7 @@ export async function enrollSelfDevice(
       tenantId: input.tenantId,
       userId: input.userId,
       role: membership.role,
+      memberId: await ensureMemberForUserTx(t.tx, input.tenantId, { userId: input.userId, role: memberRoleForMembership(membership.role) }),
       device,
       enrollment: "self",
       enrolledBy: input.userId,
@@ -488,10 +559,14 @@ export async function enrollSelfDevice(
 
 // ─── Household: devices ────────────────────────────────────────────
 
-/** Active devices, newest first; `userId` restricts to one member's devices. */
-export async function listDevices(db: Db, tenantId: string, opts: { userId?: string } = {}): Promise<DevicePublic[]> {
+/**
+ * Active devices, newest first. `memberId` restricts to one member's devices; `userId` to the
+ * devices of the member behind that account (by member, or by the device's own user column).
+ */
+export async function listDevices(db: Db, tenantId: string, opts: { userId?: string; memberId?: string } = {}): Promise<DevicePublic[]> {
   const conds: SQL[] = [isNull(devices.revokedAt)];
-  if (opts.userId !== undefined) conds.push(eq(devices.userId, opts.userId));
+  if (opts.memberId !== undefined) conds.push(eq(devices.memberId, opts.memberId));
+  if (opts.userId !== undefined) conds.push(or(eq(devices.userId, opts.userId), eq(devices.memberId, memberIdOfUserSql(tenantId, opts.userId))) as SQL);
   return tenantScoped(db, tenantId).transaction((t) => selectDevices(t.tx, tenantId, and(...conds)));
 }
 

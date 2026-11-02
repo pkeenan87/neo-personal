@@ -67,7 +67,8 @@ export type DevicePlatform = "chrome" | "edge" | "firefox" | "windows" | "macos"
 
 export interface DeviceItem {
   id: string;
-  userId: string;
+  /** The protected member's account; null for a member without one. */
+  userId: string | null;
   memberName: string | null;
   kind: DeviceKind;
   platform: DevicePlatform;
@@ -85,7 +86,8 @@ export interface DeviceItem {
 
 export interface EnrollmentCodeItem {
   id: string;
-  userId: string;
+  /** The member's account; null for a member without one. */
+  userId: string | null;
   memberName: string | null;
   createdAt: string;
   expiresAt: string;

@@ -9,13 +9,15 @@
  * tenant and the row through the AAD) and stored as base64.
  */
 import { createHash } from "node:crypto";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql, type SQL } from "drizzle-orm";
 import { ArtifactDecryptError, decryptArtifact, deriveKey, encryptArtifact, masterKeyFromEnv } from "@neo/core";
 import type { Tx } from "./client.js";
 import {
   MEMBER_DISPLAY_NAME_MAX,
   MEMBER_ROLES,
   PROTECTION_MODES,
+  desktopTokens,
+  deviceEnrollmentCodes,
   devices,
   members,
   memberships,
@@ -147,6 +149,11 @@ export async function ensureMemberForUserTx(
   return existing;
 }
 
+/** SQL for the id of a user's `members` row in a tenant (a scalar subquery; null when there is none). */
+export function memberIdOfUserSql(tenantId: string, userId: string): SQL {
+  return sql`(select ${members.id} from ${members} where ${members.tenantId} = ${tenantId} and ${members.userId} = ${userId})`;
+}
+
 export async function memberIdForUserTx(tx: Tx, tenantId: string, userId: string): Promise<string | null> {
   const [row] = await tx
     .select({ id: members.id })
@@ -156,8 +163,18 @@ export async function memberIdForUserTx(tx: Tx, tenantId: string, userId: string
   return row?.id ?? null;
 }
 
-/** Delete a user's member row and drop it from other members' helper lists. */
+/**
+ * Delete a user's member row and drop it from other members' helper lists. A member's devices,
+ * pending enrollment codes and monitoring tokens that are still live are revoked first: they keep
+ * their rows (member_id becomes null) but an active one must have a member.
+ */
 export async function deleteMemberForUserTx(tx: Tx, tenantId: string, userId: string): Promise<boolean> {
+  const [member] = await tx
+    .select({ id: members.id })
+    .from(members)
+    .where(and(eq(members.tenantId, tenantId), eq(members.userId, userId)))
+    .limit(1);
+  if (member) await revokeMemberDevicesTx(tx, tenantId, member.id, new Date());
   const [gone] = await tx
     .delete(members)
     .where(and(eq(members.tenantId, tenantId), eq(members.userId, userId)))
@@ -168,6 +185,29 @@ export async function deleteMemberForUserTx(tx: Tx, tenantId: string, userId: st
     .set({ helperMemberIds: sql`array_remove(${members.helperMemberIds}, ${gone.id}::uuid)` })
     .where(and(eq(members.tenantId, tenantId), sql`${gone.id}::uuid = any(${members.helperMemberIds})`));
   return true;
+}
+
+/** Revoke a member's live devices, monitoring tokens and unredeemed enrollment codes (idempotent). */
+export async function revokeMemberDevicesTx(tx: Tx, tenantId: string, memberId: string, now: Date): Promise<void> {
+  await tx
+    .update(devices)
+    .set({ revokedAt: now })
+    .where(and(eq(devices.tenantId, tenantId), eq(devices.memberId, memberId), isNull(devices.revokedAt)));
+  await tx
+    .update(deviceEnrollmentCodes)
+    .set({ revokedAt: now })
+    .where(
+      and(
+        eq(deviceEnrollmentCodes.tenantId, tenantId),
+        eq(deviceEnrollmentCodes.memberId, memberId),
+        isNull(deviceEnrollmentCodes.revokedAt),
+        isNull(deviceEnrollmentCodes.redeemedAt),
+      ),
+    );
+  await tx
+    .update(desktopTokens)
+    .set({ revokedAt: now })
+    .where(and(eq(desktopTokens.tenantId, tenantId), eq(desktopTokens.memberId, memberId), isNull(desktopTokens.revokedAt)));
 }
 
 // ─── Tenant-scoped API ─────────────────────────────────────────────
@@ -293,13 +333,22 @@ export async function countHouseholdOwners(tdb: TenantDb): Promise<number> {
 }
 
 /**
- * The raw policy layers for a user (and optionally one of their devices): the latest rules at
+ * The raw policy layers for a user, or directly for a member (the device's member, which may have
+ * no account), and optionally one of their devices: the latest rules at
  * household, member and device scope. Validation and merging happen in @neo/core. A user with
  * no member row reads as Standard mode with no member layer.
  */
-export async function getProtectionLayers(tdb: TenantDb, input: { userId: string; deviceId?: string | null }): Promise<ProtectionLayers> {
+export async function getProtectionLayers(
+  tdb: TenantDb,
+  input: ({ userId: string; memberId?: undefined } | { memberId: string; userId?: undefined }) & { deviceId?: string | null },
+): Promise<ProtectionLayers> {
   return tdb.transaction(async (t) => {
-    const member = await t.first(members, eq(members.userId, input.userId));
+    const member =
+      input.memberId !== undefined
+        ? UUID_RE.test(input.memberId)
+          ? await t.first(members, eq(members.id, input.memberId))
+          : undefined
+        : await t.first(members, eq(members.userId, input.userId));
     const household = await latestRules(t, "household", null);
     const memberRules = member ? await latestRules(t, "member", member.id) : undefined;
     let deviceRules: unknown;

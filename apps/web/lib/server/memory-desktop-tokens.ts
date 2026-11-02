@@ -19,12 +19,13 @@ import {
   type TokenScope,
 } from "@neo/db";
 // Circular with memory-devices.ts (which mints tokens here); only used at call time.
-import { memoryDeviceIsActive } from "./memory-devices";
+import { memoryDeviceMemberId } from "./memory-devices";
 
 type MemRow = DesktopTokenPublic & {
-  userId: string;
+  userId: string | null;
   tenantId: string;
-  role: MembershipRole;
+  role: MembershipRole | null;
+  memberId: string | null;
   tokenHash: string;
   revokedAt: Date | null;
   scopes: TokenScope[];
@@ -55,13 +56,14 @@ export function memoryCreateDesktopToken(input: {
   if (!name) return { error: "bad_name" };
   if (memoryListDesktopTokens(input.userId).length >= MAX_DESKTOP_TOKENS_PER_USER) return { error: "limit" };
 
-  return mint({ ...input, name, scopes: ["full"], deviceId: null });
+  return mint({ ...input, name, scopes: ["full"], deviceId: null, memberId: null });
 }
 
 function mint(input: {
-  userId: string;
+  userId: string | null;
   tenantId: string;
-  role: MembershipRole;
+  role: MembershipRole | null;
+  memberId: string | null;
   name: string;
   scopes: TokenScope[];
   deviceId: string | null;
@@ -81,6 +83,7 @@ function mint(input: {
     userId: input.userId,
     tenantId: input.tenantId,
     role: input.role,
+    memberId: input.memberId,
     tokenHash: hashDesktopToken(token),
     revokedAt: null,
     scopes: input.scopes,
@@ -91,15 +94,18 @@ function mint(input: {
 
 /** A monitoring token for a device (like @neo/db insertDeviceToken): not listed, not capped. */
 export function memoryInsertDeviceToken(input: {
-  userId: string;
+  userId: string | null;
   tenantId: string;
-  role: MembershipRole;
+  role: MembershipRole | null;
+  /** The device's member; read from the device when absent. */
+  memberId?: string;
   name: string;
   deviceId: string;
   scopes: readonly TokenScope[];
 }): { token: string; record: DesktopTokenPublic } {
   if (input.scopes.includes("full")) throw new Error("a device token cannot hold the full scope");
-  return mint({ ...input, name: normalizeDesktopTokenName(input.name) ?? "Device", scopes: [...input.scopes] });
+  const memberId = input.memberId ?? memoryDeviceMemberId(input.tenantId, input.deviceId);
+  return mint({ ...input, memberId, name: normalizeDesktopTokenName(input.name) ?? "Device", scopes: [...input.scopes] });
 }
 
 /** Revoke every token of a device (memory-devices.ts revokeDevice). */
@@ -121,9 +127,11 @@ export function memoryResolveDesktopToken(token: string): ResolvedDesktopToken |
   const hash = hashDesktopToken(token);
   for (const row of store().values()) {
     if (row.tokenHash !== hash || row.revokedAt) continue;
-    if (row.deviceId && !memoryDeviceIsActive(row.tenantId, row.deviceId)) return null;
+    // The device decides whose it is (like @neo/db resolveDesktopToken).
+    const memberId = row.deviceId ? memoryDeviceMemberId(row.tenantId, row.deviceId) : null;
+    if (row.deviceId && !memberId) return null;
     row.lastUsedAt = new Date();
-    return { id: row.id, userId: row.userId, tenantId: row.tenantId, role: row.role, scopes: [...row.scopes], deviceId: row.deviceId };
+    return { id: row.id, userId: row.userId, tenantId: row.tenantId, role: row.role, scopes: [...row.scopes], deviceId: row.deviceId, memberId };
   }
   return null;
 }

@@ -67,8 +67,8 @@ This spec records the architecture decisions M1–M3 build on. Each milestone ge
 Inngest (functions, `/api/inngest`, the `inngest` dependency, its `vercel.json` entry, env vars and the Marketplace integration) is removed only after every row above has moved.
 
 ### 6. Device contract additions (M2; backward compatible)
-- `POST /api/devices/heartbeat` response adds `policyVersion: string | null`. Clients that don't know it ignore it.
-- New `GET /api/devices/policy` (scope `device` + `deviceId`): the device's compiled, signed policy bundle; `ETag: "<policyVersion>"`, 304 on match. Signed with a minisign key that is separate from the release-signing key and not stored in Vercel env.
+- `POST /api/devices/heartbeat` request adds `policyVersion` (applied) and the response adds `policyVersion: string | null` (current). Clients that don't know them ignore them.
+- New `GET /api/devices/policy` (scope `device` + `deviceId`): the device's compiled, signed policy bundle; `ETag: "<policyVersion>"`, 304 on match. Signed with an Ed25519 key that is separate from the release-signing key. **Corrected 2026-11-02 (`_specs/v2-m2-child.md` §4):** the server signs each bundle when a device asks for it, so the private key must be usable server-side: Vercel KMS if it supports Ed25519, otherwise a Production-only sensitive env secret with `keyId` rotation.
 - `member_id` is resolved server-side from the device token; clients never send it.
 - New signal detectors (`web_blocked`, `app_installed`, `screen_time_exhausted`; `payment_page` is accepted from M1) are added; `protection_disabled` is server-generated (uninstall beacon, offline sweep) and never accepted from clients. Detectors are added to `SIGNAL_DETECTORS`; older servers reject unknown detectors as `invalid`, so clients must ship after the server.
 

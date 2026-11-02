@@ -134,6 +134,13 @@
       "when": 1793632686799,
       "tag": "0019_eve_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793632746799,
+      "tag": "0020_member_devices",
+      "breakpoints": true
     }
   ]
 }

@@ -5,8 +5,7 @@
  * forms and multi-value lists handled), `Cache-Control: private, max-age=3600` either way.
  */
 import { detectionLists } from "@neo/tools";
-import { jsonError } from "@/lib/server/http";
-import { requireApiSession } from "@/lib/session";
+import { requireDeviceSession } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,9 +22,8 @@ export function ifNoneMatchHits(header: string | null, version: string): boolean
 }
 
 export async function GET(req: Request): Promise<Response> {
-  const { session, response } = await requireApiSession({ scope: "device" });
+  const { session, response } = await requireDeviceSession("device");
   if (!session) return response;
-  if (!session.deviceId) return jsonError(403, "Only a device's own token can do that.", "insufficient_scope");
 
   const lists = detectionLists();
   const etag = `"${lists.version}"`;

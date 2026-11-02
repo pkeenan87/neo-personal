@@ -32,7 +32,15 @@ export {
   type RecordCheckInput,
   type UsageCaps,
 } from "./usage.js";
-export { createTenantForUser, findTenantForUser, getHouseholdName, type UserTenant } from "./tenants.js";
+export {
+  createTenantForUser,
+  findTenantForUser,
+  getHouseholdName,
+  getHouseholdTimeZone,
+  normalizeTimeZone,
+  setHouseholdTimeZone,
+  type UserTenant,
+} from "./tenants.js";
 export { createMemoryBlobClient, createVercelBlobClient, type BlobClient } from "./blob.js";
 export {
   ArtifactStoreUnavailableError,
@@ -195,6 +203,7 @@ export {
   insertDeviceSignal,
   listDeviceSignalsByClientIds,
   listExpectedTools,
+  listRecentMemberSignals,
   listRecentUserSignals,
   purgeExpiredReputationCache,
   purgeOldDeviceSignals,
@@ -266,6 +275,8 @@ export {
   latestMemberRules,
   listMembers as listMemberRecords,
   memberIdForUserTx,
+  memberIdOfUserSql,
+  revokeMemberDevicesTx,
   memberRoleForMembership,
   normalizeContact,
   normalizeDisplayName,

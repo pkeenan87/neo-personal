@@ -67,6 +67,16 @@ function errText(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).slice(0, 300);
 }
 
+/**
+ * The subject part of a correlation dedupe key. A member with an account keeps `<userId>`, so a
+ * pair already alerted before member-only devices is not alerted again; a member without one is
+ * `m:<memberId>`. Null when neither is known (nothing safe to key on).
+ */
+export function subjectKey(subject: { userId?: string | null; memberId?: string | null }): string | null {
+  if (subject.userId) return subject.userId;
+  return subject.memberId ? `m:${subject.memberId}` : null;
+}
+
 /** The household's members (database or memory). */
 export async function tenantMembers(tenantId: string): Promise<HouseholdMember[]> {
   const db = getDb();
@@ -178,12 +188,17 @@ export async function alertBreachDetected(input: {
 
 // ─── Devices (_specs/device-enrollment.md) ─────────────────────────
 
+/** What a device alert says about its member: the account's name and email, or only the member's display name. */
+type AlertableMember = Pick<HouseholdMember, "name" | "email">;
+
 /**
  * The device's protected member when it may alert: devices protecting an owner (or
- * someone no longer in the household) never do. Never throws.
+ * someone no longer in the household) never do. A member without an account is never an
+ * owner, so their devices always alert. Never throws.
  */
-async function alertableMember(device: DevicePublic): Promise<HouseholdMember | null> {
+async function alertableMember(device: DevicePublic): Promise<AlertableMember | null> {
   try {
+    if (!device.userId) return device.memberId ? { name: device.memberName, email: null } : null;
     const m = (await members(device.tenantId)).find((x) => x.userId === device.userId);
     return m && m.role === "member" ? m : null;
   } catch (err) {
@@ -200,6 +215,7 @@ export async function alertDeviceEnrolled(device: DevicePublic): Promise<boolean
   const row = await raiseAlert({
     tenantId: device.tenantId,
     subjectUserId: device.userId,
+    ...(device.memberId ? { memberId: device.memberId } : {}),
     kind: "device_enrolled",
     ...deviceEnrolledAlertText(displayName(member.name, member.email), deviceLabel(device.name)),
     deviceId: device.id,
@@ -215,6 +231,7 @@ export async function alertDeviceRemoved(device: DevicePublic, by: "member" | "d
   const row = await raiseAlert({
     tenantId: device.tenantId,
     subjectUserId: device.userId,
+    ...(device.memberId ? { memberId: device.memberId } : {}),
     kind: "device_removed",
     ...deviceRemovedAlertText(displayName(member.name, member.email), deviceLabel(device.name), by),
     deviceId: device.id,
@@ -231,6 +248,7 @@ export async function alertDeviceOffline(device: DevicePublic): Promise<boolean>
   const row = await raiseAlert({
     tenantId: device.tenantId,
     subjectUserId: device.userId,
+    ...(device.memberId ? { memberId: device.memberId } : {}),
     kind: "device_offline",
     ...deviceOfflineAlertText(displayName(member.name, member.email), deviceLabel(device.name), device.lastSeenAt),
     deviceId: device.id,
@@ -252,7 +270,8 @@ export type SignalAlertKind = "scam_page" | "dangerous_site" | "remote_access" |
  */
 export async function alertSignal(input: {
   tenantId: string;
-  userId: string;
+  /** The member's account; null for a member without one (then `memberId` is set). */
+  userId: string | null;
   deviceId: string;
   kind: SignalAlertKind;
   /** The event's detector (`SignalEvent.detector`), part of the dedupe key. */
@@ -285,7 +304,7 @@ export async function alertSignal(input: {
 /** `warning_bypassed`: dedupe `bypass:<relatesTo>` (one bump alert per dismissed warning). */
 export async function alertSignalBypass(input: {
   tenantId: string;
-  userId: string;
+  userId: string | null;
   deviceId: string;
   kind: SignalAlertKind;
   relatesTo: string;
@@ -309,15 +328,20 @@ export async function alertSignalBypass(input: {
   });
 }
 
-/** `scam_in_progress`: dedupe `scam_in_progress:<userId>:<30-minute bucket>`. */
+/**
+ * `scam_in_progress`: dedupe `scam_in_progress:<userId>:<30-minute bucket>`, or
+ * `scam_in_progress:m:<memberId>:<bucket>` for a member without an account (see `subjectKey`).
+ */
 export async function alertScamInProgress(input: {
   tenantId: string;
-  userId: string;
+  userId: string | null;
   bucket: string;
   text: AlertText;
   memberId?: string | null;
   signalIds?: string[];
 }): Promise<AlertRow | null> {
+  const key = subjectKey(input);
+  if (!key) return null;
   return raiseAlert({
     tenantId: input.tenantId,
     subjectUserId: input.userId,
@@ -327,20 +351,25 @@ export async function alertScamInProgress(input: {
     severity: input.text.severity,
     title: input.text.title,
     body: input.text.body,
-    dedupeKey: `scam_in_progress:${input.userId}:${input.bucket}`,
+    dedupeKey: `scam_in_progress:${key}:${input.bucket}`,
   });
 }
 
-/** `install_during_session` / `payment_under_pressure`: dedupe `<kind>:<userId>:<30-minute bucket>`. */
+/**
+ * `install_during_session` / `payment_under_pressure`: dedupe `<kind>:<userId>:<30-minute bucket>`,
+ * or `<kind>:m:<memberId>:<bucket>` for a member without an account (see `subjectKey`).
+ */
 export async function alertCorrelation(input: {
   tenantId: string;
-  userId: string;
+  userId: string | null;
   kind: "install_during_session" | "payment_under_pressure";
   bucket: string;
   text: AlertText;
   memberId?: string | null;
   signalIds?: string[];
 }): Promise<AlertRow | null> {
+  const key = subjectKey(input);
+  if (!key) return null;
   return raiseAlert({
     tenantId: input.tenantId,
     subjectUserId: input.userId,
@@ -350,14 +379,14 @@ export async function alertCorrelation(input: {
     body: input.text.body,
     ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
     ...(input.signalIds ? { signalIds: input.signalIds } : {}),
-    dedupeKey: `${input.kind}:${input.userId}:${input.bucket}`,
+    dedupeKey: `${input.kind}:${key}:${input.bucket}`,
   });
 }
 
 /** `protection_disabled`: dedupe `protection_disabled:<deviceId>:<UTC hour>`. */
 export async function alertProtectionDisabled(input: {
   tenantId: string;
-  userId: string;
+  userId: string | null;
   deviceId: string;
   text: AlertText;
   memberId?: string | null;
@@ -409,12 +438,17 @@ function toItem(a: AlertListItem): AlertItem {
 
 export class BadCursorError extends Error {}
 
+/** The alert filter of a session: owners see the household's alerts; members only those about their own member. */
+function alertScope(session: NeoSession): { aboutUserId?: string } {
+  return session.role === "owner" ? {} : { aboutUserId: session.userId };
+}
+
 /** Owners see the household's alerts; members only those about themselves. */
 export async function listAlertsForSession(
   session: NeoSession,
   opts: { status: "open" | "all"; cursor?: string; limit?: number },
 ): Promise<AlertListResponse> {
-  const scope = session.role === "owner" ? {} : { subjectUserId: session.userId };
+  const scope = alertScope(session);
   const db = getDb();
   let page: { items: AlertListItem[]; nextCursor?: string };
   try {
@@ -432,7 +466,7 @@ export async function listAlertsForSession(
 /** Open high/critical alerts visible to the session (the nav dot). Zero on storage errors. */
 export async function urgentAlertCount(session: NeoSession): Promise<number> {
   try {
-    const scope = session.role === "owner" ? {} : { subjectUserId: session.userId };
+    const scope = alertScope(session);
     const severities = ["high", "critical"] as const;
     const db = getDb();
     return db

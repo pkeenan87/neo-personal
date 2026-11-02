@@ -95,12 +95,9 @@ export function toEnrollmentCodeItem(c: EnrollmentCodePublic): EnrollmentCodeIte
 
 // ─── Enrollment codes ──────────────────────────────────────────────
 
-export async function createEnrollmentCode(input: {
-  tenantId: string;
-  userId: string;
-  createdBy: string;
-  now?: Date;
-}): Promise<{ code: string; record: EnrollmentCodePublic } | { error: "not_member" | "code_limit" | "device_limit" }> {
+export async function createEnrollmentCode(
+  input: { tenantId: string; createdBy: string; now?: Date } & ({ userId: string; memberId?: undefined } | { memberId: string; userId?: undefined }),
+): Promise<{ code: string; record: EnrollmentCodePublic } | { error: "not_member" | "code_limit" | "device_limit" }> {
   const db = getDb();
   return db ? dbCreateEnrollmentCode(db, input) : memoryCreateEnrollmentCode(input);
 }
@@ -138,8 +135,8 @@ export async function enrollSelfDevice(input: {
 
 // ─── Devices ───────────────────────────────────────────────────────
 
-/** Active devices, newest first; `userId` restricts to one member's devices. */
-export async function listDevices(tenantId: string, opts: { userId?: string } = {}): Promise<DevicePublic[]> {
+/** Active devices, newest first; `memberId` restricts to one member's devices, `userId` to the member behind an account. */
+export async function listDevices(tenantId: string, opts: { userId?: string; memberId?: string } = {}): Promise<DevicePublic[]> {
   const db = getDb();
   return db ? dbListDevices(db, tenantId, opts) : memoryListDevices(tenantId, opts);
 }

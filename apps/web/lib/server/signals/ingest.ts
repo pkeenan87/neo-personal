@@ -7,7 +7,7 @@ import { evaluateSignal, type Decision } from "@neo/core";
 import { findRemoteAccessTool, normalizeUrl } from "@neo/tools";
 import { MAX_SIGNAL_BATCH, parseSignalEvent, type SignalEvent } from "@neo/verdict";
 import type { SignalIngestResponse, SignalRejectReason, SignalResult } from "@/lib/signal-types";
-import type { NeoSession } from "@/lib/session";
+import type { DeviceSession } from "@/lib/session";
 import { recordAudit } from "../audit";
 import { getDevice } from "../devices";
 import type { Outcome } from "../household";
@@ -17,7 +17,7 @@ import { applyAlertedSignal, type SignalDeviceInfo } from "./apply";
 import { queueSignalEscalate } from "./escalate";
 import { loadSignalProtection, toRecentSignals } from "./protection";
 import { ENGINE_CATALOG } from "./rules";
-import { countDeviceSignalsSince, insertDeviceSignal, listExpectedTools, listRecentUserSignals, updateDeviceSignal } from "./store";
+import { countDeviceSignalsSince, insertDeviceSignal, listExpectedTools, listRecentMemberSignals, updateDeviceSignal } from "./store";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -94,7 +94,7 @@ function isRegistrableDomain(domain: string): boolean {
  * requests/hour/device (429); body must be `{ events: 1..50 }` (400 `bad_request`); every
  * event gets its own result, in order, and one bad event never fails the batch.
  */
-export async function ingestSignals(session: NeoSession, deviceId: string, body: Record<string, unknown> | null, now = new Date()): Promise<Outcome<SignalIngestResponse>> {
+export async function ingestSignals(session: DeviceSession, deviceId: string, body: Record<string, unknown> | null, now = new Date()): Promise<Outcome<SignalIngestResponse>> {
   const slot = takeRateSlot("signals-ingest", deviceId, SIGNAL_INGEST_LIMIT.limit, SIGNAL_INGEST_LIMIT.windowMs, now.getTime());
   if (!slot.ok) return rateLimited(slot.retryAfterSeconds);
 
@@ -105,10 +105,13 @@ export async function ingestSignals(session: NeoSession, deviceId: string, body:
 
   const device = await getDevice(session.tenantId, deviceId);
   if (!device || device.revokedAt) return fail(401, "unauthenticated", "This device is no longer connected to a household.");
-  const deviceInfo: SignalDeviceInfo = { id: device.id, tenantId: session.tenantId, userId: device.userId, name: device.name, memberName: device.memberName };
+  // The device's member is the subject of everything it reports (never the token holder's user or role).
+  if (!device.memberId) return fail(401, "unauthenticated", "This device is no longer connected to a household.");
+  const protectedMember = { memberId: device.memberId, userId: device.userId };
+  const deviceInfo: SignalDeviceInfo = { id: device.id, tenantId: session.tenantId, ...protectedMember, name: device.name, memberName: device.memberName };
 
   const expectedTools = await listExpectedTools(session.tenantId, { deviceId });
-  const { policy, memberId } = await loadSignalProtection(session.tenantId, device.userId, deviceId);
+  const { policy, memberId } = await loadSignalProtection(session.tenantId, protectedMember, deviceId);
   const dayStart = dayStartOf(now);
   const results: SignalResult[] = [];
 
@@ -155,7 +158,7 @@ export async function ingestSignals(session: NeoSession, deviceId: string, body:
       continue;
     }
 
-    const recentRows = await listRecentUserSignals(session.tenantId, device.userId, { since: new Date(now.getTime() - RELATES_TO_WINDOW_MS) });
+    const recentRows = await listRecentMemberSignals(session.tenantId, protectedMember.memberId, { since: new Date(now.getTime() - RELATES_TO_WINDOW_MS) });
     const evaluate = (signalId?: string): Decision =>
       evaluateSignal(policy, { event, ...(signalId ? { signalId } : {}) }, { now, deviceId, expectedTools, recent: toRecentSignals(recentRows), catalog: ENGINE_CATALOG });
     const decision = evaluate();
@@ -167,6 +170,7 @@ export async function ingestSignals(session: NeoSession, deviceId: string, body:
     const { row, duplicate } = await insertDeviceSignal({
       tenantId: session.tenantId,
       deviceId,
+      memberId: protectedMember.memberId,
       userId: device.userId,
       clientEventId: event.id,
       type: event.type,

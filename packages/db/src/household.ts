@@ -463,7 +463,6 @@ async function detachMember(
     // Their private chats go; their verdicts stay as household history.
     const deleted = await t.delete(conversations, eq(conversations.userId, userId));
     await t.delete(memberships, eq(memberships.userId, userId));
-    await deleteMemberForUserTx(t.tx, tenantId, userId);
     const now = new Date();
     // Their devices and pending enrollment codes here stop working (_specs/device-enrollment.md).
     await t.update(devices, { revokedAt: now, revokedBy: actorUserId === userId ? null : actorUserId }, and(eq(devices.userId, userId), isNull(devices.revokedAt)));
@@ -478,6 +477,8 @@ async function detachMember(
       .set({ revokedAt: now })
       .where(and(eq(desktopTokens.userId, userId), eq(desktopTokens.tenantId, tenantId), isNull(desktopTokens.revokedAt)));
     await t.tx.delete(desktopAuthRequests).where(and(eq(desktopAuthRequests.userId, userId), eq(desktopAuthRequests.tenantId, tenantId)));
+    // Last: an active device, code or token needs a member, so they are all revoked above first.
+    await deleteMemberForUserTx(t.tx, tenantId, userId);
     await t.insert(auditEvents, {
       userId: actorUserId,
       eventType,

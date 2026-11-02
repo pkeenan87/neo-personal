@@ -33,12 +33,16 @@ export interface DesktopTokenPublic {
 
 export interface ResolvedDesktopToken {
   id: string;
-  userId: string;
+  /** Null only for a monitoring token of a member without an account. */
+  userId: string | null;
   tenantId: string;
-  role: MembershipRole;
+  /** Membership role snapshot; null with `userId`. */
+  role: MembershipRole | null;
   scopes: TokenScope[];
   /** The device a monitoring token reports for; null for full tokens. */
   deviceId: string | null;
+  /** The device's member (read from the device row, not the token); null for full tokens. */
+  memberId: string | null;
 }
 
 export function hashDesktopToken(token: string): string {
@@ -119,7 +123,16 @@ export async function createDesktopToken(
  */
 export async function insertDeviceToken(
   tx: Tx | Db,
-  input: { userId: string; tenantId: string; role: MembershipRole; name: string; deviceId: string; scopes: readonly TokenScope[] },
+  input: {
+    /** Null for a member without an account (then `role` is null too). */
+    userId: string | null;
+    tenantId: string;
+    role: MembershipRole | null;
+    memberId: string;
+    name: string;
+    deviceId: string;
+    scopes: readonly TokenScope[];
+  },
 ): Promise<{ token: string; record: DesktopTokenPublic }> {
   if (input.scopes.includes("full")) throw new Error("@neo/db: a device token cannot hold the full scope");
   const { token, hash, prefix } = mintToken();
@@ -129,6 +142,7 @@ export async function insertDeviceToken(
       userId: input.userId,
       tenantId: input.tenantId,
       role: input.role,
+      memberId: input.memberId,
       name: normalizeDesktopTokenName(input.name) ?? "Device",
       tokenHash: hash,
       tokenPrefix: prefix,
@@ -169,12 +183,15 @@ export async function resolveDesktopToken(db: Db, token: string): Promise<Resolv
     .where(eq(desktopTokens.tokenHash, hash))
     .limit(1);
   if (!row || row.revokedAt) return null;
+  let memberId: string | null = null;
   if (row.deviceId) {
     // devices has RLS, so read it under the token's tenant. Revoking a device revokes its
     // tokens too; this check also covers a device revoked by any other path.
     const deviceId = row.deviceId;
     const device = await tenantScoped(db, row.tenantId).first(devices, eq(devices.id, deviceId));
-    if (!device || device.revokedAt) return null;
+    if (!device || device.revokedAt || !device.memberId) return null;
+    // The device decides whose it is, never the token's own copy.
+    memberId = device.memberId;
   }
   // Fire-and-forget last-used bump; auth must not wait on the write.
   void db
@@ -182,5 +199,5 @@ export async function resolveDesktopToken(db: Db, token: string): Promise<Resolv
     .set({ lastUsedAt: new Date() })
     .where(eq(desktopTokens.id, row.id))
     .catch(() => undefined);
-  return { id: row.id, userId: row.userId, tenantId: row.tenantId, role: row.role, scopes: row.scopes, deviceId: row.deviceId };
+  return { id: row.id, userId: row.userId, tenantId: row.tenantId, role: row.role, scopes: row.scopes, deviceId: row.deviceId, memberId };
 }

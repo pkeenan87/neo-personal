@@ -75,8 +75,14 @@ export interface LoadedIncident {
 
 const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
 
-function canSee(caller: IncidentCaller, alert: Pick<AlertRow, "subjectUserId">): boolean {
-  return caller.role === "owner" || alert.subjectUserId === caller.userId;
+/** The caller's own `members` row id, or undefined when their membership has none. */
+async function callerMemberId(t: ReturnType<typeof tenantScoped>, caller: IncidentCaller): Promise<string | undefined> {
+  return (await t.first(members, eq(members.userId, caller.userId)))?.id;
+}
+
+/** Owners see the household; a member sees the alerts about their own member (by member, else by subject user). */
+function canSee(caller: IncidentCaller, alert: Pick<AlertRow, "subjectUserId" | "memberId">, ownMemberId: string | undefined): boolean {
+  return caller.role === "owner" || alert.subjectUserId === caller.userId || (alert.memberId !== null && alert.memberId === ownMemberId);
 }
 
 /** One alert as the caller may see it, or null (unknown id, malformed id, another household, not about the caller). */
@@ -85,7 +91,8 @@ export async function loadIncident(caller: IncidentCaller, id: string): Promise<
   if (!db || !isUuid(id)) return null;
   const t = tenantScoped(db, caller.tenantId);
   const alert = await t.first(alerts, eq(alerts.id, id));
-  if (!alert || !canSee(caller, alert)) return null;
+  if (!alert) return null;
+  if (caller.role !== "owner" && !canSee(caller, alert, await callerMemberId(t, caller))) return null;
 
   const [member, device, signals] = await Promise.all([
     alert.memberId
@@ -135,7 +142,7 @@ export async function listIncidents(caller: IncidentCaller, opts: { status?: "op
   const { items } = await listAlerts(db, caller.tenantId, {
     status: opts.status ?? "open",
     limit,
-    ...(caller.role === "owner" ? {} : { subjectUserId: caller.userId }),
+    ...(caller.role === "owner" ? {} : { aboutUserId: caller.userId }),
   });
   return items.map((a) => ({
     id: a.id,
@@ -174,29 +181,32 @@ export async function deviceTimeline(
   const t = tenantScoped(db, caller.tenantId);
   const owner = caller.role === "owner";
 
-  let userId = caller.userId;
+  // The subject is a member (the device's), with or without an account. Default: the caller's own.
+  const ownMemberId = await callerMemberId(t, caller);
+  let memberId: string | undefined = ownMemberId;
   let deviceId: string | undefined;
   if (opts.memberId !== undefined) {
     if (!isUuid(opts.memberId)) return { error: "not_found" };
     const m = await t.first(members, eq(members.id, opts.memberId));
-    if (!m || (!owner && m.userId !== caller.userId)) return { error: "not_found" };
-    if (!m.userId) return { items: [], hours };
-    userId = m.userId;
+    if (!m || (!owner && m.id !== ownMemberId)) return { error: "not_found" };
+    memberId = m.id;
   }
   if (opts.deviceId !== undefined) {
     if (!isUuid(opts.deviceId)) return { error: "not_found" };
     const d = await t.first(devices, eq(devices.id, opts.deviceId));
     if (!d) return { error: "not_found" };
     // A member may ask only about their own device; with a memberId too, the device must be that member's.
-    if (opts.memberId !== undefined ? d.userId !== userId : !owner && d.userId !== caller.userId) return { error: "not_found" };
-    userId = d.userId;
+    if (opts.memberId !== undefined ? d.memberId !== memberId : !owner && d.memberId !== ownMemberId) return { error: "not_found" };
+    memberId = d.memberId ?? undefined;
     deviceId = d.id;
   }
+  // No member to speak for (a caller with no members row, or a device whose member is gone): nothing to show.
+  if (!memberId) return { items: [], hours };
 
   const since = new Date((opts.now ?? new Date()).getTime() - hours * 60 * 60 * 1000);
   const rows = await t.select(
     deviceSignals,
-    and(eq(deviceSignals.userId, userId), gte(deviceSignals.observedAt, since), deviceId ? eq(deviceSignals.deviceId, deviceId) : undefined),
+    and(eq(deviceSignals.memberId, memberId), gte(deviceSignals.observedAt, since), deviceId ? eq(deviceSignals.deviceId, deviceId) : undefined),
     { orderBy: [desc(deviceSignals.observedAt)], limit: TIMELINE_MAX_ROWS },
   );
   const deviceIds = [...new Set(rows.map((r) => r.deviceId))];

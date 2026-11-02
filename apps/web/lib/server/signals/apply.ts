@@ -37,7 +37,10 @@ import { buildSignalVerdict } from "./verdicts";
 export interface SignalDeviceInfo {
   id: string;
   tenantId: string;
-  userId: string;
+  /** The member the device protects: the subject of its signals and alerts. */
+  memberId: string;
+  /** The member's account; null for a member without one. */
+  userId: string | null;
   name: string;
   memberName: string | null;
 }
@@ -110,9 +113,13 @@ export async function applyAlertedSignal(input: AlertedSignalInput): Promise<Ale
   const { device, event, severity, alertKind } = input;
   let verdictId: string | undefined;
   if (input.verdictLabel) {
-    const verdict = buildSignalVerdict({ event, verdict: input.verdictLabel, severity, reasonCodes: input.reasonCodes, deviceName: device.name });
-    const saved = await saveVerdict({ tenantId: device.tenantId, userId: device.userId, source: "device", verdict });
-    verdictId = saved.id;
+    // Verdicts belong to a signed-in user (verdicts.user_id); a member without an account has none,
+    // so the alert is raised without one (the signal row and the alert still carry the evidence).
+    if (device.userId) {
+      const verdict = buildSignalVerdict({ event, verdict: input.verdictLabel, severity, reasonCodes: input.reasonCodes, deviceName: device.name });
+      const saved = await saveVerdict({ tenantId: device.tenantId, userId: device.userId, source: "device", verdict });
+      verdictId = saved.id;
+    }
   }
   const memberName = displayName(device.memberName, null);
   const deviceLbl = deviceLabel(device.name);
@@ -127,7 +134,7 @@ export async function applyAlertedSignal(input: AlertedSignalInput): Promise<Ale
         relatesTo: input.bypassOf.relatesTo,
         verdictId: verdictId ?? input.bypassOf.relatedVerdictId,
         text,
-        ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+        memberId: input.memberId ?? device.memberId,
         signalIds: [input.rowId],
       })
     : await alertSignal({
@@ -139,13 +146,13 @@ export async function applyAlertedSignal(input: AlertedSignalInput): Promise<Ale
         subject: input.subject,
         verdictId,
         text,
-        ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+        memberId: input.memberId ?? device.memberId,
         signalIds: [input.rowId],
         now: input.now,
       });
 
   await updateDeviceSignal(device.tenantId, input.rowId, { severity, outcome: "alerted", verdictId: verdictId ?? null, alertId: alertRow?.id ?? null });
-  await raiseCorrelations(device, input.memberId, input.correlations ?? []);
+  await raiseCorrelations(device, input.memberId ?? device.memberId, input.correlations ?? []);
   return { verdictId, alertId: alertRow?.id ?? undefined };
 }
 
@@ -157,14 +164,15 @@ const EVENT_LABEL: Partial<Record<string, string>> = {
 
 /**
  * Raise one alert per correlation the policy engine returned (the engine owns correlation).
- * Safe to repeat: each alert's dedupe key (`<kind>:<userId>:<30-minute bucket>`) makes a repeat a no-op.
+ * Safe to repeat: each alert's dedupe key (`<kind>:<userId>:<30-minute bucket>`, or
+ * `<kind>:m:<memberId>:<bucket>` for a member without an account) makes a repeat a no-op.
  */
 export async function raiseCorrelations(device: SignalDeviceInfo, memberId: string | null | undefined, correlations: readonly Correlation[]): Promise<void> {
   if (correlations.length === 0) return;
-  const member = (await tenantMembers(device.tenantId)).find((m) => m.userId === device.userId);
+  const member = device.userId ? (await tenantMembers(device.tenantId)).find((m) => m.userId === device.userId) : undefined;
   const memberName = displayName(member?.name ?? device.memberName, member?.email ?? null);
   const deviceLbl = deviceLabel(device.name);
-  const common = { tenantId: device.tenantId, userId: device.userId, bucket: "", ...(memberId !== undefined ? { memberId } : {}) };
+  const common = { tenantId: device.tenantId, userId: device.userId, bucket: "", memberId: memberId ?? device.memberId };
   for (const c of correlations) {
     const args = { ...common, bucket: c.bucket, signalIds: c.signalIds };
     if (c.kind === "scam_in_progress") {
