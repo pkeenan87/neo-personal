@@ -23,6 +23,7 @@
     "@neo/verdict": "workspace:*",
     "ai": "7.0.150",
     "drizzle-orm": "^0.45.4",
+    "eve": "1.0.0-rc.1",
     "inngest": "4.26.0",
     "lucide-react": "1.61.0",
     "next": "16.4.2",

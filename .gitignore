@@ -17,3 +17,7 @@ coverage/
 apps/web/injection-eval*.json
 .vercel
 .env*
+
+# eve build output
+apps/web/.eve/
+apps/web/.output/

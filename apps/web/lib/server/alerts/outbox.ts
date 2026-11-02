@@ -33,7 +33,8 @@ import {
   type ProtectionMode,
 } from "@neo/db";
 import type { Severity } from "@neo/verdict";
-import { inboundEnv } from "@/lib/env";
+import { incidentChatApplies, incidentChatPath } from "@/lib/alert-types";
+import { eveChatEnabled, inboundEnv } from "@/lib/env";
 import { getDb } from "../db";
 import { renderAlertCapEmail, renderAlertEmail } from "../email/alert-email";
 import { getMailer, MailerHttpError, type Mailer } from "../email/resend";
@@ -271,7 +272,9 @@ function isPermanent(err: unknown): boolean {
   return false;
 }
 
-function alertLink(alert: AlertRow, appUrl: string): { url: string; label: string } {
+/** Where an alert email sends the reader. With NEO_EVE_CHAT, incidents open the eve incident chat. */
+export function alertLink(alert: AlertRow, appUrl: string, eveChat = eveChatEnabled()): { url: string; label: string } {
+  if (eveChat && incidentChatApplies(alert.kind)) return { url: `${appUrl}${incidentChatPath(alert.id)}`, label: "Ask Neo about this" };
   return alert.kind === "breach_detected"
     ? { url: `${appUrl}/settings/breaches`, label: "Review breach status" }
     : alert.verdictId

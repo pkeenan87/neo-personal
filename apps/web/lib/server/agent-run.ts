@@ -22,8 +22,7 @@ import {
   type ToolRegistry,
 } from "@neo/core";
 import type { ArtifactMeta } from "@neo/db";
-import { PostgresReputationCache } from "@neo/db";
-import { createAnalyzeEmailTool, createAnalyzeSmsTool, createCheckUrlTool, createInMemoryCache, type EmailAnalysis, type ReputationCache } from "@neo/tools";
+import { createAnalyzeEmailTool, createAnalyzeSmsTool, createCheckUrlTool, type EmailAnalysis } from "@neo/tools";
 import { parseAttachmentNote } from "@/lib/attachments";
 import { env } from "@/lib/env";
 import { playbookMarker, type PlaybookId } from "@/lib/playbooks";
@@ -31,10 +30,10 @@ import type { NeoSession } from "@/lib/session";
 import { getArtifactStore } from "./artifacts";
 import { recordAudit } from "./audit";
 import { getConversationStore } from "./conversation-store";
-import { getDb } from "./db";
 import { NDJSON_HEADERS } from "./http";
 import { createMockAnthropicClient, mockReportPhishTool } from "./mock-model";
 import { routeTurn } from "./router";
+import { sharedUrlCache } from "./url-cache";
 import { getMemberPreferences } from "./routing-settings";
 import { NEO_SYSTEM_PROMPT } from "./system-prompt";
 import { recordUsage } from "./usage";
@@ -46,24 +45,7 @@ import { findEmailAnalyses, rewriteFinalVerdict, selectSigninAnalysis, signinOve
 import { applyAmbiguousSigninCap, applySigninHookFailureCap } from "./signin/override";
 import { finalizeSigninVerdict, persistSigninEvent } from "./signin/service";
 
-const g = globalThis as typeof globalThis & { __neoUrlCache?: ReputationCache; __neoUrlCacheDbBacked?: boolean };
-
-/**
- * The process-wide URL reputation cache shared by chat tools, the inbound job and signal
- * escalations (_specs/signals.md "Shared reputation cache"). `PostgresReputationCache`
- * (`reputation_cache`, 24h TTL, no tenant) when a database is configured, so households share
- * lookups; the in-memory twin otherwise (MOCK_MODE / tests). Switches twin↔database if the
- * database becomes available after the first call (tests toggling DATABASE_URL).
- */
-export function sharedUrlCache(): ReputationCache {
-  const db = getDb();
-  const dbBacked = Boolean(db);
-  if (!g.__neoUrlCache || g.__neoUrlCacheDbBacked !== dbBacked) {
-    g.__neoUrlCache = db ? new PostgresReputationCache(db) : createInMemoryCache();
-    g.__neoUrlCacheDbBacked = dbBacked;
-  }
-  return g.__neoUrlCache;
-}
+export { sharedUrlCache };
 
 /** check_url, analyze_email and analyze_sms with a shared reputation cache; MOCK_MODE adds a destructive demo tool. */
 export function buildToolRegistry(opts: { mock: boolean; onEmailAnalysis?: (analysis: EmailAnalysis) => void } = { mock: env().MOCK_MODE }): ToolRegistry {

@@ -139,10 +139,21 @@ The chat shows which model answered each turn.
 | `RESEND_WEBHOOK_SECRET` | For forwarding | Signing secret of the Resend `email.received` webhook. The webhook returns 503 while unset. |
 | `RESEND_API_KEY` | No | Alias for `AUTH_RESEND_KEY`; used for fetching received mail and sending result emails. |
 | `NEO_INBOUND_RATE_LIMIT_PER_HOUR` | No | Default 30 forwarded messages per address per hour. |
+| `NEO_EVE_CHAT` | No | `true` turns on the v2 incident chat (`/chat-v2`, "Ask Neo about this" links). Off when unset. Needs `DATABASE_URL`. See [The v2 agent](#the-v2-agent-eve). |
 | `MOCK_MODE` | Yes | **`false`** in production. |
 | `DEV_AUTH_BYPASS` | No | Leave unset/`false`. Refused in production and preview regardless. |
 | `INJECTION_GUARD_MODE` | No | `monitor` (default) or `block`. |
 | `LOG_LEVEL` | No | `info`. |
+
+## The v2 agent (eve)
+
+The incident chat runs on [eve](https://www.npmjs.com/package/eve) (pinned `1.0.0-rc.1`), which `apps/web/next.config.ts` hosts beside Next through `withEve`. It stays dark until `NEO_EVE_CHAT=true`; the existing chat (`/api/agent`) does not use it.
+
+- **Vercel:** nothing extra. The build command is unchanged (`withEve` builds the agent into the deployment), and Vercel provides the Workflow storage, the schedules and the AI Gateway credentials (project OIDC).
+- **Elsewhere:** build the agent first, then Next: `cd apps/web && npx eve build && next build`. `next start` then runs both (the agent listens on `127.0.0.1:4274`; `EVE_NEXT_PRODUCTION_PORT` changes it). `/eve/v1/health` is public; every other `/eve/v1/*` route is closed (401) unless `NEO_EVE_CHAT=true`, and then needs a signed-in Neo session or a full-scope `neo_dt_` token. A session can only be continued or streamed by the household member who created it (migration 0019, `eve_sessions`).
+- **Sessions need a Workflow world.** The default local world keeps them in files under `apps/web/.eve/.workflow-data` on one process; mount that on persistent storage. For several replicas use the Postgres world: add `@workflow/world-postgres`, select it in `apps/web/agent/agent.ts` (`experimental.workflow.world`), set `WORKFLOW_POSTGRES_URL`, and run `pnpm exec bootstrap` once (see `apps/web/node_modules/eve/docs/guides/deployment/workflow-worlds.md`).
+- **Upgrades:** on the local and Postgres worlds any eve version change strands open chats, so upgrade between conversations.
+- The agent resolves the caller in its own process from the same database as the app (the Auth.js `sessions` table or a hashed `neo_dt_` token), so it needs the same `DATABASE_URL`, `AUTH_SECRET` is not read, and there is no origin to configure.
 
 ## Database roles and RLS
 

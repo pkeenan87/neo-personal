@@ -18,3 +18,4 @@ export * from "./account-hardening.js";
 export * from "./signin-alerts.js";
 export * from "./members.js";
 export * from "./incidents.js";
+export * from "./eve-sessions.js";

@@ -168,6 +168,16 @@ export async function acknowledgeAllAlerts(db: Db, tenantId: string, userId: str
   return rows.length;
 }
 
+/**
+ * Remember the eve incident-chat session for an alert (`alerts.eve_session_id`), so opening the
+ * incident again resumes it. Tenant-scoped; false for a malformed id or another household's alert.
+ */
+export async function setAlertEveSession(db: Db, tenantId: string, id: string, eveSessionId: string): Promise<boolean> {
+  if (!UUID_RE.test(id)) return false;
+  const rows = await tenantScoped(db, tenantId).update(alerts, { eveSessionId }, eq(alerts.id, id));
+  return rows.length > 0;
+}
+
 export async function markAlertEmail(db: Db, tenantId: string, id: string, status: AlertEmailStatus, at = new Date()): Promise<void> {
   await tenantScoped(db, tenantId).update(alerts, { emailStatus: status, emailedAt: status === "sent" ? at : null }, eq(alerts.id, id));
 }
