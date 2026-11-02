@@ -162,3 +162,4 @@ export function summarizeVerdict(v: Verdict): string {
 }
 
 export * from "./signals.js";
+export * from "./policy.js";

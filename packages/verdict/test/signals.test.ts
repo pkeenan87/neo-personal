@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DISCOVERY_VALUES, MAX_SIGNAL_BATCH, SignalEventSchema, isTechSupportScamHit, parseSignalEvent, type SignalEvent } from "../src/index.js";
+import { DISCOVERY_VALUES, MAX_SIGNAL_BATCH, PROTECTION_MODES, PolicyRulesSchema, SIGNAL_DETECTORS, SignalEventSchema, isTechSupportScamHit, parseSignalEvent, type SignalEvent } from "../src/index.js";
 
 const ID = "11111111-1111-4111-8111-111111111111";
 const RELATES_TO = "22222222-2222-4222-8222-222222222222";
@@ -68,6 +68,14 @@ const validEvents: Record<string, SignalEvent> = {
     name: "PC Optimizer Pro",
     publisher: "Systweak Software",
     reason: "publisher_list",
+  },
+  payment_page: {
+    id: ID,
+    type: "page",
+    detector: "payment_page",
+    observedAt: OBSERVED_AT,
+    domain: "giftcards-pay.test",
+    category: "gift_card",
   },
   remote_access_session: {
     id: ID,
@@ -248,5 +256,31 @@ describe("parseSignalEvent", () => {
     expect(parseSignalEvent({ domain: "evil.test" })).toEqual({ ok: false, id: null, reason: "invalid" });
     expect(parseSignalEvent("not even an object")).toEqual({ ok: false, id: null, reason: "invalid" });
     expect(parseSignalEvent(null)).toEqual({ ok: false, id: null, reason: "invalid" });
+  });
+});
+
+describe("payment_page and server signals", () => {
+  it("rejects an unknown category, a URL field and protection_disabled from clients", () => {
+    expect(SignalEventSchema.safeParse({ ...validEvents.payment_page, category: "cash" }).success).toBe(false);
+    expect(SignalEventSchema.safeParse({ ...validEvents.payment_page, url: "https://giftcards-pay.test/pay?x=1" }).success).toBe(false);
+    const disabled = { id: ID, type: "page", detector: "protection_disabled", observedAt: OBSERVED_AT, reason: "device_offline" };
+    expect(parseSignalEvent(disabled)).toEqual({ ok: false, id: ID, reason: "invalid" });
+    expect((SIGNAL_DETECTORS as readonly string[]).includes("protection_disabled")).toBe(false);
+  });
+});
+
+describe("PolicyRulesSchema", () => {
+  it("accepts partial layers, strips unknown keys and allows M2 placeholders", () => {
+    const parsed = PolicyRulesSchema.parse({ remote_access: { unknownPeerSeverity: "critical", bogus: 1 }, web: { anything: true }, extra: 1 });
+    expect(parsed).toEqual({ remote_access: { unknownPeerSeverity: "critical" }, web: { anything: true } });
+  });
+
+  it("rejects bad severities and windows", () => {
+    expect(PolicyRulesSchema.safeParse({ notify: { helpersNotifyAt: "urgent" } }).success).toBe(false);
+    expect(PolicyRulesSchema.safeParse({ payments: { underPressureWindowMinutes: 0 } }).success).toBe(false);
+  });
+
+  it("lists the protection modes", () => {
+    expect(PROTECTION_MODES).toEqual(["standard", "child", "elder"]);
   });
 });

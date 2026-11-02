@@ -134,3 +134,4 @@ export type {
   AccountHardeningState,
   AccountHardeningVersion,
 } from "./account-hardening.js";
+export * from "./policy/index.js";

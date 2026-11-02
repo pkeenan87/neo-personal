@@ -252,3 +252,52 @@ export function scamInProgressAlertText(memberName: string, events: { at: Date; 
     body: [`Neo saw a scam warning and a remote-access event close together for ${memberName}:`, ...events.map((e) => eventLine(e.at, e.label))].join("\n"),
   };
 }
+
+// ─── Elder-mode kinds (_specs/v2-m1-elder.md §4) ───────────────────
+//
+// Critical alerts are templated, never model-written. Plain language, and the first thing said
+// is what to do: stop and hang up.
+
+export function paymentPageAlertText(memberName: string, deviceName: string, category: "gift_card" | "crypto" | "wire" | "other"): AlertText {
+  const how = { gift_card: "with gift cards", crypto: "with cryptocurrency", wire: "by wire transfer", other: "in an unusual way" }[category];
+  return {
+    severity: "medium",
+    title: `${memberName} opened a page asking for payment ${how}`,
+    body: `Neo saw ${memberName} on ${deviceName} on a page asking for payment ${how}. Scammers ask for payment this way because it is hard to get back. Check in with ${memberName} before any money is sent.`,
+  };
+}
+
+/** Critical: an install or permission grant right after an unknown remote session. */
+export function installDuringSessionAlertText(memberName: string, deviceName: string): AlertText {
+  return {
+    severity: "critical",
+    title: `Stop and hang up: ${memberName} is being walked through an install`,
+    body: [
+      `Stop and hang up. ${memberName} may be on a scam call right now.`,
+      `Someone connected to ${deviceName} from outside, and then software or a new permission was added to it.`,
+      `Call ${memberName} now, tell them to hang up, and not to install anything or share any codes. If money was sent, contact their bank right away.`,
+    ].join("\n"),
+  };
+}
+
+/** Critical: a payment page soon after a scam page or an unknown remote session. */
+export function paymentUnderPressureAlertText(memberName: string, deviceName: string): AlertText {
+  return {
+    severity: "critical",
+    title: `Stop and hang up: ${memberName} may be about to pay a scammer`,
+    body: [
+      `Stop and hang up. ${memberName} may be on a scam call right now.`,
+      `Soon after a scam warning or an unknown remote connection, ${deviceName} opened a page asking for payment.`,
+      `Call ${memberName} now and tell them not to send any money, buy gift cards or move crypto. If money was sent, contact their bank right away.`,
+    ].join("\n"),
+  };
+}
+
+export function protectionDisabledAlertText(memberName: string, deviceName: string, reason: "extension_uninstalled" | "device_offline", severity: "low" | "medium" | "high" | "critical"): AlertText {
+  const what = reason === "extension_uninstalled" ? `Neo's browser protection was removed from ${deviceName}` : `${deviceName} has stopped reporting to Neo`;
+  return {
+    severity,
+    title: `${memberName}'s protection was turned off`,
+    body: `${what}. ${memberName} is not protected there until it is turned back on. Ask them whether they did this on purpose, and be cautious if someone on the phone told them to.`,
+  };
+}

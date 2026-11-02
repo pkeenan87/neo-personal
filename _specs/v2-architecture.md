@@ -40,7 +40,7 @@ This spec records the architecture decisions M1–M3 build on. Each milestone ge
 
 ### 3. Policy, incidents and the outbox (M1)
 - `policies`: `tenant_id`, `scope` (`household | member | device`), `scope_id`, `version`, `rules` jsonb (validated by a zod schema in `@neo/verdict`), `created_by`, `created_at`. The append-only versions give history. The **effective policy** for a device is household → mode defaults (code constants, not a table) → member → device.
-- **Policy engine:** pure TypeScript in `packages/core` (`evaluateSignal(effectivePolicy, signal, recentSignals) → Decision`), no I/O and no model, fully unit-tested. It runs inline in `POST /api/signals` after insert and replaces the correlation and severity logic now in the `signal-escalate` Inngest function. A model-written verdict is still produced afterwards for the explanation, but it can no longer raise or lower severity.
+- **Policy engine:** pure TypeScript in `packages/core` (`evaluateSignal(effectivePolicy, signal, recentSignals) → Decision`), no I/O and no model, fully unit-tested. It runs inline in `POST /api/signals` after insert and absorbs the deterministic rules and `scam_in_progress` correlation that already run inline (`apps/web/lib/server/signals/rules.ts`, `apply.ts`). The `signal-escalate` Inngest function is reputation enrichment (Safe Browsing, VirusTotal, `analyzeUrl`), not correlation: it stays until M3 and feeds its result back through `evaluateSignal` (corrected 2026-11-02, `_specs/v2-m1-elder.md`). A model-written verdict is still produced afterwards for the explanation, but it can no longer raise or lower severity.
 - **Incidents extend `alerts`** instead of adding a parallel table: `alerts` already has kind, severity, dedupe key, subject user, device, acknowledgement and email status. v2 adds `member_id`, `status` (`open | acknowledged | resolved | false_positive`, backfilled from `acknowledged_at`), `signal_ids uuid[]`, `eve_session_id`, `resolved_at`. Existing alert routes keep working; the console reads the same rows.
 - `incident_actions`: `alert_id`, `kind` (`mark_expected | allow_once | block_site | end_session | extend_time | …`), `requested_by` (`agent | admin`), `approved_by`, `status`, `result`, timestamps.
 - `notification_outbox`: `tenant_id`, `idempotency_key` (unique), `channel` (`email` now), `destination`, `template`, `payload` jsonb (minimized), `attempts`, `lease_until`, `sent_at`, `provider_id`, `last_error`. Writers insert in the same transaction as the incident. The `alert-created` email path moves onto it; the Resend idempotency keys stay the same (`alert:<alertId>:<userId>`) so the switch can't double-send.
@@ -58,8 +58,8 @@ This spec records the architecture decisions M1–M3 build on. Each milestone ge
 ### 5. Background work (M1–M3)
 | Today (Inngest) | v2 | Milestone |
 | --- | --- | --- |
-| `signal-escalate` | policy engine inline on ingest; model explanation afterwards | M1 |
-| `alert-created` | outbox row + drain schedule | M1 |
+| `signal-escalate` (reputation enrichment) | stays on Inngest; result re-evaluated by the policy engine (M1); moves to an eve schedule or inline step | M3 |
+| `alert-created` | outbox row; drained by `outbox-drain` on Inngest (M1), then an eve schedule (M3) | M1/M3 |
 | `email-received` | keep the Resend webhook route; it calls the analyzers directly | M3 |
 | `weekly-digest`, `devices-offline`, `breach-monitoring` | eve schedules, run in parallel with Inngest for one cycle, then Inngest removed | M3 |
 | `artifacts-expire` | retention schedule; also purges signals and the outbox | M3 |
@@ -70,7 +70,7 @@ Inngest (functions, `/api/inngest`, the `inngest` dependency, its `vercel.json` 
 - `POST /api/devices/heartbeat` response adds `policyVersion: string | null`. Clients that don't know it ignore it.
 - New `GET /api/devices/policy` (scope `device` + `deviceId`): the device's compiled, signed policy bundle; `ETag: "<policyVersion>"`, 304 on match. Signed with a minisign key that is separate from the release-signing key and not stored in Vercel env.
 - `member_id` is resolved server-side from the device token; clients never send it.
-- New signal detectors (`web_blocked`, `app_installed`, `screen_time_exhausted`, `protection_disabled`, `payment_page`) are added to `SIGNAL_DETECTORS`; older servers reject unknown detectors as `invalid`, so clients must ship after the server.
+- New signal detectors (`web_blocked`, `app_installed`, `screen_time_exhausted`; `payment_page` is accepted from M1) are added; `protection_disabled` is server-generated (uninstall beacon, offline sweep) and never accepted from clients. Detectors are added to `SIGNAL_DETECTORS`; older servers reject unknown detectors as `invalid`, so clients must ship after the server.
 
 ## Possible Edge Cases
 - A member without an account has devices but no `memberships` row: alerts about them go to the owner and their helpers, never to themselves by email.

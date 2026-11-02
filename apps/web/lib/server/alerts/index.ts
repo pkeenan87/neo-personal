@@ -258,7 +258,7 @@ export async function alertDeviceOffline(device: DevicePublic): Promise<boolean>
 // ─── Device signals (_specs/signals.md) ─────────────────────────────
 
 /** Alert kinds a signal event can raise directly (everything but the membership/device-lifecycle kinds). */
-export type SignalAlertKind = "scam_page" | "dangerous_site" | "remote_access" | "unwanted_software" | "permission_grant";
+export type SignalAlertKind = "scam_page" | "dangerous_site" | "remote_access" | "unwanted_software" | "permission_grant" | "payment_under_pressure";
 
 /**
  * Raise a device-signal alert. Dedupe `<kind>:<deviceId>:<detector>:<subject>:<UTC hour>`, so the
@@ -277,12 +277,18 @@ export async function alertSignal(input: {
   subject: string;
   verdictId?: string | null;
   text: AlertText;
+  /** The protected member row (v2), when known. */
+  memberId?: string | null;
+  /** The stored signal this alert is about. */
+  signalIds?: string[];
   now?: Date;
 }): Promise<AlertRow | null> {
   return raiseAlert({
     tenantId: input.tenantId,
     subjectUserId: input.userId,
     deviceId: input.deviceId,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    ...(input.signalIds ? { signalIds: input.signalIds } : {}),
     kind: input.kind,
     severity: input.text.severity,
     title: input.text.title,
@@ -301,11 +307,15 @@ export async function alertSignalBypass(input: {
   relatesTo: string;
   verdictId?: string | null;
   text: AlertText;
+  memberId?: string | null;
+  signalIds?: string[];
 }): Promise<AlertRow | null> {
   return raiseAlert({
     tenantId: input.tenantId,
     subjectUserId: input.userId,
     deviceId: input.deviceId,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    ...(input.signalIds ? { signalIds: input.signalIds } : {}),
     kind: input.kind,
     severity: input.text.severity,
     title: input.text.title,
@@ -316,15 +326,69 @@ export async function alertSignalBypass(input: {
 }
 
 /** `scam_in_progress`: dedupe `scam_in_progress:<userId>:<30-minute bucket>`. */
-export async function alertScamInProgress(input: { tenantId: string; userId: string; bucket: string; text: AlertText }): Promise<AlertRow | null> {
+export async function alertScamInProgress(input: {
+  tenantId: string;
+  userId: string;
+  bucket: string;
+  text: AlertText;
+  memberId?: string | null;
+  signalIds?: string[];
+}): Promise<AlertRow | null> {
   return raiseAlert({
     tenantId: input.tenantId,
     subjectUserId: input.userId,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    ...(input.signalIds ? { signalIds: input.signalIds } : {}),
     kind: "scam_in_progress",
     severity: input.text.severity,
     title: input.text.title,
     body: input.text.body,
     dedupeKey: `scam_in_progress:${input.userId}:${input.bucket}`,
+  });
+}
+
+/** `install_during_session` / `payment_under_pressure`: dedupe `<kind>:<userId>:<30-minute bucket>`. */
+export async function alertCorrelation(input: {
+  tenantId: string;
+  userId: string;
+  kind: "install_during_session" | "payment_under_pressure";
+  bucket: string;
+  text: AlertText;
+  memberId?: string | null;
+  signalIds?: string[];
+}): Promise<AlertRow | null> {
+  return raiseAlert({
+    tenantId: input.tenantId,
+    subjectUserId: input.userId,
+    kind: input.kind,
+    severity: input.text.severity,
+    title: input.text.title,
+    body: input.text.body,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    ...(input.signalIds ? { signalIds: input.signalIds } : {}),
+    dedupeKey: `${input.kind}:${input.userId}:${input.bucket}`,
+  });
+}
+
+/** `protection_disabled`: dedupe `protection_disabled:<deviceId>:<UTC hour>`. */
+export async function alertProtectionDisabled(input: {
+  tenantId: string;
+  userId: string;
+  deviceId: string;
+  text: AlertText;
+  memberId?: string | null;
+  now?: Date;
+}): Promise<AlertRow | null> {
+  return raiseAlert({
+    tenantId: input.tenantId,
+    subjectUserId: input.userId,
+    deviceId: input.deviceId,
+    kind: "protection_disabled",
+    severity: input.text.severity,
+    title: input.text.title,
+    body: input.text.body,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    dedupeKey: `protection_disabled:${input.deviceId}:${hourBucket(input.now)}`,
   });
 }
 

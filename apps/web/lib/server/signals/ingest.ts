@@ -1,8 +1,9 @@
 /**
  * POST /api/signals ingest (_specs/signals.md "Ingest"): validate, rate-limit, deduplicate,
- * evaluate the deterministic rules (lib/server/signals/rules.ts), and apply the result (verdict
+ * evaluate the member's policy (the @neo/core engine), and apply the result (verdict
  * + alert, or queue an escalation) per event, in order. One bad event never fails the batch.
  */
+import { evaluateSignal, type Decision } from "@neo/core";
 import { findRemoteAccessTool, normalizeUrl } from "@neo/tools";
 import { MAX_SIGNAL_BATCH, parseSignalEvent, type SignalEvent } from "@neo/verdict";
 import type { SignalIngestResponse, SignalRejectReason, SignalResult } from "@/lib/signal-types";
@@ -14,8 +15,9 @@ import { takeRateSlot } from "../rate-limit";
 import type { SignalAlertKind } from "../alerts";
 import { applyAlertedSignal, type SignalDeviceInfo } from "./apply";
 import { queueSignalEscalate } from "./escalate";
-import { evaluateEvent, type RuleContext, type RuleSignalRef } from "./rules";
-import { countDeviceSignalsSince, insertDeviceSignal, listExpectedTools, listRecentUserSignals, updateDeviceSignal, type DeviceSignalRow } from "./store";
+import { loadSignalProtection, toRecentSignals } from "./protection";
+import { ENGINE_CATALOG } from "./rules";
+import { countDeviceSignalsSince, insertDeviceSignal, listExpectedTools, listRecentUserSignals, updateDeviceSignal } from "./store";
 
 const HOUR_MS = 60 * 60 * 1000;
 const DAY_MS = 24 * HOUR_MS;
@@ -55,6 +57,7 @@ function subjectOf(event: SignalEvent): string {
     case "dangerous_site":
     case "remote_tool_download":
     case "warning_bypassed":
+    case "payment_page":
       return event.domain;
     case "remote_access_tool":
     case "remote_access_session":
@@ -74,19 +77,6 @@ function subjectOf(event: SignalEvent): string {
 function payloadOf(event: SignalEvent): Record<string, unknown> {
   const { id: _id, type: _type, detector: _detector, ...rest } = event;
   return rest;
-}
-
-function toRuleRef(row: DeviceSignalRow): RuleSignalRef {
-  return {
-    id: row.id,
-    clientEventId: row.clientEventId,
-    detector: row.detector as SignalEvent["detector"],
-    severity: row.severity,
-    outcome: row.outcome,
-    verdictId: row.verdictId,
-    observedAt: row.observedAt,
-    deviceId: row.deviceId,
-  };
 }
 
 /** `domain` re-normalized on the server: must equal its own registrable domain (IPs accepted as themselves). */
@@ -118,6 +108,7 @@ export async function ingestSignals(session: NeoSession, deviceId: string, body:
   const deviceInfo: SignalDeviceInfo = { id: device.id, tenantId: session.tenantId, userId: device.userId, name: device.name, memberName: device.memberName };
 
   const expectedTools = await listExpectedTools(session.tenantId, { deviceId });
+  const { policy, memberId } = await loadSignalProtection(session.tenantId, device.userId, deviceId);
   const dayStart = dayStartOf(now);
   const results: SignalResult[] = [];
 
@@ -165,11 +156,12 @@ export async function ingestSignals(session: NeoSession, deviceId: string, body:
     }
 
     const recentRows = await listRecentUserSignals(session.tenantId, device.userId, { since: new Date(now.getTime() - RELATES_TO_WINDOW_MS) });
-    const ctx: RuleContext = { expectedTools, recentUserSignals: recentRows.map(toRuleRef), isOwnerDevice: session.role === "owner" };
-    const evaluated = evaluateEvent(event, ctx);
+    const evaluate = (signalId?: string): Decision =>
+      evaluateSignal(policy, { event, ...(signalId ? { signalId } : {}) }, { now, deviceId, expectedTools, recent: toRecentSignals(recentRows), catalog: ENGINE_CATALOG });
+    const decision = evaluate();
 
-    const escalatedToday = evaluated.outcome === "escalate" ? await countDeviceSignalsSince(session.tenantId, deviceId, dayStart, { escalatedOnly: true }) : 0;
-    const willEscalate = evaluated.outcome === "escalate" && escalatedToday < DAILY_ESCALATION_CAP;
+    const escalatedToday = decision.escalate ? await countDeviceSignalsSince(session.tenantId, deviceId, dayStart, { escalatedOnly: true }) : 0;
+    const willEscalate = decision.escalate && escalatedToday < DAILY_ESCALATION_CAP;
 
     const subject = subjectOf(event);
     const { row, duplicate } = await insertDeviceSignal({
@@ -190,17 +182,17 @@ export async function ingestSignals(session: NeoSession, deviceId: string, body:
       continue;
     }
 
-    if (evaluated.outcome === "rejected") {
+    if (decision.action === "reject") {
       await updateDeviceSignal(session.tenantId, row.id, { outcome: "dismissed" });
-      results.push(rejected(evaluated.rejectReason ?? "relates_to_unknown"));
+      results.push(rejected(decision.rejectReason ?? "relates_to_unknown"));
       continue;
     }
-    if (evaluated.outcome === "recorded" || evaluated.outcome === "dismissed") {
-      await updateDeviceSignal(session.tenantId, row.id, { outcome: evaluated.outcome });
+    if (decision.action === "record" || decision.action === "dismiss") {
+      await updateDeviceSignal(session.tenantId, row.id, { outcome: decision.action === "record" ? "recorded" : "dismissed" });
       results.push({ id: event.id, status: "accepted" });
       continue;
     }
-    if (evaluated.outcome === "escalate") {
+    if (decision.action === "escalate") {
       if (!willEscalate) {
         await updateDeviceSignal(session.tenantId, row.id, { outcome: "dismissed" });
         results.push({ id: event.id, status: "accepted" });
@@ -211,20 +203,23 @@ export async function ingestSignals(session: NeoSession, deviceId: string, body:
       continue;
     }
 
-    // "alerted"
+    // "incident": re-evaluate with the stored row id so correlated alerts reference real rows.
+    const final = evaluate(row.id);
     const applied = await applyAlertedSignal({
       device: deviceInfo,
       event,
       rowId: row.id,
       subject,
-      severity: evaluated.severity!,
-      verdictLabel: evaluated.verdictLabel,
-      alertKind: evaluated.alertKind as SignalAlertKind,
-      reasonCodes: evaluated.reasonCodes,
-      ...(evaluated.bypassOf ? { bypassOf: { relatesTo: evaluated.bypassOf.relatesTo, relatedVerdictId: evaluated.bypassOf.relatedVerdictId } } : {}),
+      severity: final.severity!,
+      verdictLabel: final.verdictLabel,
+      alertKind: final.kind as SignalAlertKind,
+      reasonCodes: final.reasonCodes,
+      ...(final.bypassOf ? { bypassOf: { relatesTo: final.bypassOf.relatesTo, relatedVerdictId: final.bypassOf.relatedVerdictId } } : {}),
+      memberId,
+      correlations: final.correlations,
       now,
     });
-    results.push({ id: event.id, status: "accepted", severity: evaluated.severity!, ...(applied.verdictId ? { verdictId: applied.verdictId } : {}) });
+    results.push({ id: event.id, status: "accepted", severity: final.severity!, ...(applied.verdictId ? { verdictId: applied.verdictId } : {}) });
   }
 
   return { ok: true, value: { results } };

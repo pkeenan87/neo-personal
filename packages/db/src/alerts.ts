@@ -13,8 +13,10 @@ import {
   type AlertEmailThreshold,
   type AlertKind,
   type AlertSeverity,
+  type AlertStatus,
   ALERT_EMAIL_THRESHOLDS,
 } from "./schema/index.js";
+import { memberIdForUserTx } from "./members.js";
 import { assertTenantId, tenantScoped } from "./tenant.js";
 import { decodeVerdictCursor, encodeVerdictCursor } from "./verdicts.js";
 
@@ -40,6 +42,10 @@ export interface CreateAlertInput {
   dedupeKey: string;
   verdictId?: string | null;
   deviceId?: string | null;
+  /** The member the alert is about; resolved from `subjectUserId` when absent. */
+  memberId?: string | null;
+  /** Device signals that make up the incident. */
+  signalIds?: string[];
   now?: Date;
 }
 
@@ -58,10 +64,17 @@ function clip(s: string, max: number): string {
 /** Insert an alert; null when an alert with the same dedupe key already exists in the household. */
 export async function createAlert(db: Db, input: CreateAlertInput): Promise<AlertRow | null> {
   assertTenantId(input.tenantId);
-  const rows = await tenantScoped(db, input.tenantId).transaction((t) =>
+  const rows = await tenantScoped(db, input.tenantId).transaction(async (t) =>
     t.tx
       .insert(alerts)
       .values({
+        memberId:
+          input.memberId !== undefined
+            ? input.memberId
+            : input.subjectUserId
+              ? await memberIdForUserTx(t.tx, input.tenantId, input.subjectUserId)
+              : null,
+        signalIds: input.signalIds ?? [],
         tenantId: input.tenantId,
         subjectUserId: input.subjectUserId,
         kind: input.kind,
@@ -136,16 +149,19 @@ export async function countOpenAlerts(
   return tenantScoped(db, tenantId).count(alerts, and(...conds));
 }
 
+// An open incident becomes acknowledged; one already resolved or marked a false positive keeps its status.
+const ackStatus = sql<AlertStatus>`case when ${alerts.status} = 'open' then 'acknowledged' else ${alerts.status} end`;
+
 /** Acknowledge one alert. Idempotent: an already acknowledged alert is returned unchanged. */
 export async function acknowledgeAlert(db: Db, tenantId: string, id: string, userId: string, now = new Date()): Promise<AlertRow | undefined> {
   if (!UUID_RE.test(id)) return undefined;
   const scoped = tenantScoped(db, tenantId);
-  const [updated] = await scoped.update(alerts, { acknowledgedAt: now, acknowledgedBy: userId }, and(eq(alerts.id, id), isNull(alerts.acknowledgedAt)));
+  const [updated] = await scoped.update(alerts, { acknowledgedAt: now, acknowledgedBy: userId, status: ackStatus }, and(eq(alerts.id, id), isNull(alerts.acknowledgedAt)));
   return updated ?? scoped.first(alerts, eq(alerts.id, id));
 }
 
 export async function acknowledgeAllAlerts(db: Db, tenantId: string, userId: string, now = new Date()): Promise<number> {
-  const rows = await tenantScoped(db, tenantId).update(alerts, { acknowledgedAt: now, acknowledgedBy: userId }, isNull(alerts.acknowledgedAt));
+  const rows = await tenantScoped(db, tenantId).update(alerts, { acknowledgedAt: now, acknowledgedBy: userId, status: ackStatus }, isNull(alerts.acknowledgedAt));
   return rows.length;
 }
 

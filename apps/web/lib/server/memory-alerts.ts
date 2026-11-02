@@ -45,6 +45,11 @@ export function memoryCreateAlert(input: CreateAlertInput): AlertRow | null {
     title: clip(input.title, ALERT_TITLE_MAX),
     body: clip(input.body, ALERT_BODY_MAX),
     verdictId: input.verdictId ?? null,
+    memberId: input.memberId ?? null,
+    status: "open",
+    signalIds: input.signalIds ?? [],
+    eveSessionId: null,
+    resolvedAt: null,
     dedupeKey: input.dedupeKey,
     createdAt: input.now ?? new Date(),
     acknowledgedAt: null,
@@ -100,6 +105,7 @@ export function memoryAcknowledgeAlert(tenantId: string, id: string, userId: str
   if (r && !r.acknowledgedAt) {
     r.acknowledgedAt = new Date();
     r.acknowledgedBy = userId;
+    r.status = "acknowledged";
   }
   return r;
 }
@@ -109,6 +115,7 @@ export function memoryAcknowledgeAll(tenantId: string, userId: string): number {
   for (const r of open) {
     r.acknowledgedAt = new Date();
     r.acknowledgedBy = userId;
+    r.status = "acknowledged";
   }
   return open.length;
 }

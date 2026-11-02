@@ -32,6 +32,7 @@ import {
   type DevicePlatform,
   type MembershipRole,
 } from "./schema/index.js";
+import { memberIdForUserTx } from "./members.js";
 import { assertTenantId, setTenantContext, tenantScoped } from "./tenant.js";
 import { USER_CODE_ALPHABET, groupCode, randomGroupedCode } from "./user-codes.js";
 
@@ -261,6 +262,7 @@ async function insertDevice(
     .values({
       tenantId: input.tenantId,
       userId: input.userId,
+      memberId: await memberIdForUserTx(tx, input.tenantId, input.userId),
       kind: input.device.kind,
       platform: input.device.platform,
       name: input.device.name,
@@ -307,6 +309,7 @@ export async function createEnrollmentCode(
     const code = mintEnrollmentCode();
     const [row] = await t.insert(deviceEnrollmentCodes, {
       userId: input.userId,
+      memberId: await memberIdForUserTx(t.tx, input.tenantId, input.userId),
       codeHash: hashEnrollmentCode(code),
       createdBy: input.createdBy,
       createdAt: now,
