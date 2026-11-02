@@ -7,10 +7,13 @@
  *
  * Audit metadata never carries a contact address; the address is encrypted at rest (members.ts).
  */
-import { effectivePolicy, logger } from "@neo/core";
+import { ageBandInfo, childDefaults, effectivePolicy, logger } from "@neo/core";
 import {
   MAX_HELPERS_PER_MEMBER,
+  MAX_MEMBERS_WITHOUT_ACCOUNT,
   countHouseholdOwners,
+  createMemberWithoutAccount,
+  getHouseholdTimeZone,
   getMemberContact,
   insertPolicyVersion,
   latestMemberRules,
@@ -18,15 +21,32 @@ import {
   listMemberRecords,
   normalizeContact,
   normalizeDisplayName,
+  normalizeTimeZone,
+  recordConsent,
+  setHouseholdTimeZone,
   tenantScoped,
   updateMember,
   type Member,
   type MemberPatch,
+  type MemberRole,
 } from "@neo/db";
-import { PolicyRulesSchema, SEVERITIES, type PolicyRules } from "@neo/verdict";
+import {
+  AppsRulesSchema,
+  CHILD_REQUEST_TARGETS,
+  PolicyRulesSchema,
+  SEVERITIES,
+  ScreenTimeRulesSchema,
+  WEEKDAYS,
+  WebRulesSchema,
+  type PolicyRules,
+} from "@neo/verdict";
 import { z } from "zod";
 import { inboundEnv } from "@/lib/env";
 import {
+  type ChildSettings,
+  type ChildView,
+  type CreatableMemberRole,
+  type HouseholdTimeZoneResponse,
   type MemberDetailResponse,
   type MemberListResponse,
   type MemberModeName,
@@ -37,12 +57,21 @@ import {
 import { describePolicy, maskEmail } from "@/lib/policy-summary";
 import { recordAudit } from "./audit";
 import { getDb } from "./db";
-import { renderElderModeOffEmail } from "./email/household-email";
+import { renderChildModeOffEmail, renderElderModeOffEmail } from "./email/household-email";
 import { getMailer } from "./email/resend";
 import { requireHouseholdAdmin, type HouseholdActor } from "./household-admin";
 import type { Outcome } from "./household";
 import { memoryAlertOwners } from "./memory-alerts";
-import { memoryInsertMemberPolicy, memoryMemberPolicyVersions, memoryMemberRecords, memoryUpdateMember } from "./memory-members";
+import {
+  memoryCreateMemberWithoutAccount,
+  memoryHouseholdTimeZone,
+  memoryInsertMemberPolicy,
+  memoryMemberPolicyVersions,
+  memoryMemberRecords,
+  memoryRecordConsent,
+  memorySetHouseholdTimeZone,
+  memoryUpdateMember,
+} from "./memory-members";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -62,6 +91,7 @@ interface Rec {
   mode: MemberModeName;
   helperMemberIds: string[];
   hasContact: boolean;
+  birthYear: number | null;
   updatedAt: Date;
 }
 
@@ -73,6 +103,10 @@ interface Store {
   memberRules(id: string): Promise<unknown>;
   insertPolicy(id: string, rules: unknown, createdBy: string): Promise<number>;
   owners(): Promise<{ userId: string; email: string | null; name: string | null }[]>;
+  create(input: { displayName: string; role: CreatableMemberRole; birthYear: number | null; contact: string | null }): Promise<Rec>;
+  timeZone(): Promise<string | null>;
+  setTimeZone(timeZone: string): Promise<void>;
+  recordConsent(memberId: string, grantedBy: string, evidence: Record<string, unknown>): Promise<void>;
 }
 
 const fromMember = (m: Member): Rec => ({
@@ -83,6 +117,7 @@ const fromMember = (m: Member): Rec => ({
   mode: m.mode,
   helperMemberIds: m.helperMemberIds,
   hasContact: m.hasContact,
+  birthYear: m.birthYear,
   updatedAt: m.updatedAt,
 });
 
@@ -101,6 +136,14 @@ function storeFor(tenantId: string): Store {
       memberRules: (id) => latestMemberRules(tdb, id),
       insertPolicy: async (id, rules, createdBy) => (await insertPolicyVersion(tdb, { scope: "member", scopeId: id, rules, createdBy })).version,
       owners: () => listAlertOwners(db, tenantId),
+      create: async (input) => fromMember(await createMemberWithoutAccount(tdb, input)),
+      timeZone: async () => (await getHouseholdTimeZone(db, tenantId)) ?? null,
+      setTimeZone: async (timeZone) => {
+        await setHouseholdTimeZone(db, tenantId, timeZone);
+      },
+      recordConsent: async (memberId, grantedBy, evidence) => {
+        await recordConsent(tdb, { memberId, kind: "monitoring_notice", grantedBy, evidence });
+      },
     };
   }
   const toRec = (m: ReturnType<typeof memoryMemberRecords>[number]): Rec => ({
@@ -111,6 +154,7 @@ function storeFor(tenantId: string): Store {
     mode: m.mode,
     helperMemberIds: m.helperMemberIds,
     hasContact: m.contact !== null,
+    birthYear: m.birthYear,
     updatedAt: m.updatedAt,
   });
   return {
@@ -124,6 +168,10 @@ function storeFor(tenantId: string): Store {
     memberRules: async (id) => memoryMemberPolicyVersions(tenantId, id).at(-1),
     insertPolicy: async (id, rules) => memoryInsertMemberPolicy(tenantId, id, rules),
     owners: async () => memoryAlertOwners(tenantId),
+    create: async (input) => toRec(memoryCreateMemberWithoutAccount(tenantId, input)),
+    timeZone: async () => memoryHouseholdTimeZone(tenantId),
+    setTimeZone: async (timeZone) => memorySetHouseholdTimeZone(tenantId, timeZone),
+    recordConsent: async (memberId, grantedBy, evidence) => memoryRecordConsent({ tenantId, memberId, kind: "monitoring_notice", grantedBy, evidence }),
   };
 }
 
@@ -135,6 +183,7 @@ const profile = (r: Rec): MemberProfile => ({
   hasAccount: r.userId !== null,
   helperMemberIds: r.helperMemberIds,
   hasContact: r.hasContact,
+  birthYear: r.birthYear,
 });
 
 /** Validated stored member-layer rules, or {} when none or unreadable (a bad layer never counts). */
@@ -145,8 +194,48 @@ function parseRules(raw: unknown): PolicyRules {
 
 const DEFAULT_NOTIFY: NotifySeverity = "high";
 
+/** The settings an editor shows: every Child field filled from an effective policy. */
+function childSettings(rules: PolicyRules): ChildSettings {
+  const d = childDefaults();
+  const web = rules.web ?? d.web!;
+  const apps = rules.apps ?? d.apps!;
+  const st = rules.screenTime ?? d.screenTime!;
+  const dm = st.dailyMinutes ?? {};
+  return {
+    web: { categories: web.categories ?? [], safeSearch: web.safeSearch ?? true, youtubeRestricted: web.youtubeRestricted ?? "moderate", allow: web.allow ?? [], block: web.block ?? [] },
+    apps: { block: apps.block ?? [], requireApproval: apps.requireApproval ?? false, approved: apps.approved ?? [] },
+    screenTime: {
+      dailyMinutes: Object.fromEntries(WEEKDAYS.map((day) => [day, dm[day] ?? null])) as ChildSettings["screenTime"]["dailyMinutes"],
+      downtime: st.downtime ?? [],
+      warnMinutes: st.warnMinutes ?? 10,
+      allowDuringDowntime: st.allowDuringDowntime ?? [],
+    },
+    childRequestsTo: rules.notify?.childRequestsTo ?? "owners",
+  };
+}
+
+async function childView(store: Store, rec: Rec, memberRaw: unknown): Promise<ChildView> {
+  const timeZone = await store.timeZone();
+  const now = new Date();
+  const info = ageBandInfo(rec.birthYear, now, timeZone);
+  const own = parseRules(memberRaw);
+  const customized = own.web !== undefined || own.apps !== undefined || own.screenTime !== undefined || own.notify?.childRequestsTo !== undefined;
+  return {
+    birthYear: rec.birthYear,
+    band: info.band,
+    bandAssumed: info.assumed,
+    adult: info.adult,
+    timeZone,
+    defaults: childSettings(childDefaults(info.band)),
+    settings: childSettings(effectivePolicy({ mode: "child", birthYear: rec.birthYear, timeZone, now, member: memberRaw })),
+    customized,
+  };
+}
+
 async function detail(store: Store, all: Rec[], rec: Rec): Promise<MemberDetailResponse> {
-  const rules = effectivePolicy({ mode: rec.mode, member: await store.memberRules(rec.id) });
+  const memberRaw = await store.memberRules(rec.id);
+  const timeZone = rec.mode === "child" ? await store.timeZone() : null;
+  const rules = effectivePolicy({ mode: rec.mode, birthYear: rec.birthYear, timeZone, member: memberRaw });
   const address = rec.hasContact ? await store.contact(rec.id).catch(() => null) : null;
   return {
     member: profile(rec),
@@ -154,6 +243,7 @@ async function detail(store: Store, all: Rec[], rec: Rec): Promise<MemberDetailR
     others: all.filter((m) => m.id !== rec.id).map((m) => ({ id: m.id, displayName: m.displayName, hasAccount: m.userId !== null })),
     notify: { helpersNotifyAt: rules.notify?.helpersNotifyAt ?? DEFAULT_NOTIFY, ownersNotifyAt: rules.notify?.ownersNotifyAt ?? DEFAULT_NOTIFY },
     policySummary: describePolicy(rec.mode, rules),
+    child: await childView(store, rec, memberRaw),
     isLastOwner: rec.role === "owner" && (await store.ownerCount()) <= 1,
   };
 }
@@ -189,33 +279,43 @@ const PatchSchema = z
     role: z.enum(["owner", "adult", "child", "elder"]).or(z.literal("")).nullish().transform((v) => (v ? v : undefined)),
     mode: z.enum(["standard", "child", "elder"]).or(z.literal("")).nullish().transform((v) => (v ? v : undefined)),
     helperMemberIds: z.array(z.string().regex(UUID_RE)).max(MAX_HELPERS_PER_MEMBER).nullish().transform((v) => v ?? undefined),
+    // Absent keeps it; an explicit null clears it.
+    birthYear: z.number().int().nullable().optional(),
     // A blank string is absent; an explicit null clears the stored address.
     contact: z.string().max(300).nullable().optional(),
   })
   .strict();
 
-/** Send the templated "Elder mode was turned off" email to every owner. Best effort; never throws. */
-async function emailOwnersElderOff(actor: HouseholdActor, store: Store, rec: Rec, previous: Rec): Promise<void> {
+/**
+ * Send the templated "<Elder|Child> mode was turned off" email to every owner. Best effort; never throws.
+ * The idempotency key names the transition it follows (the row's previous update time), so a double
+ * submit or two racing requests share it and the mailer sends once; a later off-switch has a new key.
+ */
+async function emailOwnersModeOff(actor: HouseholdActor, store: Store, rec: Rec, previous: Rec, mode: "elder" | "child"): Promise<void> {
+  const label = mode === "elder" ? "Elder" : "Child";
   try {
     const mailer = getMailer();
     if (!mailer) return;
     const owners = await store.owners();
     const changedBy = owners.find((o) => o.userId === actor.userId)?.name ?? null;
     const url = `${inboundEnv().APP_URL}/settings/household/members/${rec.id}`;
-    const mail = renderElderModeOffEmail({ memberName: rec.displayName, changedByName: changedBy, url });
-    // The key names the transition it follows (the row's previous update time), so a double submit or
-    // two racing requests share it and the mailer sends once; a later off-switch has a new key.
+    const mail = (mode === "elder" ? renderElderModeOffEmail : renderChildModeOffEmail)({ memberName: rec.displayName, changedByName: changedBy, url });
     for (const o of owners) {
       if (!o.email) continue;
       await mailer
-        .send({ to: o.email, ...mail, idempotencyKey: `elder-off:${rec.id}:${previous.updatedAt.getTime()}:${o.userId}` })
+        .send({ to: o.email, ...mail, idempotencyKey: `${mode}-off:${rec.id}:${previous.updatedAt.getTime()}:${o.userId}` })
         .catch((err: unknown) =>
-          logger.error("Elder-off email failed", "household", { tenantId: actor.tenantId, errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300) }),
+          logger.error(`${label}-off email failed`, "household", { tenantId: actor.tenantId, errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300) }),
         );
     }
   } catch (err) {
-    logger.error("Elder-off email failed", "household", { tenantId: actor.tenantId, errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300) });
+    logger.error(`${label}-off email failed`, "household", { tenantId: actor.tenantId, errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300) });
   }
+}
+
+/** A birth year that can belong to a living person this year (the year is UTC, as in @neo/db `updateMember`). */
+function validBirthYear(y: number): boolean {
+  return y >= 1900 && y <= new Date().getUTCFullYear();
 }
 
 export async function patchMember(actor: HouseholdActor, id: string, body: Record<string, unknown> | null): Promise<Outcome<MemberDetailResponse>> {
@@ -247,8 +347,21 @@ export async function patchMember(actor: HouseholdActor, id: string, body: Recor
       patch.role = input.role;
       fields.push("role");
     }
+    if (input.birthYear !== undefined && input.birthYear !== current.birthYear) {
+      if (input.birthYear !== null && !validBirthYear(input.birthYear)) return fail(400, "invalid_birth_year", "Enter a four-digit birth year.");
+      patch.birthYear = input.birthYear;
+      fields.push("birthYear");
+    }
+    let consentBand: string | undefined;
     if (input.mode !== undefined && input.mode !== current.mode) {
-      if (input.mode === "child") return fail(400, "mode_unavailable", "Child mode is coming soon.");
+      if (input.mode === "child") {
+        // Child mode needs a birth year (for the age band) and the household time zone (for screen time and downtime).
+        const birthYear = patch.birthYear !== undefined ? patch.birthYear : current.birthYear;
+        if (birthYear === null) return fail(400, "birth_year_required", `Enter ${current.displayName}'s birth year to turn on Child mode.`);
+        const timeZone = await store.timeZone();
+        if (!timeZone) return fail(400, "time_zone_required", "Confirm your household's time zone before turning on Child mode.");
+        consentBand = ageBandInfo(birthYear, new Date(), timeZone).band;
+      }
       if (input.mode !== "standard" && current.role === "owner" && (await store.ownerCount()) <= 1) {
         return fail(409, "last_owner", "The only owner has to stay in Standard mode.");
       }
@@ -284,6 +397,13 @@ export async function patchMember(actor: HouseholdActor, id: string, body: Recor
 
     if (Object.keys(patch).length === 0) return { ok: true, value: await detail(store, all, current) };
 
+    // The household acknowledges the monitoring before it starts. Appended first: if the update below
+    // fails the notice stays on record, which is harmless, whereas Child mode without one is not.
+    if (consentBand !== undefined) {
+      await store.recordConsent(current.id, actor.userId, { mode: "child", band: consentBand });
+      await recordAudit(actor.tenantId, actor.userId, "member.consent_recorded", { memberId: current.id, kind: "monitoring_notice" });
+    }
+
     let updated: Rec | undefined;
     try {
       updated = await store.update(current.id, patch);
@@ -298,7 +418,7 @@ export async function patchMember(actor: HouseholdActor, id: string, body: Recor
     if (fields.length > 0) await recordAudit(actor.tenantId, actor.userId, "member.updated", { memberId: current.id, fields });
     if (patch.mode !== undefined) await recordAudit(actor.tenantId, actor.userId, "member.mode_changed", { memberId: current.id, from: current.mode, to: patch.mode });
     if (helpersChange) await recordAudit(actor.tenantId, actor.userId, "member.helpers_changed", { memberId: current.id, count: updated.helperMemberIds.length, ...helpersChange });
-    if (current.mode === "elder" && patch.mode !== undefined) await emailOwnersElderOff(actor, store, updated, current);
+    if ((current.mode === "elder" || current.mode === "child") && patch.mode !== undefined) await emailOwnersModeOff(actor, store, updated, current, current.mode);
 
     const fresh = await store.list();
     return { ok: true, value: await detail(store, fresh, fresh.find((m) => m.id === current.id) ?? updated) };
@@ -309,32 +429,54 @@ export async function patchMember(actor: HouseholdActor, id: string, body: Recor
 
 const Sev = z.enum(SEVERITIES).or(z.literal("")).nullish();
 
-const PolicySchema = z.object({ helpersNotifyAt: Sev, ownersNotifyAt: Sev }).strict();
+/**
+ * A section of the Child policy as the console sends it: the whole section (replacing the member's own
+ * copy of it) or `null` (drop the member's own copy, so the age-band defaults apply again). Unknown
+ * keys are errors here, though `PolicyRulesSchema` strips them when reading a stored layer.
+ */
+const PolicySchema = z
+  .object({
+    helpersNotifyAt: Sev,
+    ownersNotifyAt: Sev,
+    childRequestsTo: z.enum(CHILD_REQUEST_TARGETS).or(z.literal("")).nullish(),
+    web: WebRulesSchema.strict().nullish(),
+    apps: AppsRulesSchema.strict().nullish(),
+    screenTime: ScreenTimeRulesSchema.strict().nullish(),
+  })
+  .strict();
+
+const isSet = (v: unknown): boolean => v !== undefined && v !== "";
 
 /**
- * Set the notify thresholds of one member. Stored as the next `member`-scope policy version: the
- * member's current member-layer rules with `notify` merged over them, validated by `PolicyRulesSchema`.
- * A blank or absent field keeps its value; an explicit `null` removes the member's own setting (the
- * mode default applies again). Nothing is written when nothing changes.
+ * Set the policy of one member. Stored as the next `member`-scope policy version: the member's current
+ * member-layer rules with the changes merged over them, validated by `PolicyRulesSchema`. A blank or
+ * absent field keeps its value; an explicit `null` removes the member's own setting (the mode default
+ * applies again). `web`, `apps` and `screenTime` replace their whole section. Nothing is written when
+ * nothing changes. A validation failure is 400 `invalid_policy` with `fields` naming each bad path.
  */
 export async function putMemberPolicy(actor: HouseholdActor, id: string, body: Record<string, unknown> | null): Promise<Outcome<MemberDetailResponse>> {
   return adminOr(actor, async () => {
     if (!UUID_RE.test(id)) return NOT_FOUND;
     const parsed = PolicySchema.safeParse(body);
-    if (!parsed.success) return INVALID;
+    if (!parsed.success) {
+      const fields = parsed.error.issues.map((i) => ({ path: i.path.map(String).join("."), message: i.message }));
+      return { ok: false, status: 400, code: "invalid_policy", message: "Some of these settings are not valid.", fields };
+    }
     const store = storeFor(actor.tenantId);
     const all = await store.list();
     const rec = all.find((m) => m.id === id.toLowerCase());
     if (!rec) return NOT_FOUND;
 
-    const { helpersNotifyAt, ownersNotifyAt } = parsed.data;
-    if ((helpersNotifyAt === undefined || helpersNotifyAt === "") && (ownersNotifyAt === undefined || ownersNotifyAt === "")) {
-      return fail(400, "invalid", "Choose helpersNotifyAt, ownersNotifyAt or both.");
+    const input = parsed.data;
+    const sections = ["web", "apps", "screenTime"] as const;
+    if (![input.helpersNotifyAt, input.ownersNotifyAt, input.childRequestsTo].some(isSet) && !sections.some((k) => input[k] !== undefined)) {
+      return fail(400, "invalid", "Choose at least one setting to change.");
     }
     const before = parseRules(await store.memberRules(rec.id));
+    const next: Record<string, unknown> = { ...before };
     const notify: NonNullable<PolicyRules["notify"]> = { ...before.notify };
     const changed: Record<string, string | null> = {};
-    for (const [key, value] of [["helpersNotifyAt", helpersNotifyAt], ["ownersNotifyAt", ownersNotifyAt]] as const) {
+    for (const [key, value] of [["helpersNotifyAt", input.helpersNotifyAt], ["ownersNotifyAt", input.ownersNotifyAt], ["childRequestsTo", input.childRequestsTo]] as const) {
       if (value === undefined || value === "") continue;
       if (value === null) {
         if (notify[key] !== undefined) {
@@ -342,16 +484,108 @@ export async function putMemberPolicy(actor: HouseholdActor, id: string, body: R
           changed[key] = null;
         }
       } else if (notify[key] !== value) {
-        notify[key] = value;
+        (notify as Record<string, string>)[key] = value;
         changed[key] = value;
       }
     }
+    if (Object.keys(notify).length > 0) next.notify = notify;
+    else delete next.notify;
+    for (const key of sections) {
+      const value = input[key];
+      if (value === undefined) continue;
+      if (value === null) {
+        if (before[key] !== undefined) {
+          delete next[key];
+          changed[key] = null;
+        }
+      } else if (JSON.stringify(before[key]) !== JSON.stringify(value)) {
+        next[key] = value;
+        changed[key] = "set";
+      }
+    }
     if (Object.keys(changed).length > 0) {
-      const next = PolicyRulesSchema.safeParse({ ...before, notify });
-      if (!next.success) return INVALID;
-      const version = await store.insertPolicy(rec.id, next.data, actor.userId);
+      const valid = PolicyRulesSchema.safeParse(next);
+      if (!valid.success) return INVALID;
+      const version = await store.insertPolicy(rec.id, valid.data, actor.userId);
+      // Audit metadata names what changed, never the lists themselves.
       await recordAudit(actor.tenantId, actor.userId, "member.policy_changed", { memberId: rec.id, version, ...changed });
     }
     return { ok: true, value: await detail(store, all, rec) };
+  });
+}
+
+// ─── POST (create a member without an account) ─────────────────────
+
+const CreateSchema = z
+  .object({
+    displayName: z.string().max(200),
+    role: z.enum(["adult", "child", "elder"]),
+    birthYear: z.number().int().nullish(),
+    contact: z.string().max(300).nullish(),
+  })
+  .strict();
+
+/**
+ * Create a member who has no account (_specs/v2-m2-child.md section 2): a display name, a role (adult,
+ * child or elder), a birth year for a child, and an optional contact email for an adult or elder (who
+ * can then be a helper). They start in Standard mode. 400 `invalid`, `invalid_name`, `invalid_birth_year`,
+ * `birth_year_required`, `invalid_email`, `contact_not_allowed`; 409 `member_limit`.
+ */
+export async function createProtectedMember(actor: HouseholdActor, body: Record<string, unknown> | null): Promise<Outcome<MemberDetailResponse>> {
+  return adminOr(actor, async () => {
+    const parsed = CreateSchema.safeParse(body);
+    if (!parsed.success) return INVALID;
+    const input = parsed.data;
+    const displayName = normalizeDisplayName(input.displayName);
+    if (!displayName) return fail(400, "invalid_name", "Enter a name of up to 80 characters.");
+    const birthYear = input.birthYear ?? null;
+    if (birthYear !== null && !validBirthYear(birthYear)) return fail(400, "invalid_birth_year", "Enter a four-digit birth year.");
+    if (input.role === "child" && birthYear === null) return fail(400, "birth_year_required", "Enter the child's birth year.");
+    let contact: string | null = null;
+    if (input.contact !== undefined && input.contact !== null && input.contact.trim() !== "") {
+      if (input.role === "child") return fail(400, "contact_not_allowed", "Neo doesn't email children. Add the email of an adult or elder.");
+      if (!normalizeContact(input.contact)) return fail(400, "invalid_email", "Enter one email address.");
+      contact = input.contact;
+    }
+    const store = storeFor(actor.tenantId);
+    const all = await store.list();
+    if (all.filter((m) => m.userId === null).length >= MAX_MEMBERS_WITHOUT_ACCOUNT) {
+      return fail(409, "member_limit", `A household can have up to ${MAX_MEMBERS_WITHOUT_ACCOUNT} people without an account.`);
+    }
+    let created: Rec;
+    try {
+      created = await store.create({ displayName, role: input.role as MemberRole & CreatableMemberRole, birthYear, contact });
+    } catch (err) {
+      if (err instanceof Error && err.message.startsWith("@neo/db: too many")) return fail(409, "member_limit", `A household can have up to ${MAX_MEMBERS_WITHOUT_ACCOUNT} people without an account.`);
+      if (err instanceof Error && err.message.startsWith("@neo/db:")) return INVALID;
+      throw err;
+    }
+    await recordAudit(actor.tenantId, actor.userId, "member.created", { memberId: created.id, role: created.role, hasBirthYear: birthYear !== null, hasContact: contact !== null });
+    const fresh = await store.list();
+    return { ok: true, value: await detail(store, fresh, fresh.find((m) => m.id === created.id) ?? created) };
+  });
+}
+
+// ─── PUT time zone ─────────────────────────────────────────────────
+
+const TimeZoneSchema = z.object({ timeZone: z.string().max(100) }).strict();
+
+/**
+ * Set the household's IANA time zone, which screen time, downtime and a child's age band use. Owner only.
+ * 400 `invalid` (not an object with a string `timeZone`) or `invalid_time_zone` (not an IANA zone name).
+ */
+export async function putHouseholdTimeZone(actor: HouseholdActor, body: Record<string, unknown> | null): Promise<Outcome<HouseholdTimeZoneResponse>> {
+  return adminOr(actor, async () => {
+    const parsed = TimeZoneSchema.safeParse(body);
+    if (!parsed.success) return INVALID;
+    const timeZone = normalizeTimeZone(parsed.data.timeZone);
+    if (!timeZone) return fail(400, "invalid_time_zone", "Choose a time zone such as America/New_York.");
+    const store = storeFor(actor.tenantId);
+    const before = await store.timeZone();
+    if (before !== timeZone) {
+      await store.setTimeZone(timeZone);
+      await recordAudit(actor.tenantId, actor.userId, "household.time_zone_changed", { from: before, to: timeZone });
+    }
+    return { ok: true, value: { timeZone } };
   });
 }

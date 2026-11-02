@@ -141,6 +141,13 @@
       "when": 1793632746799,
       "tag": "0020_member_devices",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793632806799,
+      "tag": "0021_child_policy",
+      "breakpoints": true
     }
   ]
 }

@@ -35,6 +35,9 @@ export type AuditEventType =
   | "member.mode_changed"
   | "member.policy_changed"
   | "member.helpers_changed"
+  | "member.created"
+  | "member.consent_recorded"
+  | "household.time_zone_changed"
   | "incident.action"
   | "signals.flood";
 

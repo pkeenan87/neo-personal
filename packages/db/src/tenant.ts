@@ -10,6 +10,8 @@ import {
   breachObservations,
   artifacts,
   auditEvents,
+  childRequests,
+  consents,
   conversations,
   alerts,
   deviceEnrollmentCodes,
@@ -60,6 +62,8 @@ export const tenantTables = {
   incidentActions,
   notificationOutbox,
   eveSessions,
+  consents,
+  childRequests,
 } as const;
 
 /** Any table with a `tenantId` column. */

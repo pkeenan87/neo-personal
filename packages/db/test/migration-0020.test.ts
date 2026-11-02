@@ -24,7 +24,7 @@ async function databaseAt0019(): Promise<{ client: PGlite; finish: () => Promise
   cpSync(migrationsFolder, dir, { recursive: true });
   const journalPath = join(dir, "meta", "_journal.json");
   const journal = JSON.parse(readFileSync(journalPath, "utf8")) as { entries: Array<{ tag: string }> };
-  expect(journal.entries.at(-1)?.tag).toBe("0020_member_devices");
+  expect(journal.entries.some((e) => e.tag === "0020_member_devices")).toBe(true);
   journal.entries = journal.entries.filter((e) => e.tag < "0020");
   writeFileSync(journalPath, JSON.stringify(journal));
   const client = new PGlite();

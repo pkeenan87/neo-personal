@@ -25,6 +25,9 @@ import type {
 
 const SCAM_LOOKBACK_MS = 60 * 60 * 1000; // wider than the 30-minute correlation window, so a pair straddling it is still found
 const DEFAULT_NOTIFY_AT: Severity = "high";
+/** Child mode: this many `self_harm` blocks within the window, across the member's devices, is an incident (_specs/v2-m2-child.md section 3). */
+const SELF_HARM_THRESHOLD = 3;
+const SELF_HARM_WINDOW_MS = 60 * 60 * 1000;
 
 interface Base {
   action: DecisionAction;
@@ -34,6 +37,8 @@ interface Base {
   reasonCodes: string[];
   rejectReason?: "relates_to_unknown";
   bypassOf?: Decision["bypassOf"];
+  /** Set when the incident must notify whatever the notify thresholds say. */
+  notifyAlways?: boolean;
 }
 
 const NONE = { kind: null, severity: null, verdictLabel: null } as const;
@@ -80,6 +85,25 @@ function evaluateServerSignal(policy: PolicyRules, event: ServerSignalEvent): Ba
   const severity = policy.devices?.protectionDisabledSeverity;
   if (!severity) return record(["protection_disabled", event.reason]);
   return incident("protection_disabled", severity, null, [event.reason]);
+}
+
+/**
+ * True when the current `self_harm` web block completes a run of `SELF_HARM_THRESHOLD` blocks that fit
+ * in `SELF_HARM_WINDOW_MS` (edges inclusive), counting the member's earlier blocks on any device and
+ * the current one. A run is a window of consecutive blocks in time order that includes the current one,
+ * so a late-arriving older event is judged the same way as a fresh one.
+ */
+function completesSelfHarmRun(event: Extract<SignalEvent, { detector: "web_blocked" }>, ctx: EvaluationContext): boolean {
+  if (event.category !== "self_harm") return false;
+  const at = new Date(event.observedAt).getTime();
+  const times = ctx.recent.filter((r) => r.detector === "web_blocked" && r.clientEventId !== event.id && r.payload?.category === "self_harm").map((r) => r.observedAt.getTime());
+  times.push(at);
+  times.sort((a, b) => a - b);
+  const self = times.indexOf(at);
+  for (let start = Math.max(0, self - (SELF_HARM_THRESHOLD - 1)); start <= self && start + SELF_HARM_THRESHOLD <= times.length; start++) {
+    if (times[start + SELF_HARM_THRESHOLD - 1]! - times[start]! <= SELF_HARM_WINDOW_MS) return true;
+  }
+  return false;
 }
 
 function evaluateEvent(policy: PolicyRules, event: SignalEvent, ctx: EvaluationContext): Base {
@@ -155,6 +179,31 @@ function evaluateEvent(policy: PolicyRules, event: SignalEvent, ctx: EvaluationC
       // Rule is off (record only) unless the policy configures an under-pressure window.
       if (policy.payments?.underPressureWindowMinutes === undefined) return record(["payment_page", event.category]);
       return incident("payment_under_pressure", "medium", "suspicious", ["payment_page", event.category]);
+    }
+
+    // ---- Child mode (_specs/v2-m2-child.md section 3). Each rule is gated by what the policy configures, so Standard (no web/apps section, no tamper severity) only records.
+    case "web_blocked": {
+      // Only a policy with a web section blocks sites, so only it watches for repeated self-harm searches.
+      if (policy.web !== undefined && completesSelfHarmRun(event, ctx)) return incident("self_harm_attempts", "high", null, ["self_harm_blocks"]);
+      return record(["web_blocked", event.category]);
+    }
+
+    case "app_installed": {
+      if (policy.apps?.requireApproval) return { ...incident("app_approval", "medium", null, ["app_needs_approval"]), notifyAlways: true };
+      return record(["app_installed"]);
+    }
+
+    case "app_blocked":
+      return record(["app_blocked"]);
+
+    case "screen_time_exhausted":
+      return record(["screen_time_exhausted"]);
+
+    case "tamper_detected": {
+      // Same switch as the server's protection_disabled: Child and Elder defaults set it, Standard leaves it off.
+      const severity = policy.devices?.protectionDisabledSeverity;
+      if (!severity) return record(["tamper_detected", event.reason]);
+      return incident("protection_disabled", severity, null, ["tamper_detected", event.reason]);
     }
 
     default: {
@@ -268,10 +317,11 @@ export function evaluateSignal(policy: PolicyRules, input: EvaluationInput, ctx:
   else if (isServer) base = evaluateServerSignal(policy, event as ServerSignalEvent);
   else base = evaluateEvent(policy, event as SignalEvent, ctx);
 
-  const incidentNow = base.action === "incident";
+  const { notifyAlways, ...decided } = base;
+  const incidentNow = decided.action === "incident";
   return {
-    ...base,
-    notifyNow: incidentNow && meetsNotify(policy, base.severity!),
+    ...decided,
+    notifyNow: incidentNow && (notifyAlways === true || meetsNotify(policy, decided.severity!)),
     escalate: base.action === "escalate",
     correlations: incidentNow && !isServer ? computeCorrelations(policy, event as SignalEvent, base, input, ctx) : [],
   };

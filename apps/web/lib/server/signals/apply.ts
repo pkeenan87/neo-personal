@@ -10,8 +10,9 @@ import type { Correlation } from "@neo/core";
 import { REMOTE_ACCESS_TOOLS, findRemoteAccessTool } from "@neo/tools";
 import type { SignalEvent } from "@neo/verdict";
 import type { SignalSeverity } from "@neo/db";
-import { alertCorrelation, alertScamInProgress, alertSignal, alertSignalBypass, tenantMembers, type SignalAlertKind } from "../alerts";
+import { alertCorrelation, alertScamInProgress, alertSelfHarmAttempts, alertSignal, alertSignalBypass, tenantMembers, type SignalAlertKind } from "../alerts";
 import {
+  appApprovalAlertText,
   dangerousSiteAlertText,
   deviceLabel,
   displayName,
@@ -19,11 +20,13 @@ import {
   paymentPageAlertText,
   paymentUnderPressureAlertText,
   permissionGrantAlertText,
+  protectionDisabledAlertText,
   remoteAccessBaselineAlertText,
   remoteAccessInstallAlertText,
   remoteAccessSessionAlertText,
   scamInProgressAlertText,
   scamPageAlertText,
+  selfHarmAttemptsAlertText,
   unwantedSoftwareAlertText,
   warningBypassedAlertText,
   type AlertText,
@@ -81,6 +84,13 @@ export function alertTextFor(event: SignalEvent, ctx: { memberName: string; devi
       return warningBypassedAlertText(memberName, deviceLbl);
     case "payment_page":
       return paymentPageAlertText(memberName, deviceLbl, event.category);
+    // Child mode. Only the incident outcomes of these detectors reach here (web_blocked: the repeated-self-harm run).
+    case "web_blocked":
+      return selfHarmAttemptsAlertText(memberName, deviceLbl);
+    case "app_installed":
+      return appApprovalAlertText(memberName, deviceLbl, event.name);
+    case "tamper_detected":
+      return protectionDisabledAlertText(memberName, deviceLbl, event.reason, severity);
     default:
       return { severity: "low", title: `${deviceLbl}: Neo flagged an event`, body: `Neo flagged an event on ${deviceLbl}.` };
   }
@@ -137,6 +147,17 @@ export async function applyAlertedSignal(input: AlertedSignalInput): Promise<Ale
         memberId: input.memberId ?? device.memberId,
         signalIds: [input.rowId],
       })
+    : alertKind === "self_harm_attempts"
+      ? // About the child, not one device: deduped per member and hour (see alertSelfHarmAttempts).
+        await alertSelfHarmAttempts({
+          tenantId: device.tenantId,
+          userId: device.userId,
+          deviceId: device.id,
+          text,
+          memberId: input.memberId ?? device.memberId,
+          signalIds: [input.rowId],
+          at: new Date(event.observedAt),
+        })
     : await alertSignal({
         tenantId: device.tenantId,
         userId: device.userId,

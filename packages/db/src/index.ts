@@ -256,9 +256,12 @@ export {
   type OutboxRow,
   type OutboxRowInput,
 } from "./outbox.js";
+export { listConsents, recordConsent, type ConsentRow } from "./consents.js";
 export {
   MAX_HELPERS_PER_MEMBER,
   countHouseholdOwners,
+  createMemberWithoutAccount,
+  MAX_MEMBERS_WITHOUT_ACCOUNT,
   createMemberForUser,
   decryptContact,
   defaultDisplayName,

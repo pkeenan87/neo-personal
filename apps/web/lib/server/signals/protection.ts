@@ -8,7 +8,7 @@ import { effectivePolicy, logger, type RecentSignal } from "@neo/core";
 import { getProtectionLayers, tenantScoped } from "@neo/db";
 import type { PolicyRules } from "@neo/verdict";
 import { getDb } from "../db";
-import { memoryMemberRecords, memoryProtection } from "../memory-members";
+import { memoryHouseholdTimeZone, memoryMemberPolicyVersions, memoryMemberRecords, memoryProtection } from "../memory-members";
 import type { DeviceSignalRow } from "./store";
 
 export interface SignalProtection {
@@ -26,10 +26,16 @@ export async function loadSignalProtection(tenantId: string, subject: ProtectedS
   try {
     const db = getDb();
     if (!db) {
-      const mode = subject.userId
-        ? memoryProtection(tenantId, subject.userId).mode
-        : (memoryMemberRecords(tenantId).find((m) => m.id === subject.memberId)?.mode ?? "standard");
-      return { policy: effectivePolicy({ mode }), memberId: subject.memberId };
+      // The memory twin of getProtectionLayers: the member's mode, birth year and latest member-scope policy.
+      const own = subject.userId ? memoryProtection(tenantId, subject.userId) : undefined;
+      const rec = own ? undefined : memoryMemberRecords(tenantId).find((m) => m.id === subject.memberId);
+      const mode = own?.mode ?? rec?.mode ?? "standard";
+      const policy = effectivePolicy({
+        mode,
+        ...(mode === "child" ? { birthYear: own?.birthYear ?? rec?.birthYear ?? null, timeZone: memoryHouseholdTimeZone(tenantId) } : {}),
+        member: memoryMemberPolicyVersions(tenantId, subject.memberId).at(-1),
+      });
+      return { policy, memberId: subject.memberId };
     }
     const layers = await getProtectionLayers(tenantScoped(db, tenantId), { memberId: subject.memberId, deviceId });
     return { policy: effectivePolicy(layers as Parameters<typeof effectivePolicy>[0]), memberId: layers.memberId };

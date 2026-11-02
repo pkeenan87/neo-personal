@@ -27,11 +27,12 @@ const authState = vi.hoisted(() => ({ session: null as Session | null }));
 vi.mock("@/auth", () => ({ auth: vi.fn(async () => authState.session) }));
 
 type Detail = {
-  member: { id: string; displayName: string; role: string; mode: string; hasAccount: boolean; helperMemberIds: string[]; hasContact: boolean };
+  member: { id: string; displayName: string; role: string; mode: string; hasAccount: boolean; helperMemberIds: string[]; hasContact: boolean; birthYear: number | null };
   contactHint: string | null;
   others: { id: string; displayName: string }[];
   notify: { helpersNotifyAt: string; ownersNotifyAt: string };
   policySummary: string[];
+  child: { birthYear: number | null; band: string; bandAssumed: boolean; timeZone: string | null; customized: boolean };
   isLastOwner: boolean;
 };
 
@@ -148,7 +149,7 @@ describe("PATCH access and validation", () => {
     expect(blank.status).toBe(200);
     expect((await detail(blank)).member).toMatchObject({ displayName: "Kid", role: "adult", mode: "standard" });
     expect((await patch(fx.kid.memberId, { displayName: "x".repeat(81) })).status).toBe(400);
-    expect(((await (await patch(fx.kid.memberId, { mode: "child" })).json()) as { code: string }).code).toBe("mode_unavailable");
+    expect(((await (await patch(fx.kid.memberId, { mode: "child" })).json()) as { code: string }).code).toBe("birth_year_required");
   });
 
   it("renames, changes the role, and audits what changed without values", async () => {

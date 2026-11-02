@@ -260,7 +260,16 @@ export async function alertDeviceOffline(device: DevicePublic): Promise<boolean>
 // ─── Device signals (_specs/signals.md) ─────────────────────────────
 
 /** Alert kinds a signal event can raise directly (everything but the membership/device-lifecycle kinds). */
-export type SignalAlertKind = "scam_page" | "dangerous_site" | "remote_access" | "unwanted_software" | "permission_grant" | "payment_under_pressure";
+export type SignalAlertKind =
+  | "scam_page"
+  | "dangerous_site"
+  | "remote_access"
+  | "unwanted_software"
+  | "permission_grant"
+  | "payment_under_pressure"
+  | "protection_disabled"
+  | "app_approval"
+  | "self_harm_attempts";
 
 /**
  * Raise a device-signal alert. Dedupe `<kind>:<deviceId>:<detector>:<subject>:<UTC hour>`, so the
@@ -380,6 +389,38 @@ export async function alertCorrelation(input: {
     ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
     ...(input.signalIds ? { signalIds: input.signalIds } : {}),
     dedupeKey: `${input.kind}:${key}:${input.bucket}`,
+  });
+}
+
+/**
+ * `self_harm_attempts` (Child mode): about the child, not one device, so the dedupe key is
+ * `self_harm_attempts:<userId>:<UTC hour of the triggering block>` (`m:<memberId>` for a member
+ * without an account, see `subjectKey`). Blocks keep arriving after the third; they must not
+ * page the parents again within the same hour.
+ */
+export async function alertSelfHarmAttempts(input: {
+  tenantId: string;
+  userId: string | null;
+  deviceId: string;
+  text: AlertText;
+  memberId?: string | null;
+  signalIds?: string[];
+  /** When the triggering block was observed (default now). */
+  at?: Date;
+}): Promise<AlertRow | null> {
+  const key = subjectKey(input);
+  if (!key) return null;
+  return raiseAlert({
+    tenantId: input.tenantId,
+    subjectUserId: input.userId,
+    deviceId: input.deviceId,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    ...(input.signalIds ? { signalIds: input.signalIds } : {}),
+    kind: "self_harm_attempts",
+    severity: input.text.severity,
+    title: input.text.title,
+    body: input.text.body,
+    dedupeKey: `self_harm_attempts:${key}:${hourBucket(input.at)}`,
   });
 }
 

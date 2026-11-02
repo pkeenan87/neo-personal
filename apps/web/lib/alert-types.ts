@@ -16,7 +16,10 @@ export type AlertKindName =
   | "breach_detected"
   | "install_during_session"
   | "payment_under_pressure"
-  | "protection_disabled";
+  | "protection_disabled"
+  | "self_harm_attempts"
+  | "app_approval"
+  | "child_request";
 /** Alerts that are household notices, not incidents to ask Neo about (no chat link). */
 const NON_INCIDENT_KINDS: readonly AlertKindName[] = ["member_joined", "member_left", "breach_detected"];
 

@@ -4,9 +4,11 @@
  * remove-a-person route; Next.js does not allow two slug names at one level).
  *
  * GET → { member, contactHint, others, notify, policySummary, isLastOwner }.
- * PATCH { displayName?, role?, mode?, helperMemberIds?, contact? } → the same body. Blank strings
- * and nulls mean "no change"; `contact: null` clears the helper address. 400 `invalid`,
- * `invalid_name`, `invalid_helper`, `invalid_email`, `has_account`, `mode_unavailable`; 403
+ * PATCH { displayName?, role?, mode?, birthYear?, helperMemberIds?, contact? } → the same body. Blank strings
+ * and nulls mean "no change"; `contact: null` clears the helper address and `birthYear: null` the birth year.
+ * Turning Child mode on needs a birth year and the household time zone (400 `birth_year_required`,
+ * `time_zone_required`) and records a `monitoring_notice` consent; turning it off emails every owner.
+ * 400 `invalid`, `invalid_name`, `invalid_birth_year`, `invalid_helper`, `invalid_email`, `has_account`; 403
  * `forbidden` (the owner check re-reads the database); 404 `not_found`; 409 `last_owner`, `owner_role`.
  */
 import { householdRoute } from "@/lib/server/household-http";

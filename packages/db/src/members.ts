@@ -22,6 +22,7 @@ import {
   members,
   memberships,
   policies,
+  tenants,
   users,
   type MemberRole,
   type PolicyScope,
@@ -55,6 +56,9 @@ export interface MemberPatch {
 export interface ProtectionLayers {
   memberId: string | null;
   mode: ProtectionMode;
+  /** Child mode only, when known: the age band comes from these (see `effectivePolicy`). */
+  birthYear?: number;
+  timeZone?: string;
   household?: unknown;
   member?: unknown;
   device?: unknown;
@@ -236,6 +240,33 @@ export async function getMemberContact(tdb: TenantDb, memberId: string): Promise
   return decryptContact(tdb.tenantId, row.id, row.contactCiphertext);
 }
 
+export const MAX_MEMBERS_WITHOUT_ACCOUNT = 20;
+
+/**
+ * Create a member who has no account (a child, or a helper reached by email), _specs/v2-m2-child.md
+ * section 2. Throws on a bad name, role, birth year or contact address, and when the household
+ * already has `MAX_MEMBERS_WITHOUT_ACCOUNT` of them. The contact is encrypted with the new row's id.
+ */
+export async function createMemberWithoutAccount(
+  tdb: TenantDb,
+  input: { displayName: string; role: Exclude<MemberRole, "owner">; birthYear?: number | null; contact?: string | null },
+): Promise<Member> {
+  if (!(MEMBER_ROLES as readonly string[]).includes(input.role) || (input.role as MemberRole) === "owner") throw new Error("@neo/db: unknown member role");
+  const displayName = normalizeDisplayName(input.displayName);
+  if (!displayName) throw new Error("@neo/db: invalid display name");
+  const year = input.birthYear ?? null;
+  if (year !== null && (!Number.isInteger(year) || year < 1900 || year > new Date().getUTCFullYear())) throw new Error("@neo/db: invalid birth year");
+  const id = crypto.randomUUID();
+  const contactCiphertext = input.contact && input.contact.trim() !== "" ? encryptContact(tdb.tenantId, id, input.contact) : null;
+  return tdb.transaction(async (t) => {
+    await t.tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`neo:members:${tdb.tenantId}`}, 0))`);
+    if ((await t.count(members, isNull(members.userId))) >= MAX_MEMBERS_WITHOUT_ACCOUNT) throw new Error("@neo/db: too many members without an account");
+    const [row] = await t.insert(members, { id, userId: null, displayName, role: input.role, birthYear: year, contactCiphertext });
+    if (!row) throw new Error("@neo/db: member insert returned no row");
+    return toMember(row);
+  });
+}
+
 /** Create the member row for an account (idempotent per user). */
 export async function createMemberForUser(
   tdb: TenantDb,
@@ -357,9 +388,17 @@ export async function getProtectionLayers(
       const dev = await t.first(devices, eq(devices.id, input.deviceId));
       if (dev) deviceRules = await latestRules(t, "device", dev.id);
     }
+    // The age band of a Child-mode member needs their birth year and the household's time zone.
+    let timeZone: string | null = null;
+    if (member?.mode === "child") {
+      const [tenant] = await t.tx.select({ timeZone: tenants.timeZone }).from(tenants).where(eq(tenants.id, tdb.tenantId)).limit(1);
+      timeZone = tenant?.timeZone ?? null;
+    }
     return {
       memberId: member?.id ?? null,
       mode: member?.mode ?? "standard",
+      ...(member?.mode === "child" && member.birthYear !== null ? { birthYear: member.birthYear } : {}),
+      ...(timeZone ? { timeZone } : {}),
       ...(household !== undefined ? { household } : {}),
       ...(memberRules !== undefined ? { member: memberRules } : {}),
       ...(deviceRules !== undefined ? { device: deviceRules } : {}),
