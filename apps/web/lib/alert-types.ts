@@ -34,6 +34,12 @@ export type AlertSeverityName = "low" | "medium" | "high" | "critical";
 export type AlertThreshold = "medium" | "high" | "critical" | "off";
 export const ALERT_THRESHOLD_VALUES: readonly AlertThreshold[] = ["medium", "high", "critical", "off"];
 
+/** Incident status (`alerts.status`). An alert is the v2 "incident". */
+export type AlertStatusName = "open" | "acknowledged" | "resolved" | "false_positive";
+
+/** Words for the statuses that say how an incident ended (open and acknowledged need no badge). */
+export const CLOSED_STATUS_LABEL: Partial<Record<AlertStatusName, string>> = { resolved: "Resolved", false_positive: "False alarm" };
+
 export interface AlertItem {
   id: string;
   kind: AlertKindName;
@@ -44,6 +50,7 @@ export interface AlertItem {
   subjectName: string | null;
   verdictId: string | null;
   createdAt: string;
+  status: AlertStatusName;
   acknowledgedAt: string | null;
   acknowledgedByName: string | null;
 }

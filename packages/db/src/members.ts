@@ -18,6 +18,7 @@ import {
   PROTECTION_MODES,
   devices,
   members,
+  memberships,
   policies,
   users,
   type MemberRole,
@@ -269,6 +270,26 @@ async function latestRules(t: { first: TenantDb["first"] }, scope: PolicyScope, 
   const where = and(eq(policies.scope, scope), scopeId === null ? sql`${policies.scopeId} is null` : eq(policies.scopeId, scopeId));
   const row = await t.first(policies, where, { orderBy: [sql`${policies.version} desc`] });
   return row?.rules;
+}
+
+/** The latest raw rules of one member's `member`-scope policy, or undefined (never validated here). */
+export async function latestMemberRules(tdb: TenantDb, memberId: string): Promise<unknown> {
+  if (!UUID_RE.test(memberId)) return undefined;
+  return tdb.transaction((t) => latestRules(t, "member", memberId));
+}
+
+/**
+ * The user's role in the household, read from `memberships` (the source of truth for who is an
+ * owner; `members.role` is a display label). Undefined when the user is not in the household.
+ */
+export async function getMembershipRole(tdb: TenantDb, userId: string): Promise<"owner" | "member" | undefined> {
+  const row = await tdb.first(memberships, eq(memberships.userId, userId));
+  return row?.role;
+}
+
+/** How many owners the household has. */
+export async function countHouseholdOwners(tdb: TenantDb): Promise<number> {
+  return tdb.count(memberships, eq(memberships.role, "owner"));
 }
 
 /**

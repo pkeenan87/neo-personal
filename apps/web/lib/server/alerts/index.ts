@@ -401,6 +401,7 @@ function toItem(a: AlertListItem): AlertItem {
     subjectName: a.subjectName,
     verdictId: a.verdictId,
     createdAt: a.createdAt.toISOString(),
+    status: a.status,
     acknowledgedAt: a.acknowledgedAt ? a.acknowledgedAt.toISOString() : null,
     acknowledgedByName: a.acknowledgedByName,
   };

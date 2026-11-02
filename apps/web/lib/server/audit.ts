@@ -31,6 +31,11 @@ export type AuditEventType =
   | "device.renamed"
   | "device.revoked"
   | "device.expected_tools_changed"
+  | "member.updated"
+  | "member.mode_changed"
+  | "member.policy_changed"
+  | "member.helpers_changed"
+  | "incident.action"
   | "signals.flood";
 
 export interface MemoryAuditEvent {
