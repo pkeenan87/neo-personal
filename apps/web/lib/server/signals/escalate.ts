@@ -31,7 +31,7 @@ import { applyAlertedSignal, type SignalDeviceInfo } from "./apply";
 import { classifyUrlAnalysis } from "./classify";
 import { loadSignalProtection, toRecentSignals } from "./protection";
 import { ENGINE_CATALOG } from "./rules";
-import { getDeviceSignal, listExpectedTools, listRecentUserSignals, updateDeviceSignal, type DeviceSignalRow } from "./store";
+import { getDeviceSignal, listExpectedTools, listRecentMemberSignals, updateDeviceSignal, type DeviceSignalRow } from "./store";
 
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
@@ -137,7 +137,12 @@ export async function runSignalEscalate(data: SignalEscalateData, deps: Escalate
       return;
     }
     const event = reconstructEvent(row);
-    const deviceInfo: SignalDeviceInfo = { id: device.id, tenantId: data.tenantId, userId: device.userId, name: device.name, memberName: device.memberName };
+    // A device whose member is gone has nobody to alert about.
+    if (!device.memberId) {
+      await dismiss(data.tenantId, row.id);
+      return;
+    }
+    const deviceInfo: SignalDeviceInfo = { id: device.id, tenantId: data.tenantId, memberId: device.memberId, userId: device.userId, name: device.name, memberName: device.memberName };
 
     let enrichment: Enrichment | undefined;
     if (event.detector === "lookalike_login") {
@@ -166,10 +171,10 @@ export async function runSignalEscalate(data: SignalEscalateData, deps: Escalate
  */
 async function applyEnrichment(event: SignalEvent, row: DeviceSignalRow, device: SignalDeviceInfo, enrichment: Enrichment, deps: EscalateDeps): Promise<void> {
   const now = deps.now();
-  const { policy, memberId } = await loadSignalProtection(device.tenantId, device.userId, device.id);
+  const { policy, memberId } = await loadSignalProtection(device.tenantId, device, device.id);
   const [expectedTools, recentRows] = await Promise.all([
     deps.getExpectedTools(device.tenantId, device.id),
-    listRecentUserSignals(device.tenantId, device.userId, { since: new Date(now.getTime() - RECENT_WINDOW_MS) }),
+    listRecentMemberSignals(device.tenantId, device.memberId, { since: new Date(now.getTime() - RECENT_WINDOW_MS) }),
   ]);
   const decision = evaluateSignal(policy, { event, signalId: row.id, enrichment }, { now, deviceId: device.id, expectedTools, recent: toRecentSignals(recentRows), catalog: ENGINE_CATALOG });
   if (decision.action !== "incident") {

@@ -8,7 +8,7 @@ import { effectivePolicy, logger, type RecentSignal } from "@neo/core";
 import { getProtectionLayers, tenantScoped } from "@neo/db";
 import type { PolicyRules } from "@neo/verdict";
 import { getDb } from "../db";
-import { memoryProtection } from "../memory-members";
+import { memoryMemberRecords, memoryProtection } from "../memory-members";
 import type { DeviceSignalRow } from "./store";
 
 export interface SignalProtection {
@@ -16,14 +16,22 @@ export interface SignalProtection {
   memberId: string | null;
 }
 
-export async function loadSignalProtection(tenantId: string, userId: string, deviceId: string): Promise<SignalProtection> {
+/** The device's member: the subject of its signals and alerts, with or without an account. */
+export interface ProtectedSubject {
+  memberId: string;
+  userId: string | null;
+}
+
+export async function loadSignalProtection(tenantId: string, subject: ProtectedSubject, deviceId: string): Promise<SignalProtection> {
   try {
     const db = getDb();
     if (!db) {
-      const m = memoryProtection(tenantId, userId);
-      return { policy: effectivePolicy({ mode: m.mode }), memberId: m.memberId };
+      const mode = subject.userId
+        ? memoryProtection(tenantId, subject.userId).mode
+        : (memoryMemberRecords(tenantId).find((m) => m.id === subject.memberId)?.mode ?? "standard");
+      return { policy: effectivePolicy({ mode }), memberId: subject.memberId };
     }
-    const layers = await getProtectionLayers(tenantScoped(db, tenantId), { userId, deviceId });
+    const layers = await getProtectionLayers(tenantScoped(db, tenantId), { memberId: subject.memberId, deviceId });
     return { policy: effectivePolicy(layers as Parameters<typeof effectivePolicy>[0]), memberId: layers.memberId };
   } catch (err) {
     logger.error("Protection layers lookup failed; using Standard", "signals", { tenantId, errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300) });

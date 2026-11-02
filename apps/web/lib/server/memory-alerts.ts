@@ -18,6 +18,7 @@ import {
   type OutboxRow,
   type OutboxRowInput,
 } from "@neo/db";
+import { memoryMemberById, memoryMemberIdForUser } from "./memory-members";
 import { memoryListMembers } from "./memory-state";
 
 type Threshold = AlertOwner["threshold"];
@@ -83,10 +84,15 @@ export function memoryGetAlert(tenantId: string, id: string): AlertRow | undefin
   return state().rows.find((r) => r.tenantId === tenantId && r.id === id);
 }
 
-function visible(tenantId: string, opts: { subjectUserId?: string; status?: "open" | "all" }): AlertRow[] {
+type SubjectFilter = { subjectUserId?: string; memberId?: string; aboutUserId?: string };
+
+function visible(tenantId: string, opts: SubjectFilter & { status?: "open" | "all" }): AlertRow[] {
   return state()
     .rows.filter((r) => r.tenantId === tenantId)
     .filter((r) => opts.subjectUserId === undefined || r.subjectUserId === opts.subjectUserId)
+    .filter((r) => opts.memberId === undefined || r.memberId === opts.memberId)
+    // A member's own view: alerts about the member behind this account, by member row or subject user.
+    .filter((r) => opts.aboutUserId === undefined || r.subjectUserId === opts.aboutUserId || (r.memberId !== null && r.memberId === memoryMemberIdForUser(tenantId, opts.aboutUserId!)))
     .filter((r) => opts.status !== "open" || !r.acknowledgedAt)
     .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || (a.id < b.id ? 1 : -1));
 }
@@ -94,7 +100,7 @@ function visible(tenantId: string, opts: { subjectUserId?: string; status?: "ope
 /** Offset cursor (base64url of the next index); the database uses a keyset cursor. */
 export function memoryListAlerts(
   tenantId: string,
-  opts: { subjectUserId?: string; status?: "open" | "all"; cursor?: string; limit?: number },
+  opts: SubjectFilter & { status?: "open" | "all"; cursor?: string; limit?: number },
 ): { items: AlertListItem[]; nextCursor?: string } {
   const limit = Math.max(1, Math.min(Math.floor(opts.limit ?? 20) || 20, 50));
   let start = 0;
@@ -106,14 +112,14 @@ export function memoryListAlerts(
   const all = visible(tenantId, opts);
   const page = all.slice(start, start + limit).map((r) => ({
     ...r,
-    subjectName: nameOf(tenantId, r.subjectUserId),
+    subjectName: r.subjectUserId ? nameOf(tenantId, r.subjectUserId) : r.memberId ? (memoryMemberById(tenantId, r.memberId)?.displayName ?? null) : null,
     acknowledgedByName: nameOf(tenantId, r.acknowledgedBy),
   }));
   const next = start + limit;
   return { items: page, ...(next < all.length ? { nextCursor: Buffer.from(String(next), "utf8").toString("base64url") } : {}) };
 }
 
-export function memoryCountOpenAlerts(tenantId: string, opts: { subjectUserId?: string; severities?: readonly string[] }): number {
+export function memoryCountOpenAlerts(tenantId: string, opts: SubjectFilter & { severities?: readonly string[] }): number {
   return visible(tenantId, { ...opts, status: "open" }).filter((r) => !opts.severities?.length || opts.severities.includes(r.severity)).length;
 }
 

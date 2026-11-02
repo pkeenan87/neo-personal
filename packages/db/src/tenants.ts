@@ -72,3 +72,41 @@ export async function getHouseholdName(db: Db, tenantId: string): Promise<string
   );
   return row?.name;
 }
+
+/**
+ * An IANA time zone name ("Europe/London", "UTC"), or null when it is not one. Validated against the
+ * runtime's tz database, so a typo cannot reach screen-time maths later.
+ */
+export function normalizeTimeZone(input: unknown): string | null {
+  if (typeof input !== "string") return null;
+  const name = input.trim();
+  if (name.length < 1 || name.length > 64 || !/^[A-Za-z0-9_+\-/]+$/.test(name)) return null;
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: name }).resolvedOptions().timeZone;
+  } catch {
+    return null;
+  }
+}
+
+/** The household's IANA time zone, or null when it has not been set (callers read null as UTC). */
+export async function getHouseholdTimeZone(db: Db, tenantId: string): Promise<string | null | undefined> {
+  assertTenantId(tenantId);
+  const [row] = await tenantScoped(db, tenantId).transaction((t) =>
+    t.tx.select({ timeZone: tenants.timeZone }).from(tenants).where(eq(tenants.id, tenantId)).limit(1),
+  );
+  return row?.timeZone;
+}
+
+/**
+ * Set the household's time zone (null clears it). Throws on a name that is not an IANA zone;
+ * returns false for an unknown tenant. The stored value is the canonical name the runtime resolves.
+ */
+export async function setHouseholdTimeZone(db: Db, tenantId: string, timeZone: string | null): Promise<boolean> {
+  assertTenantId(tenantId);
+  const value = timeZone === null ? null : normalizeTimeZone(timeZone);
+  if (timeZone !== null && value === null) throw new Error("@neo/db: invalid time zone");
+  const rows = await tenantScoped(db, tenantId).transaction((t) =>
+    t.tx.update(tenants).set({ timeZone: value }).where(eq(tenants.id, tenantId)).returning({ id: tenants.id }),
+  );
+  return rows.length > 0;
+}

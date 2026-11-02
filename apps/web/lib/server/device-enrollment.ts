@@ -16,7 +16,7 @@ import type {
   EnrollmentPreviewResponse,
   HeartbeatResponse,
 } from "@/lib/household-types";
-import type { NeoSession } from "@/lib/session";
+import { deviceAuditActor, type DeviceSession, type NeoSession } from "@/lib/session";
 import { alertDeviceOffline, alertDeviceRemoved, tenantMembers } from "./alerts";
 import { recordAudit } from "./audit";
 import {
@@ -36,6 +36,7 @@ import {
   toDeviceItem,
   toEnrollmentCodeItem,
 } from "./devices";
+import { requireHouseholdAdmin } from "./household-admin";
 import { renderDeviceEnrolledEmail } from "./email/household-email";
 import { getMailer } from "./email/resend";
 import type { Outcome } from "./household";
@@ -43,7 +44,7 @@ import { takeRateSlot } from "./rate-limit";
 import { expectedToolsByDevice, expectedToolsForDevice } from "./signals/expected-tools";
 import { recordServerSignal } from "./signals/server-signals";
 import { uninstallUrl, verifyDeviceSignature } from "./uninstall";
-import { household } from "./verdict-data";
+import { householdName as loadHouseholdName } from "./verdict-data";
 
 const HOUR_MS = 60 * 60 * 1000;
 /** Preview and enroll share one bucket per client IP: a wrong guess costs one of 10 per hour. */
@@ -90,8 +91,20 @@ export async function householdDevices(session: NeoSession): Promise<{ devices: 
 // ─── Enrollment codes (owner) ──────────────────────────────────────
 
 export async function createCode(session: NeoSession, userId: string): Promise<Outcome<CreateEnrollmentCodeResponse>> {
+  return createCodeFor(session, { userId });
+}
+
+/** `POST /api/household/protected-members/[id]/enrollment-codes`: a code for any member of the household, with or without an account. */
+export async function createCodeForMember(session: NeoSession, memberId: string): Promise<Outcome<CreateEnrollmentCodeResponse>> {
+  // The owner check re-reads the membership (requireHouseholdAdmin), not the session's role snapshot.
+  const admin = await requireHouseholdAdmin(session);
+  if (!admin.ok) return OWNER_ONLY;
+  return createCodeFor(session, { memberId });
+}
+
+async function createCodeFor(session: NeoSession, target: { userId: string } | { memberId: string }): Promise<Outcome<CreateEnrollmentCodeResponse>> {
   if (session.role !== "owner") return OWNER_ONLY;
-  const r = await createEnrollmentCode({ tenantId: session.tenantId, userId, createdBy: session.userId });
+  const r = await createEnrollmentCode({ tenantId: session.tenantId, createdBy: session.userId, ...target });
   if ("error" in r) {
     if (r.error === "not_member") return fail(404, "not_found", "That person is not in your household.");
     if (r.error === "code_limit") {
@@ -99,7 +112,11 @@ export async function createCode(session: NeoSession, userId: string): Promise<O
     }
     return DEVICE_LIMIT;
   }
-  await recordAudit(session.tenantId, session.userId, "device.enrollment_code_created", { codeId: r.record.id, userId });
+  await recordAudit(session.tenantId, session.userId, "device.enrollment_code_created", {
+    codeId: r.record.id,
+    ...(r.record.userId ? { userId: r.record.userId } : {}),
+    ...("memberId" in target ? { memberId: r.record.memberId } : {}),
+  });
   return { ok: true, value: { id: r.record.id, code: r.code, expiresAt: r.record.expiresAt.toISOString(), memberName: r.record.memberName } };
 }
 
@@ -161,8 +178,12 @@ export async function enrollWithCode(
     return CODE_NOT_FOUND;
   }
   // @neo/db audits `device.enrolled` in the redemption transaction.
-  logger.info("Device enrolled by code", "devices", { tenantId: r.device.tenantId, userIdHash: hashPii(r.device.userId) });
-  if (r.createdBy !== r.device.userId) await emailEnrolledMember(r.device, r.householdName, origin);
+  logger.info("Device enrolled by code", "devices", {
+    tenantId: r.device.tenantId,
+    userIdHash: hashPii(r.device.userId ?? r.device.memberId ?? r.device.id),
+  });
+  // A member without an account has no address to tell.
+  if (r.device.userId && r.createdBy !== r.device.userId) await emailEnrolledMember(r.device, r.householdName, origin);
   return {
     ok: true,
     value: { token: r.token, tokenId: r.tokenId, device: toDeviceItem(r.device), householdName: r.householdName, memberName: r.memberName },
@@ -223,7 +244,7 @@ export async function removeHouseholdDevice(session: NeoSession, id: string): Pr
 // ─── Device self-service (scope `device`) ──────────────────────────
 
 export async function heartbeat(
-  session: NeoSession,
+  session: DeviceSession,
   deviceId: string,
   body: Record<string, unknown> | null,
   origin: string,
@@ -246,7 +267,7 @@ export async function heartbeat(
     ok: true,
     value: {
       device: toDeviceItem(device, new Date(), await expectedToolsForDevice(session.tenantId, deviceId)),
-      householdName: (await household(session)).name,
+      householdName: await loadHouseholdName(session.tenantId),
       memberName: device.memberName,
       heartbeatSeconds: HEARTBEAT_SECONDS,
       listsVersion: detectionLists().version,
@@ -256,11 +277,12 @@ export async function heartbeat(
 }
 
 /** "Stop protecting this device": revoke the device and its token; alerts the owner unless it protects an owner. */
-export async function unenrollSelf(session: NeoSession, deviceId: string): Promise<Outcome<null>> {
+export async function unenrollSelf(session: DeviceSession, deviceId: string): Promise<Outcome<null>> {
   const r = await revokeDevice({ tenantId: session.tenantId, deviceId, revokedBy: null });
   if (!r) return fail(401, "unauthenticated", "This device is no longer connected to a household.");
   if (r.alreadyRevoked) return { ok: true, value: null };
-  await recordAudit(session.tenantId, session.userId, "device.revoked", { deviceId, by: "device" });
+  const actor = deviceAuditActor(session);
+  await recordAudit(session.tenantId, actor.userId, "device.revoked", { deviceId, by: "device", ...actor.metadata });
   await alertDeviceRemoved(r.device, "device");
   return { ok: true, value: null };
 }
@@ -283,7 +305,7 @@ export async function reportUninstalled(deviceId: string, sig: string): Promise<
     if (!tenantId) return; // unknown id, or already revoked (nothing left to do)
     const r = await revokeDevice({ tenantId, deviceId, revokedBy: null });
     if (!r || r.alreadyRevoked) return;
-    await recordAudit(tenantId, r.device.userId, "device.revoked", { deviceId, by: "device" });
+    await recordAudit(tenantId, r.device.userId, "device.revoked", { deviceId, by: "device", ...(r.device.userId ? {} : { actor: `device:${deviceId}` }) });
     await alertDeviceRemoved(r.device, "device");
     await recordServerSignal(r.device, "extension_uninstalled");
   } catch (err) {

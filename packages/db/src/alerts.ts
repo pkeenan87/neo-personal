@@ -2,11 +2,12 @@
  * Owner alerts (_specs/owner-alerts.md). Every query is tenant-scoped; the
  * retention purge runs across tenants through `purge_old_alerts()`.
  */
-import { and, desc, eq, gte, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import type { Db, Tx } from "./client.js";
 import {
   alerts,
+  members,
   memberships,
   users,
   type AlertEmailStatus,
@@ -16,7 +17,7 @@ import {
   type AlertStatus,
   ALERT_EMAIL_THRESHOLDS,
 } from "./schema/index.js";
-import { memberIdForUserTx } from "./members.js";
+import { memberIdForUserTx, memberIdOfUserSql } from "./members.js";
 import { assertTenantId, tenantScoped } from "./tenant.js";
 import { decodeVerdictCursor, encodeVerdictCursor } from "./verdicts.js";
 
@@ -103,18 +104,37 @@ export async function getAlert(db: Db, tenantId: string, id: string): Promise<Al
 // Microsecond-precision keyset cursor, as for verdicts.
 const cursorTs = sql<string>`to_char(${alerts.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
+/** Who an alert list or count is restricted to (all optional; each given one narrows further). */
+export interface AlertSubjectFilter {
+  /** Alerts whose `subject_user_id` is this user. */
+  subjectUserId?: string;
+  /** Alerts about this member (`member_id`), with or without an account. */
+  memberId?: string;
+  /** Alerts about the member behind this account: by the user's member, or by `subject_user_id`. A member's own view. */
+  aboutUserId?: string;
+}
+
+function subjectConds(tenantId: string, opts: AlertSubjectFilter): SQL[] {
+  const conds: SQL[] = [];
+  if (opts.subjectUserId !== undefined) conds.push(eq(alerts.subjectUserId, opts.subjectUserId));
+  if (opts.memberId !== undefined) conds.push(eq(alerts.memberId, opts.memberId));
+  if (opts.aboutUserId !== undefined) {
+    conds.push(or(eq(alerts.memberId, memberIdOfUserSql(tenantId, opts.aboutUserId)), eq(alerts.subjectUserId, opts.aboutUserId)) as SQL);
+  }
+  return conds;
+}
+
 /**
- * Newest first. `subjectUserId` restricts to alerts about one member (members' view);
- * `status: "open"` to unacknowledged alerts. Throws InvalidCursorError on a bad cursor.
+ * Newest first. `subjectUserId` / `memberId` / `aboutUserId` restrict to alerts about one member
+ * (members' view); `status: "open"` to unacknowledged alerts. Throws InvalidCursorError on a bad cursor.
  */
 export async function listAlerts(
   db: Db,
   tenantId: string,
-  opts: { subjectUserId?: string; status?: "open" | "all"; cursor?: string; limit?: number } = {},
+  opts: AlertSubjectFilter & { status?: "open" | "all"; cursor?: string; limit?: number } = {},
 ): Promise<{ items: AlertListItem[]; nextCursor?: string }> {
   const limit = Math.max(1, Math.min(Math.floor(opts.limit ?? 20) || 20, 50));
-  const conds: SQL[] = [eq(alerts.tenantId, tenantId)];
-  if (opts.subjectUserId !== undefined) conds.push(eq(alerts.subjectUserId, opts.subjectUserId));
+  const conds: SQL[] = [eq(alerts.tenantId, tenantId), ...subjectConds(tenantId, opts)];
   if (opts.status === "open") conds.push(isNull(alerts.acknowledgedAt));
   if (opts.cursor) {
     const c = decodeVerdictCursor(opts.cursor);
@@ -122,11 +142,13 @@ export async function listAlerts(
   }
   const subject = alias(users, "subject");
   const acker = alias(users, "acker");
+  const subjectMember = alias(members, "subject_member");
   const rows = await tenantScoped(db, tenantId).transaction((t) =>
     t.tx
-      .select({ row: alerts, cursorTs, subjectName: subject.name, acknowledgedByName: acker.name })
+      .select({ row: alerts, cursorTs, subjectName: subject.name, subjectDisplayName: subjectMember.displayName, acknowledgedByName: acker.name })
       .from(alerts)
       .leftJoin(subject, eq(subject.id, alerts.subjectUserId))
+      .leftJoin(subjectMember, eq(subjectMember.id, alerts.memberId))
       .leftJoin(acker, eq(acker.id, alerts.acknowledgedBy))
       .where(and(...conds))
       .orderBy(desc(alerts.createdAt), desc(alerts.id))
@@ -135,7 +157,8 @@ export async function listAlerts(
   const page = rows.slice(0, limit);
   const last = page[page.length - 1];
   return {
-    items: page.map((r) => ({ ...r.row, subjectName: r.subjectName, acknowledgedByName: r.acknowledgedByName })),
+    // A member without an account has no user to name: use the member's display name.
+    items: page.map((r) => ({ ...r.row, subjectName: r.row.subjectUserId ? r.subjectName : r.subjectDisplayName, acknowledgedByName: r.acknowledgedByName })),
     ...(rows.length > limit && last ? { nextCursor: encodeVerdictCursor(last.cursorTs, last.row.id) } : {}),
   };
 }
@@ -144,10 +167,9 @@ export async function listAlerts(
 export async function countOpenAlerts(
   db: Db,
   tenantId: string,
-  opts: { subjectUserId?: string; severities?: readonly AlertSeverity[] } = {},
+  opts: AlertSubjectFilter & { severities?: readonly AlertSeverity[] } = {},
 ): Promise<number> {
-  const conds: SQL[] = [isNull(alerts.acknowledgedAt)];
-  if (opts.subjectUserId !== undefined) conds.push(eq(alerts.subjectUserId, opts.subjectUserId));
+  const conds: SQL[] = [isNull(alerts.acknowledgedAt), ...subjectConds(tenantId, opts)];
   if (opts.severities?.length) conds.push(inArray(alerts.severity, [...opts.severities]));
   return tenantScoped(db, tenantId).count(alerts, and(...conds));
 }

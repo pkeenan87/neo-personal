@@ -400,7 +400,8 @@ export function DevicesSection({
   const known = new Set(members.map((m) => m.userId));
   const extra = new Map<string, HouseholdMember>();
   for (const d of devices) {
-    if (!known.has(d.userId) && !extra.has(d.userId)) {
+    // A device of a member without an account is listed by its memberName in the owner's view only (no sign-in to group under).
+    if (d.userId && !known.has(d.userId) && !extra.has(d.userId)) {
       extra.set(d.userId, { userId: d.userId, name: d.memberName, email: null, role: "member" });
     }
   }

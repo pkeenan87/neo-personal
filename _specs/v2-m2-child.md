@@ -21,7 +21,7 @@ A child can ask for more time or ask to unblock something. The parent answers in
 ## Functional requirements
 
 ### 1. Slices (one PR each, in order)
-1. **(1a) Member-only devices (server refactor):** the migration in §2 and every read moved to `member_id`. **No behaviour change: every existing test passes unchanged.**
+1. **(1a) Member-only devices (server refactor):** the migration in §2 and every read moved to `member_id`. **No behaviour change: every existing test passes unchanged.** *Built as migration `0020_member_devices`; decisions in "Slice 1a: what was built" below.*
    **(1b) Child policy (server):** the Child policy schema, age-band defaults, the Child engine rules, Child enabled in the console, `consents`, and the `child_requests` table (used in slice 3). Standard and Elder behaviour is unchanged.
 2. **Policy bundles:** compile, sign, `GET /api/devices/policy`, `policyVersion` on the heartbeat, and the signing key setup.
 3. **Child requests (server and agent):** the request API for devices, parent notification, eve tools to approve or deny, and an email-link fallback.
@@ -52,6 +52,16 @@ Server slices ship first. Older clients ignore the new fields, and new clients m
   - Owners create a member without an account from the console: display name, role `adult|child|elder`, and birth year for a child, plus a contact email for an adult or elder helper. This also closes the M1 gap of adding a helper without an account.
   - Owners create enrollment codes for any member: `POST /api/household/protected-members/[id]/enrollment-codes`.
   - Self-enrollment stays tied to the signed-in user's own member.
+
+#### Slice 1a: what was built, and the decisions
+- **`member_id` is NOT NULL only where it can be.** Removing a person deletes their `members` row, and their devices, codes and tokens are revoked but kept (the 90-day device and 30-day code retention rules, and `devices.test.ts`, rely on that). A plain NOT NULL with `ON DELETE SET NULL` would make that delete fail, and `CASCADE` would erase the revoked rows. So: `device_signals.member_id` is NOT NULL with `ON DELETE CASCADE` (30-day telemetry goes with the person), and the other three are invariants by CHECK, "an active row has a member": `devices_member_check` (`member_id IS NOT NULL OR revoked_at IS NOT NULL`), `device_enrollment_codes_member_check` (also allows a redeemed code), `desktop_tokens_subject_check` (a `full` token needs `user_id` and `role`; a monitoring token needs `device_id` and, until revoked, `member_id`). `detachMember` now revokes before it deletes the member, and `deleteMemberForUserTx` revokes any live device, code and token itself.
+- **Backfill:** stragglers are matched through `user_id`; the migration fails with a clear message if an active device or a pending code still has no member. Signals take their device's member, then their user's; a signal whose member no longer exists is deleted (what the cascade would have done). A live monitoring token that can't be given a member is revoked.
+- **Rollout:** BEFORE INSERT triggers (`default_member_from_user`, `default_member_from_device`) fill `member_id` for a writer that omits it (the previous release, still serving during the deploy). They can be dropped in a later migration. The user index on `device_signals` is kept.
+- **Sessions:** `NeoSession` stays the person type, so browser code has no null checks. A monitoring token resolves to `DeviceSession` (`userId`/`role` null for a member without an account; `memberId` from the device). Device routes use `requireDeviceSession(scope)`. Audit: the account's user id when there is one, else a null actor and `actor: "device:<deviceId>"` in the metadata (`audit_events.user_id` is a users FK).
+- **Verdicts:** `verdicts.user_id` stays NOT NULL, so a signal alert for a member without an account is raised **without a verdict** (the signal row and the alert carry the evidence). Revisit in 1b, when a child's `web_blocked` and `app_installed` signals need a place to show.
+- **UI:** none in this slice. The household devices section lists devices by account, so a device of a member without an account is not shown there yet (the API and the incident tools already show it to owners).
+- **Dedupe keys** use `subjectKey({ userId, memberId })`: the user id for an account holder (byte-identical to before), `m:<memberId>` otherwise.
+- `tenants.time_zone` with `setHouseholdTimeZone`, and `POST /api/household/protected-members/[id]/enrollment-codes`, are in. The member-creation UI and `consents` are 1b.
 
 ### 3. Child policy (slice 1)
 - **`PolicyRulesSchema` gains:**

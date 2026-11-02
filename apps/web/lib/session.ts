@@ -21,14 +21,37 @@ import type { Session } from "next-auth";
 import { headers } from "next/headers";
 import { redirect, unstable_rethrow } from "next/navigation";
 import { jsonError } from "./server/http";
-import { resolveSessionCore, type CookieIdentity, type NeoSession, type Resolution, type TokenScope } from "./server/session-core";
+import {
+  resolveSessionCore,
+  type AnySession,
+  type CookieIdentity,
+  type DeviceSession,
+  type NeoSession,
+  type Resolution,
+  type TokenScope,
+} from "./server/session-core";
 
 // The types and the dev identity live in session-core.ts (no Next imports, shared with the eve agent).
-export { DEV_SESSION_IDS, type MembershipRole, type NeoSession, type TokenScope } from "./server/session-core";
+export {
+  DEV_SESSION_IDS,
+  deviceAuditActor,
+  isDeviceSession,
+  type AnySession,
+  type DeviceSession,
+  type MembershipRole,
+  type NeoSession,
+  type PersonSession,
+  type TokenScope,
+} from "./server/session-core";
 
 export interface SessionOptions {
   /** Scope a desktop token must hold (default `full`). Browser sessions always resolve. */
   scope?: TokenScope;
+}
+
+/** The default (`full`) scope: the session is always a person's (see `NeoSession`). */
+export interface FullSessionOptions {
+  scope?: "full";
 }
 
 /** Auth.js `auth()` reads the request's cookies, so it can only run in Next's request scope. */
@@ -66,7 +89,9 @@ async function resolveSession(scope: TokenScope): Promise<Resolution> {
  * The session, or null. A desktop token resolves only if it holds `opts.scope`
  * (default `full`); browser sessions always resolve with `scopes: ["full"]`.
  */
-export async function getSession(opts: SessionOptions = {}): Promise<NeoSession | null> {
+export async function getSession(opts?: FullSessionOptions): Promise<NeoSession | null>;
+export async function getSession(opts: SessionOptions): Promise<AnySession | null>;
+export async function getSession(opts: SessionOptions = {}): Promise<AnySession | null> {
   return (await resolveSession(opts.scope ?? "full")).session;
 }
 
@@ -81,11 +106,11 @@ export async function requireSession(returnTo?: string): Promise<NeoSession> {
 }
 
 /** True for a cookie (Auth.js or dev-bypass) session, false for a desktop token. */
-export function isBrowserSession(session: NeoSession): boolean {
+export function isBrowserSession(session: AnySession): boolean {
   return !session.desktopTokenId;
 }
 
-type ApiSessionResult = { session: NeoSession; response?: undefined } | { session?: undefined; response: Response };
+type ApiSessionResult<S extends AnySession = NeoSession> = { session: S; response?: undefined } | { session?: undefined; response: Response };
 
 function insufficientScope(): Response {
   return jsonError(403, "This device's token cannot do that.", "insufficient_scope");
@@ -96,11 +121,25 @@ function insufficientScope(): Response {
  * session (or with an unknown/revoked token), 403 `insufficient_scope` for a valid desktop
  * token without `opts.scope` (default `full`), so a client does not sign in again.
  */
-export async function requireApiSession(opts: SessionOptions = {}): Promise<ApiSessionResult> {
+export async function requireApiSession(opts?: FullSessionOptions): Promise<ApiSessionResult>;
+export async function requireApiSession(opts: SessionOptions): Promise<ApiSessionResult<AnySession>>;
+export async function requireApiSession(opts: SessionOptions = {}): Promise<ApiSessionResult<AnySession>> {
   const r = await resolveSession(opts.scope ?? "full");
   if (r.session) return { session: r.session };
   if (r.failure === "insufficient_scope") return { response: insufficientScope() };
   return { response: jsonError(401, "Sign in to continue.", "unauthenticated") };
+}
+
+/**
+ * For device routes (heartbeat, signals, check-url, lists, self): the monitoring token's session
+ * for `scope`. Same 401 / 403 `insufficient_scope` as `requireApiSession`, and a browser session
+ * (which resolves for any scope) or a `full` token is refused with 403 `insufficient_scope`.
+ */
+export async function requireDeviceSession(scope: Exclude<TokenScope, "full">): Promise<ApiSessionResult<DeviceSession>> {
+  const r = await requireApiSession({ scope });
+  if (!r.session) return r;
+  if (r.session.deviceId === undefined) return { response: jsonError(403, "Only a device's own token can do that.", "insufficient_scope") };
+  return { session: r.session };
 }
 
 /**

@@ -54,6 +54,22 @@ export function setMemoryMemberMode(
   state().set(`${tenantId}:${userId}`, { mode, memberId, helperMemberIds });
 }
 
+/** The stable `members` row id of an account holder, assigned on first use (the twin of ensureMemberForUserTx). */
+export function memoryMemberIdForUser(tenantId: string, userId: string): string {
+  const key = `${tenantId}:${userId}`;
+  const p = state().get(key);
+  if (p?.memberId) return p.memberId;
+  const memberId = crypto.randomUUID();
+  state().set(key, { mode: p?.mode ?? "standard", helperMemberIds: p?.helperMemberIds ?? [], ...(p ?? {}), memberId });
+  return memberId;
+}
+
+/** A member by row id, with or without an account (the twin of a `members` lookup); undefined when unknown. */
+export function memoryMemberById(tenantId: string, memberId: string): { id: string; userId: string | null; displayName: string } | undefined {
+  const m = memoryMemberRecords(tenantId).find((x) => x.id === memberId);
+  return m && { id: m.id, userId: m.userId, displayName: m.displayName };
+}
+
 export function memoryProtection(tenantId: string, userId: string): MemoryProtection {
   return state().get(`${tenantId}:${userId}`) ?? { mode: "standard", memberId: null, helperMemberIds: [] };
 }

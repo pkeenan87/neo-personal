@@ -13,7 +13,7 @@ export type DigestFacts = {
   members: Array<{ userId: string; role: "owner" | "member" }>;
   verdicts: Array<{ id: string; userId: string; label: VerdictLabel; headline: string; createdAt: Date }>;
   alerts: Array<{ id: string; subjectUserId: string | null; kind: string; severity: Severity; createdAt: Date }>;
-  devices: Array<{ userId: string; lastSeenAt: Date | null; createdAt: Date; revokedAt: Date | null }>;
+  devices: Array<{ userId: string | null; lastSeenAt: Date | null; createdAt: Date; revokedAt: Date | null }>;
 };
 const labels: VerdictLabel[] = ["malicious", "suspicious", "likely_safe", "insufficient_evidence"];
 const safeAlertLabels: Record<string, string> = {
@@ -41,7 +41,8 @@ export function selectDigestContent(input: DigestContentInput, facts: DigestFact
   if (member.role === "owner") {
     const memberIds = new Set(facts.members.filter(m => m.role === "member").map(m => m.userId));
     const eligible = facts.alerts.filter(a => a.subjectUserId !== input.userId && within(a) && verdictSeverityRank(a.severity) >= 2 && safeAlertLabels[a.kind]);
-    const offline = facts.devices.filter(d => memberIds.has(d.userId) && !d.revokedAt && +(d.lastSeenAt ?? d.createdAt) <= +input.periodEnd - 48 * 3600000).length;
+    // A device protects a non-owner when its account is a plain member's, or when it has no account at all (a member without one is never an owner).
+    const offline = facts.devices.filter(d => (d.userId === null || memberIds.has(d.userId)) && !d.revokedAt && +(d.lastSeenAt ?? d.createdAt) <= +input.periodEnd - 48 * 3600000).length;
     if (eligible.length || offline) content.household = {
       alertCounts: (["critical", "high", "medium"] as Severity[]).map(severity => ({ severity, count: eligible.filter(a => a.severity === severity).length })).filter(a => a.count > 0),
       topAlerts: eligible.sort((a, b) => verdictSeverityRank(b.severity) - verdictSeverityRank(a.severity) || +b.createdAt - +a.createdAt || a.id.localeCompare(b.id)).slice(0, 3)

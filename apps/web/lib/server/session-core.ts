@@ -26,18 +26,62 @@ export type { TokenScope };
 /** Browser (Auth.js or dev-bypass) sessions and `full` desktop tokens. */
 export const FULL_SCOPES: TokenScope[] = ["full"];
 
+/**
+ * A signed-in person: a browser (Auth.js or dev-bypass) session or a `full` desktop token. The user
+ * and the household role are always present, so browser routes and pages never null-check them.
+ * `getSession()` and `requireApiSession()` return this for the default `full` scope.
+ */
 export interface NeoSession {
   userId: string;
   tenantId: string;
   role: MembershipRole;
   email: string;
   name: string;
-  /** Present when the session came from a desktop personal access token. */
+  /** Present when the session came from a `full` desktop personal access token. */
   desktopTokenId?: string;
   /** What this session may do: `["full"]` for browser sessions; a desktop token's own scopes. */
   scopes: TokenScope[];
-  /** The device a monitoring token reports for. */
-  deviceId?: string;
+  /** A person session never belongs to a device; narrows `NeoSession | DeviceSession` on `deviceId`. */
+  deviceId?: undefined;
+}
+
+/** `NeoSession` under its person-only name, for code that wants to say so. */
+export type PersonSession = NeoSession;
+
+/**
+ * A monitoring (device) token. The member comes from the device, never from the token holder: for a
+ * member without an account (`userId` and `role` null: no membership, so no role) it is the only
+ * identity there is. Device routes read `memberId`/`deviceId` and must not use `role`.
+ */
+export interface DeviceSession {
+  tenantId: string;
+  /** The member the device protects (read from the device row). */
+  memberId: string;
+  deviceId: string;
+  /** The member's account; null for a member without one. */
+  userId: string | null;
+  /** The account's membership role snapshot; null with `userId`. Never an authority on a device route. */
+  role: MembershipRole | null;
+  email: string;
+  name: string;
+  desktopTokenId: string;
+  scopes: TokenScope[];
+}
+
+/** Any resolved session: what a route with a non-`full` scope may receive. */
+export type AnySession = NeoSession | DeviceSession;
+
+/** True for a device token's session. */
+export function isDeviceSession(session: AnySession): session is DeviceSession {
+  return session.deviceId !== undefined;
+}
+
+/**
+ * The audit actor for a device route: the member's account when it has one (as before), else no
+ * user (`audit_events.user_id` is a users FK) and `device:<deviceId>` in the event metadata.
+ */
+export function deviceAuditActor(session: DeviceSession): { userId: string | null; metadata: { actor?: string } } {
+  return session.userId ? { userId: session.userId, metadata: {} } : { userId: null, metadata: { actor: `device:${session.deviceId}` } };
 }
 
 /** Identity used by DEV_AUTH_BYPASS when there is no database. */
@@ -55,7 +99,7 @@ export interface CookieIdentity {
   name: string;
 }
 
-export type Resolution = { session: NeoSession; failure?: undefined } | { session: null; failure: "unauthenticated" | "insufficient_scope" };
+export type Resolution = { session: AnySession; failure?: undefined } | { session: null; failure: "unauthenticated" | "insufficient_scope" };
 
 const g = globalThis as typeof globalThis & {
   __neoDevIdentity?: { db: Db; email: string; ids: Promise<{ userId: string; tenantId: string }> };
@@ -97,6 +141,25 @@ async function sessionFromDesktopToken(token: string, scope: TokenScope): Promis
     const resolved = await resolveBearerDesktopToken(token);
     if (!resolved) return { session: null, failure: "unauthenticated" };
     if (!resolved.scopes.includes(scope)) return { session: null, failure: "insufficient_scope" };
+    if (resolved.deviceId) {
+      // A monitoring token needs the device's member; resolveDesktopToken returns it from the device row.
+      if (!resolved.memberId) return { session: null, failure: "unauthenticated" };
+      return {
+        session: {
+          userId: resolved.userId,
+          tenantId: resolved.tenantId,
+          role: resolved.role,
+          memberId: resolved.memberId,
+          email: "",
+          name: "desktop",
+          desktopTokenId: resolved.id,
+          scopes: [...resolved.scopes],
+          deviceId: resolved.deviceId,
+        },
+      };
+    }
+    // A full token is always a person's (desktop_tokens_subject_check).
+    if (!resolved.userId || !resolved.role) return { session: null, failure: "unauthenticated" };
     return {
       session: {
         userId: resolved.userId,
@@ -106,7 +169,6 @@ async function sessionFromDesktopToken(token: string, scope: TokenScope): Promis
         name: "desktop",
         desktopTokenId: resolved.id,
         scopes: [...resolved.scopes],
-        ...(resolved.deviceId ? { deviceId: resolved.deviceId } : {}),
       },
     };
   } catch (err) {
@@ -209,8 +271,13 @@ export async function sessionFromCookieHeader(cookieHeader: string | null | unde
   }
 }
 
-/** The session of a request that has only headers (no Next request scope): the eve channel's caller. */
-export async function resolveRequestSession(headers: Headers, scope: TokenScope = "full"): Promise<NeoSession | null> {
+/**
+ * The session of a request that has only headers (no Next request scope): the eve channel's caller.
+ * The default `full` scope is always a person.
+ */
+export async function resolveRequestSession(headers: Headers, scope?: "full"): Promise<NeoSession | null>;
+export async function resolveRequestSession(headers: Headers, scope: TokenScope): Promise<AnySession | null>;
+export async function resolveRequestSession(headers: Headers, scope: TokenScope = "full"): Promise<AnySession | null> {
   const r = await resolveSessionCore({
     authorization: headers.get("authorization"),
     scope,

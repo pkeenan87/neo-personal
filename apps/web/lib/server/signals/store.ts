@@ -10,6 +10,7 @@ import {
   insertDeviceSignal as dbInsertDeviceSignal,
   listDeviceSignalsByClientIds as dbListDeviceSignalsByClientIds,
   listExpectedTools as dbListExpectedTools,
+  listRecentMemberSignals as dbListRecentMemberSignals,
   listRecentUserSignals as dbListRecentUserSignals,
   purgeExpiredReputationCache as dbPurgeExpiredReputationCache,
   purgeOldDeviceSignals as dbPurgeOldDeviceSignals,
@@ -26,6 +27,7 @@ import {
   memoryInsertDeviceSignal,
   memoryListDeviceSignalsByClientIds,
   memoryListExpectedTools,
+  memoryListRecentMemberSignals,
   memoryListRecentUserSignals,
   memoryPurgeOldDeviceSignals,
   memorySetExpectedTools,
@@ -58,7 +60,17 @@ export async function listDeviceSignalsByClientIds(tenantId: string, deviceId: s
   return db ? dbListDeviceSignalsByClientIds(db, tenantId, deviceId, clientEventIds) : memoryListDeviceSignalsByClientIds(tenantId, deviceId, clientEventIds);
 }
 
-/** A member's signals since `opts.since`, oldest first (for correlation). */
+/** A member's signals since `opts.since`, oldest first (for correlation). The member is the device's, with or without an account. */
+export async function listRecentMemberSignals(
+  tenantId: string,
+  memberId: string,
+  opts: { since: Date; outcomes?: readonly SignalOutcome[] },
+): Promise<DeviceSignalRow[]> {
+  const db = getDb();
+  return db ? dbListRecentMemberSignals(db, tenantId, memberId, opts) : memoryListRecentMemberSignals(tenantId, memberId, opts);
+}
+
+/** An account holder's signals since `opts.since` (their member's, found by user). */
 export async function listRecentUserSignals(
   tenantId: string,
   userId: string,

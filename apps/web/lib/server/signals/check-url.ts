@@ -9,7 +9,7 @@
 import { logger } from "@neo/core";
 import { analyzeUrl, normalizeUrl } from "@neo/tools";
 import type { CheckUrlResponse } from "@/lib/signal-types";
-import type { NeoSession } from "@/lib/session";
+import type { DeviceSession } from "@/lib/session";
 import { sharedUrlCache } from "../agent-run";
 import type { Outcome } from "../household";
 import { takeDailySlot, takeRateSlot } from "../rate-limit";
@@ -34,7 +34,7 @@ function urlOf(body: Record<string, unknown> | null): string | null {
 }
 
 export async function checkUrl(
-  session: NeoSession,
+  session: DeviceSession,
   deviceId: string,
   body: Record<string, unknown> | null,
   now = new Date(),
