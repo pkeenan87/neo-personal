@@ -1138,15 +1138,19 @@ Planned, not built. Spec `_specs/v2-architecture.md`, plan `_plans/v2.md`. Every
 PolicyRulesSchema: z.ZodType<PolicyRules>;           // web, apps, screen_time, remote_access, payments, notify
 MODE_DEFAULTS: Record<"standard" | "child" | "elder", PolicyRules>;
 effectivePolicy(layers: { household?, mode, member?, device? }) → PolicyRules;   // household → mode defaults → member → device
-evaluateSignal(policy: PolicyRules, signal: SignalEvent, recent: DeviceSignalRow[]) → Decision;   // pure: no I/O, no model
-type Decision = { action: "record" | "digest" | "incident"; kind?: string; severity?: Severity; dedupeKey?: string; notifyNow: boolean };
+evaluateSignal(policy: PolicyRules, signal: SignalEvent & { enrichment?: { verdict: string; severity: Severity } }, recent: DeviceSignalRow[]) → Decision;   // pure: no I/O, no model, no clock
+type Decision = { action: "record" | "dismiss" | "digest" | "incident"; kind?: string; severity?: Severity; dedupeKey?: string; notifyNow: boolean; escalate: boolean };
 ```
 
 ## apps/web (M1–M2)
 
-- `POST /api/signals` evaluates each accepted event with `evaluateSignal` inline; `incident` decisions create or update an alert and, when `notifyNow`, an outbox row in the same transaction. The Inngest `signal-escalate` function is removed in the same release.
+- `POST /api/signals` evaluates each accepted event with `evaluateSignal` inline; `incident` decisions create or update an alert and, when `notifyNow`, outbox rows in the same transaction. Standard-mode decisions, kinds and dedupe keys are unchanged.
+- `signal-escalate` stays (M1) as reputation enrichment: on a lookup result it re-runs `evaluateSignal` with `enrichment` and applies that decision. It moves in M3.
+- `alert-created` becomes `outbox-drain` (same event, plus a 5-minute sweep). Recipients: owners by `alert_email_threshold`, plus the member's helpers at or above `notify.helpersNotifyAt`; never the member themselves. Outbox key `alert:<alertId>:<recipientMemberId>`; Resend idempotency key unchanged (`alert:<alertId>:<userId>`). Critical alerts are exempt from the 20/day cap.
+- New alert kinds (M1): `install_during_session`, `payment_under_pressure`, `protection_disabled`. `protection_disabled` is server-generated (uninstall beacon, offline sweep) and rejected from clients.
+- eve channel auth (M1): resolves the Auth.js cookie and `neo_dt_` tokens in-process; `/api/eve-session` and `NEO_APP_ORIGIN` are removed.
 - `POST /api/devices/heartbeat` response adds `policyVersion: string | null` (M2).
 - `GET /api/devices/policy` (scope `device` + `deviceId`) → signed policy bundle; `ETag: "<policyVersion>"`, 304 on match (M2).
 - `member_id` is always resolved server-side from the device; clients never send it.
-- New `SIGNAL_DETECTORS` (M2): `web_blocked`, `app_installed`, `screen_time_exhausted`, `protection_disabled`, `payment_page`. Clients ship after the server (older servers reject unknown detectors as `invalid`).
+- New `SIGNAL_DETECTORS`: `payment_page` (M1, server first; the extension sends it from M2); `web_blocked`, `app_installed`, `screen_time_exhausted` (M2). Clients ship after the server (older servers reject unknown detectors as `invalid`).
 - eve tools: tenant from `getSession()` only, DB through `tenantScoped()`, results through `wrapToolResult`, acting tools `always()` approval with a server-side admin check.
