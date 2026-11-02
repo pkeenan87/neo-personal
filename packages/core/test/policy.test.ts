@@ -61,8 +61,9 @@ describe("effectivePolicy", () => {
     expect(p).not.toHaveProperty("junk");
   });
 
-  it("child equals standard; defaults are not mutated by merging", () => {
-    expect(effectivePolicy({ mode: "child" })).toEqual(effectivePolicy({ mode: "standard" }));
+  it("child is no longer Standard (the 10-13 band without a birth year); defaults are not mutated by merging", () => {
+    expect(effectivePolicy({ mode: "child" })).not.toEqual(effectivePolicy({ mode: "standard" }));
+    expect(effectivePolicy({ mode: "child" })).toEqual(MODE_DEFAULTS.child);
     effectivePolicy({ mode: "elder", member: { remote_access: { sessionWindowMinutes: 1 } } });
     expect(MODE_DEFAULTS.elder.remote_access?.sessionWindowMinutes).toBe(30);
   });

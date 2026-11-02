@@ -116,3 +116,23 @@ export function renderElderModeOffEmail(input: { memberName: string; changedByNa
     text: [...paragraphs, "", `Household settings: ${safeUrl(input.url)}`, "", FOOTER].join("\n"),
   };
 }
+
+/**
+ * To every owner when Child mode is turned off for a member (_specs/v2-m2-child.md section 3).
+ * Templated only: names are user-chosen (cleaned and escaped), the rest is fixed text.
+ */
+export function renderChildModeOffEmail(input: { memberName: string; changedByName: string | null; url: string }): RenderedEmail {
+  const member = name(input.memberName, "A household member");
+  const changer = name(input.changedByName, "A household owner");
+  const subject = `Child mode was turned off for ${member}`;
+  const paragraphs = [
+    `${changer} turned Child mode off for ${member} on Neo.`,
+    `${member}'s devices will stop blocking sites and apps and stop limiting screen time within about a minute of their next check-in with Neo.`,
+    `If you did not expect this, open the member page and turn Child mode back on.`,
+  ];
+  return {
+    subject,
+    html: layout(subject, paragraphs, { href: input.url, label: "Open household settings" }),
+    text: [...paragraphs, "", `Household settings: ${safeUrl(input.url)}`, "", FOOTER].join("\n"),
+  };
+}

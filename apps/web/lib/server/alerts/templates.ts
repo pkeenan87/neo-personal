@@ -5,7 +5,7 @@
  * escaped again by whatever renders it.
  */
 import type { SignalSeverity } from "@neo/db";
-import type { Verdict } from "@neo/verdict";
+import type { TamperReason, Verdict } from "@neo/verdict";
 import { cleanText, truncate } from "../email/verdict-email";
 import { sanitizeBreachName } from "../breach-monitoring/sanitize";
 import { signinAlertPublicHeadline } from "../signin/privacy";
@@ -293,11 +293,63 @@ export function paymentUnderPressureAlertText(memberName: string, deviceName: st
   };
 }
 
-export function protectionDisabledAlertText(memberName: string, deviceName: string, reason: "extension_uninstalled" | "device_offline", severity: "low" | "medium" | "high" | "critical"): AlertText {
-  const what = reason === "extension_uninstalled" ? `Neo's browser protection was removed from ${deviceName}` : `${deviceName} has stopped reporting to Neo`;
+const PROTECTION_DISABLED_WHAT: Record<ProtectionDisabledAlertReason, (deviceName: string) => string> = {
+  extension_uninstalled: (d) => `Neo's browser protection was removed from ${d}`,
+  device_offline: (d) => `${d} has stopped reporting to Neo`,
+  // Child mode tamper reasons (a client reported them; _specs/v2-m2-child.md section 3).
+  browser_without_extension: (d) => `A web browser is being used on ${d} without Neo's protection`,
+  vpn_app: (d) => `A VPN app was found on ${d}, which can get around Neo's web protection`,
+  extension_disabled: (d) => `Neo's browser protection was switched off on ${d}`,
+  clock_changed: (d) => `The clock on ${d} was changed, which can get around screen time limits`,
+  agent_service_stopped: (d) => `Neo's protection on ${d} was stopped and had to restart`,
+  bad_policy_signature: (d) => `${d} received settings that did not check out, so it kept the last good ones`,
+};
+
+export type ProtectionDisabledAlertReason = "extension_uninstalled" | "device_offline" | TamperReason;
+
+export function protectionDisabledAlertText(memberName: string, deviceName: string, reason: ProtectionDisabledAlertReason, severity: "low" | "medium" | "high" | "critical"): AlertText {
+  const what = PROTECTION_DISABLED_WHAT[reason](deviceName);
   return {
     severity,
     title: `${memberName}'s protection was turned off`,
     body: `${what}. ${memberName} is not protected there until it is turned back on. Ask them whether they did this on purpose, and be cautious if someone on the phone told them to.`,
+  };
+}
+
+/** High: three or more blocked self-harm searches or pages within an hour. No site names; the parent is told to check in, kindly. */
+export function selfHarmAttemptsAlertText(memberName: string, deviceName: string): AlertText {
+  return {
+    severity: "high",
+    title: `${memberName} keeps running into blocked self-harm pages`,
+    body: [
+      `In the last hour Neo blocked ${memberName} from visiting self-harm related pages three or more times, most recently on ${deviceName}.`,
+      `This does not mean something is wrong, but it is worth a gentle check-in. Ask how they are doing and listen before anything else.`,
+      `If you think they may be in danger, contact your local emergency number. In the US you can call or text 988 at any time.`,
+    ].join("\n"),
+  };
+}
+
+/** Medium: a new app is waiting for a parent to say yes. The app name is device-reported, so it is cleaned and truncated. */
+export function appApprovalAlertText(memberName: string, deviceName: string, appName: string): AlertText {
+  const app = truncate(cleanText(appName), NAME_MAX) || "an app";
+  return {
+    severity: "medium",
+    title: `${memberName} installed "${app}" and it needs your approval`,
+    body: `A new app, "${app}", was installed on ${deviceName}. While it waits for approval, ${memberName} can't open it. Open ${memberName}'s page in Neo to say yes or no.`,
+  };
+}
+
+/** Medium: a child asked for something. The child's own words are never in the alert text (they are shown quoted, apart from it). */
+export function childRequestAlertText(memberName: string, kind: "more_time" | "unblock_site" | "install_app", what: string | null): AlertText {
+  const detail = what ? truncate(cleanText(what), NAME_MAX) : "";
+  const ask = {
+    more_time: detail ? `${detail} more minutes on the computer` : "more time on the computer",
+    unblock_site: detail ? `"${detail}" to be unblocked` : "a blocked site to be unblocked",
+    install_app: detail ? `"${detail}" to be allowed` : "a new app to be allowed",
+  }[kind];
+  return {
+    severity: "medium",
+    title: `${memberName} is asking for ${ask}`,
+    body: `${memberName} sent a request from their device. Open ${memberName}'s page in Neo to approve or deny it.`,
   };
 }

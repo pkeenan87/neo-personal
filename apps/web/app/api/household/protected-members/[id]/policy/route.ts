@@ -1,9 +1,11 @@
 /**
- * PUT /api/household/protected-members/[id]/policy { helpersNotifyAt?, ownersNotifyAt? } (browser
- * session, household owner; _specs/v2-m1-elder.md section 8) → the member detail body.
- * Writes the next `member`-scope policy version: the member's current rules with `notify` merged
- * over them, validated by `PolicyRulesSchema`. Severities: low | medium | high | critical; a blank
- * string keeps the value, `null` removes the member's own setting. 400 `invalid`, 403 `forbidden`, 404 `not_found`.
+ * PUT /api/household/protected-members/[id]/policy { helpersNotifyAt?, ownersNotifyAt?, childRequestsTo?, web?, apps?,
+ * screenTime? } (browser session, household owner; _specs/v2-m1-elder.md section 8, _specs/v2-m2-child.md section 3)
+ * → the member detail body. Writes the next `member`-scope policy version: the member's current rules with
+ * the changes merged over them, validated by `PolicyRulesSchema`. Severities: low | medium | high | critical;
+ * `childRequestsTo`: owners | helpers. `web`, `apps` and `screenTime` replace their whole section. A blank
+ * string keeps the value, `null` removes the member's own setting (the age-band or mode default applies again).
+ * 400 `invalid` or `invalid_policy` (with `fields: [{ path, message }]`), 403 `forbidden`, 404 `not_found`.
  */
 import { householdRoute } from "@/lib/server/household-http";
 import { readJsonObject } from "@/lib/server/http";

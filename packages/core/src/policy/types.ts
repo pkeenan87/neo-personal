@@ -9,7 +9,9 @@ export type EngineAlertKind =
   | "permission_grant"
   | "install_during_session"
   | "payment_under_pressure"
-  | "protection_disabled";
+  | "protection_disabled"
+  | "self_harm_attempts"
+  | "app_approval";
 
 export type CorrelationKind = "scam_in_progress" | "install_during_session" | "payment_under_pressure";
 export type DecisionAction = "record" | "dismiss" | "incident" | "escalate" | "reject";

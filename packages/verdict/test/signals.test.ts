@@ -270,9 +270,9 @@ describe("payment_page and server signals", () => {
 });
 
 describe("PolicyRulesSchema", () => {
-  it("accepts partial layers, strips unknown keys and allows M2 placeholders", () => {
+  it("accepts partial layers and strips unknown keys", () => {
     const parsed = PolicyRulesSchema.parse({ remote_access: { unknownPeerSeverity: "critical", bogus: 1 }, web: { anything: true }, extra: 1 });
-    expect(parsed).toEqual({ remote_access: { unknownPeerSeverity: "critical" }, web: { anything: true } });
+    expect(parsed).toEqual({ remote_access: { unknownPeerSeverity: "critical" }, web: {} });
   });
 
   it("rejects bad severities and windows", () => {

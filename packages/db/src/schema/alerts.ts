@@ -29,6 +29,9 @@ export const ALERT_KINDS = [
   "install_during_session",
   "payment_under_pressure",
   "protection_disabled",
+  "self_harm_attempts",
+  "app_approval",
+  "child_request",
 ] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
@@ -79,7 +82,7 @@ export const alerts = pgTable(
     index("alerts_tenant_created_idx").on(t.tenantId, t.createdAt.desc()),
     check(
       "alerts_kind_check",
-      sql`${t.kind} in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress', 'breach_detected', 'install_during_session', 'payment_under_pressure', 'protection_disabled')`,
+      sql`${t.kind} in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress', 'breach_detected', 'install_during_session', 'payment_under_pressure', 'protection_disabled', 'self_harm_attempts', 'app_approval', 'child_request')`,
     ),
     check("alerts_status_check", sql`${t.status} in ('open', 'acknowledged', 'resolved', 'false_positive')`),
     check("alerts_severity_check", sql`${t.severity} in ('low', 'medium', 'high', 'critical')`),

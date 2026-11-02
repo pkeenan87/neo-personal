@@ -80,4 +80,6 @@ export interface ConversationListResponse {
 export interface ApiError {
   error: string;
   code?: string;
+  /** Which input fields were wrong, for validation errors (`path` is dotted, e.g. `web.block.0`). */
+  fields?: { path: string; message: string }[];
 }

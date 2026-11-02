@@ -8,7 +8,7 @@ import { rateLimitedResponse } from "./rate-limit";
 export function outcomeResponse<T>(r: Outcome<T>, successStatus = 200): Response {
   if (!r.ok) {
     if (r.status === 429) return rateLimitedResponse(r.retryAfterSeconds ?? 60);
-    return jsonError(r.status, r.message, r.code);
+    return jsonError(r.status, r.message, r.code, r.fields);
   }
   if (r.value === null) return new Response(null, { status: 204, headers: NO_STORE });
   return Response.json(r.value, { status: successStatus, headers: NO_STORE });

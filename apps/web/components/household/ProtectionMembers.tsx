@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { MemberProfile } from "@/lib/member-types";
+import { AddMemberForm } from "./AddMemberForm";
 
 const MODE_LABEL = { standard: "Standard", child: "Child", elder: "Elder" } as const;
 const MODE_CHIP = {
@@ -33,6 +34,7 @@ export function ProtectionMembers({ members }: { members: MemberProfile[] }) {
           </li>
         ))}
       </ul>
+      <AddMemberForm />
     </section>
   );
 }

@@ -58,14 +58,21 @@ function subjectOf(event: SignalEvent): string {
     case "remote_tool_download":
     case "warning_bypassed":
     case "payment_page":
+    case "web_blocked":
       return event.domain;
     case "remote_access_tool":
     case "remote_access_session":
       return event.toolId;
     case "unwanted_software":
+    case "app_installed":
+    case "app_blocked":
       return event.name;
     case "tcc_grant":
       return event.app;
+    case "screen_time_exhausted":
+      return "screen_time";
+    case "tamper_detected":
+      return event.reason;
     default: {
       const _exhaustive: never = event;
       return (_exhaustive as SignalEvent).detector;

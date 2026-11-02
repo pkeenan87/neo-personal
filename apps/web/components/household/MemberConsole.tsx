@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
+import { browserTimeZone } from "@/lib/child-settings-form";
+import { ChildSettingsEditor, type ChildPolicyBody } from "./ChildSettingsEditor";
 import {
   NOTIFY_SEVERITIES,
   type MemberDetailResponse,
@@ -13,11 +15,20 @@ import {
 const ROLE_LABEL: Record<MemberRoleName, string> = { owner: "Owner", adult: "Adult", child: "Child", elder: "Elder" };
 const SEVERITY_LABEL: Record<NotifySeverity, string> = { low: "Low and above", medium: "Medium and above", high: "High and above", critical: "Critical only" };
 const MAX_HELPERS = 10;
+const BAND_TEXT = { under_10: "under 10", "10_13": "10 to 13", "14_17": "14 to 17" } as const;
+
+type ApiBody = { error?: string; fields?: { path: string; message: string }[] };
+
+/** The server's message, with the name of each field it rejected (`web.block.0: must be a lowercase domain`). */
+function errorText(data: ApiBody): string {
+  const fields = data.fields?.slice(0, 5).map((f) => (f.path ? `${f.path}: ${f.message}` : f.message));
+  return [data.error || "That didn't save. Try again.", ...(fields ?? [])].join(" ");
+}
 
 async function send(url: string, method: "PATCH" | "PUT", body: unknown): Promise<MemberDetailResponse> {
   const res = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  const data = (await res.json().catch(() => ({}))) as Partial<MemberDetailResponse> & { error?: string };
-  if (!res.ok) throw new Error(data.error || "That didn't save. Try again.");
+  const data = (await res.json().catch(() => ({}))) as Partial<MemberDetailResponse> & ApiBody;
+  if (!res.ok) throw new Error(errorText(data));
   return data as MemberDetailResponse;
 }
 
@@ -39,11 +50,20 @@ export function MemberConsole({ initial }: { initial: MemberDetailResponse }) {
   const [contact, setContact] = useState("");
   const [helpersNotifyAt, setHelpersNotifyAt] = useState<NotifySeverity>(detail.notify.helpersNotifyAt);
   const [ownersNotifyAt, setOwnersNotifyAt] = useState<NotifySeverity>(detail.notify.ownersNotifyAt);
+  const [birthYear, setBirthYear] = useState(m.birthYear === null ? "" : String(m.birthYear));
+  // Prefilled from the browser; the field only appears after the owner picks Child, so server and client markup agree.
+  const [timeZone, setTimeZone] = useState(() => browserTimeZone() ?? "");
+  const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
   const base = `/api/household/protected-members/${encodeURIComponent(m.id)}`;
   const turningElderOff = m.mode === "elder" && mode !== "elder";
+  const turningChildOff = m.mode === "child" && mode !== "child";
+  const enablingChild = mode === "child" && m.mode !== "child";
+  const needsTimeZone = enablingChild && detail.child.timeZone === null;
+  const yearValue = birthYear.trim() === "" ? null : Number(birthYear);
+  const yearOk = yearValue === null || (Number.isInteger(yearValue) && yearValue >= 1900 && yearValue <= new Date().getFullYear());
 
   async function save(section: string, url: string, method: "PATCH" | "PUT", body: unknown, done: string) {
     setBusy(section);
@@ -55,6 +75,7 @@ export function MemberConsole({ initial }: { initial: MemberDetailResponse }) {
       setRole(next.member.role);
       setMode(next.member.mode);
       setHelpers(next.member.helperMemberIds);
+      setBirthYear(next.member.birthYear === null ? "" : String(next.member.birthYear));
       setContact("");
       setHelpersNotifyAt(next.notify.helpersNotifyAt);
       setOwnersNotifyAt(next.notify.ownersNotifyAt);
@@ -70,6 +91,41 @@ export function MemberConsole({ initial }: { initial: MemberDetailResponse }) {
     e.preventDefault();
     void save(section, url, method, body, done);
   };
+
+  /** Child mode needs the household time zone first (its own route), then the mode with the birth year. */
+  async function onModeSubmit(e: FormEvent) {
+    e.preventDefault();
+    if (!enablingChild) return void save("mode", base, "PATCH", { mode }, "Mode saved.");
+    setBusy("mode");
+    setMessage(null);
+    try {
+      if (needsTimeZone) {
+        const res = await fetch("/api/household/time-zone", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ timeZone: timeZone.trim() }) });
+        if (!res.ok) throw new Error(errorText((await res.json().catch(() => ({}))) as ApiBody));
+      }
+    } catch (err) {
+      setMessage({ kind: "error", text: err instanceof Error ? err.message : "That didn't save. Try again." });
+      setBusy(null);
+      return;
+    }
+    setBusy(null);
+    await save("mode", base, "PATCH", { mode, ...(m.birthYear === null && yearValue !== null ? { birthYear: yearValue } : {}) }, "Child mode is on.");
+  }
+
+  async function makeCode() {
+    setBusy("code");
+    setMessage(null);
+    try {
+      const res = await fetch(`${base}/enrollment-codes`, { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as ApiBody & { code?: string; expiresAt?: string };
+      if (!res.ok || !data.code || !data.expiresAt) throw new Error(errorText(data));
+      setCode({ code: data.code, expiresAt: data.expiresAt });
+    } catch (err) {
+      setMessage({ kind: "error", text: err instanceof Error ? err.message : "Couldn't make a code. Try again." });
+    } finally {
+      setBusy(null);
+    }
+  }
 
   const toggleHelper = (id: string) =>
     setHelpers((cur) => (cur.includes(id) ? cur.filter((h) => h !== id) : cur.length >= MAX_HELPERS ? cur : [...cur, id]));
@@ -91,7 +147,7 @@ export function MemberConsole({ initial }: { initial: MemberDetailResponse }) {
       </div>
 
       <form
-        onSubmit={submit("profile", base, "PATCH", { displayName: name, role: m.role === "owner" ? undefined : role }, "Saved.")}
+        onSubmit={submit("profile", base, "PATCH", { displayName: name, role: m.role === "owner" ? undefined : role, birthYear: yearValue }, "Saved.")}
         className="space-y-4 rounded-2xl border border-border bg-surface p-5 shadow-sm"
       >
         <h2 className="text-sm font-semibold">Name and role</h2>
@@ -113,12 +169,17 @@ export function MemberConsole({ initial }: { initial: MemberDetailResponse }) {
             </select>
           )}
         </label>
-        <button type="submit" disabled={busy !== null} className={primary}>
+        <label className="block space-y-1 text-sm">
+          <span>Birth year (optional)</span>
+          <input type="number" inputMode="numeric" min={1900} max={new Date().getFullYear()} value={birthYear} onChange={(e) => setBirthYear(e.target.value)} className={field} />
+          <span className="block text-xs text-muted">Only the year is kept. For a child, Neo uses it to pick the right defaults for their age.</span>
+        </label>
+        <button type="submit" disabled={busy !== null || !yearOk} className={primary}>
           {busy === "profile" ? "Saving…" : "Save"}
         </button>
       </form>
 
-      <form onSubmit={submit("mode", base, "PATCH", { mode }, "Mode saved.")} className="space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-sm">
+      <form onSubmit={onModeSubmit} className="space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <fieldset className="space-y-2">
           <legend className="mb-1 text-sm font-semibold">Protection mode</legend>
           <label className="flex min-h-11 items-center gap-3 text-sm">
@@ -134,21 +195,71 @@ export function MemberConsole({ initial }: { initial: MemberDetailResponse }) {
               {detail.isLastOwner ? " Not available for the only owner." : ""}
             </span>
           </label>
-          <label className="flex min-h-11 items-center gap-3 text-sm text-muted">
-            <input type="radio" name="mode" value="child" disabled />
+          <label className="flex min-h-11 items-center gap-3 text-sm">
+            <input type="radio" name="mode" value="child" checked={mode === "child"} disabled={detail.isLastOwner} onChange={() => setMode("child")} />
             <span>
-              <strong>Child</strong>: coming soon.
+              <strong>Child</strong>: blocks sites and apps and limits screen time for their age.
+              {detail.isLastOwner ? " Not available for the only owner." : ""}
             </span>
           </label>
         </fieldset>
         {turningElderOff && <p className="text-sm text-muted">Every owner will get an email saying Elder mode was turned off.</p>}
+        {turningChildOff && <p className="text-sm text-muted">Every owner will get an email saying Child mode was turned off.</p>}
+        {enablingChild && (
+          <div className="space-y-3 rounded-xl border border-border p-3">
+            {m.birthYear === null && (
+              <label className="block space-y-1 text-sm">
+                <span>Birth year (needed for Child mode)</span>
+                <input type="number" inputMode="numeric" min={1900} max={new Date().getFullYear()} value={birthYear} onChange={(e) => setBirthYear(e.target.value)} required className={field} />
+              </label>
+            )}
+            {needsTimeZone && (
+              <label className="block space-y-1 text-sm">
+                <span>Household time zone (screen time and downtime follow it)</span>
+                <input value={timeZone} onChange={(e) => setTimeZone(e.target.value)} placeholder="America/New_York" required className={field} />
+              </label>
+            )}
+            <p className="text-xs text-muted">
+              Neo will use the defaults for ages {BAND_TEXT[detail.child.band]}
+              {detail.child.bandAssumed ? " (no birth year yet)" : ""}: you can change every setting afterwards. {m.displayName}&apos;s devices will show that Child mode is on. Turning it on records that you
+              told {m.displayName} about this.
+            </p>
+          </div>
+        )}
         {m.mode === "elder" && m.helperMemberIds.length === 0 && (
           <p className="text-sm text-amber-800 dark:text-amber-200">No helpers are set. Only owners will be told when something looks wrong.</p>
         )}
-        <button type="submit" disabled={busy !== null || mode === m.mode} className={primary}>
+        <button type="submit" disabled={busy !== null || mode === m.mode || (enablingChild && (!yearOk || (m.birthYear === null && yearValue === null) || (needsTimeZone && timeZone.trim() === "")))} className={primary}>
           {busy === "mode" ? "Saving…" : "Save mode"}
         </button>
       </form>
+
+      {m.mode === "child" && (
+        <ChildSettingsEditor
+          key={JSON.stringify([detail.child.settings, detail.child.customized, detail.child.band])}
+          child={detail.child}
+          memberName={m.displayName}
+          busy={busy !== null}
+          onSave={(body: ChildPolicyBody, done) => void save("child", `${base}/policy`, "PUT", body, done)}
+        />
+      )}
+
+      {!m.hasAccount && (
+        <section className="space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-sm" aria-labelledby="enroll-heading">
+          <h2 id="enroll-heading" className="text-sm font-semibold">
+            Connect a device
+          </h2>
+          <p className="text-xs text-muted">Make a one-time code, then type it into Neo on {m.displayName}&apos;s computer or browser. It works once and expires in a few days.</p>
+          <button type="button" disabled={busy !== null} onClick={() => void makeCode()} className="min-h-11 rounded-xl border border-border px-4 text-sm">
+            {busy === "code" ? "Making a code…" : "Make a code"}
+          </button>
+          {code && (
+            <p className="text-sm">
+              Code: <code className="rounded bg-surface-2 px-2 py-1 font-mono text-base tracking-wider">{code.code}</code> (expires {new Date(code.expiresAt).toLocaleDateString()}). Shown once.
+            </p>
+          )}
+        </section>
+      )}
 
       <form
         onSubmit={submit("helpers", base, "PATCH", { helperMemberIds: helpers }, "Helpers saved.")}

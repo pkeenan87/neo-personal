@@ -9,6 +9,8 @@ import { memoryListMembers } from "./memory-state";
 
 interface MemoryProtection {
   mode: ProtectionMode;
+  /** Console edit (Child mode's age band). */
+  birthYear?: number | null;
   memberId: string | null;
   helperMemberIds: string[];
   /** Console edits (lib/server/member-console.ts); unset means the account's own name and role. */
@@ -21,6 +23,10 @@ interface MemoryContactMember {
   id: string;
   displayName: string;
   contact: string;
+  /** A member created in the console without an account (defaults: adult, Standard, no birth year). */
+  role?: MemberRole;
+  mode?: ProtectionMode;
+  birthYear?: number | null;
   /** Console edits. */
   helperMemberIds?: string[];
   updatedAt?: Date;
@@ -30,6 +36,8 @@ const g = globalThis as typeof globalThis & {
   __neoMemoryProtection?: Map<string, MemoryProtection>;
   __neoMemoryContactMembers?: Map<string, MemoryContactMember[]>;
   __neoMemoryMemberPolicies?: Map<string, unknown[]>;
+  __neoMemoryTimeZones?: Map<string, string>;
+  __neoMemoryConsents?: MemoryConsent[];
 };
 
 function state() {
@@ -41,6 +49,8 @@ export function resetMemoryProtection(): void {
   g.__neoMemoryProtection = undefined;
   g.__neoMemoryContactMembers = undefined;
   g.__neoMemoryMemberPolicies = undefined;
+  g.__neoMemoryTimeZones = undefined;
+  g.__neoMemoryConsents = undefined;
 }
 
 /** Test/demo helper: set a member's protection mode (and optionally the member row id alerts carry, and their helpers). */
@@ -96,6 +106,7 @@ export interface MemoryMemberRecord {
   role: MemberRole;
   mode: ProtectionMode;
   helperMemberIds: string[];
+  birthYear: number | null;
   /** The helper contact address; never persisted, memory only. */
   contact: string | null;
   email: string | null;
@@ -119,6 +130,7 @@ export function memoryMemberRecords(tenantId: string): MemoryMemberRecord[] {
       role: p.role ?? (m.role === "owner" ? "owner" : "adult"),
       mode: p.mode,
       helperMemberIds: p.helperMemberIds,
+      birthYear: p.birthYear ?? null,
       contact: null,
       email: m.email,
       updatedAt: p.updatedAt ?? EPOCH,
@@ -129,9 +141,10 @@ export function memoryMemberRecords(tenantId: string): MemoryMemberRecord[] {
       id: c.id,
       userId: null,
       displayName: c.displayName,
-      role: "adult",
-      mode: "standard",
+      role: c.role ?? "adult",
+      mode: c.mode ?? "standard",
       helperMemberIds: c.helperMemberIds ?? [],
+      birthYear: c.birthYear ?? null,
       contact: c.contact || null,
       email: null,
       updatedAt: c.updatedAt ?? EPOCH,
@@ -145,6 +158,7 @@ export interface MemoryMemberPatch {
   role?: MemberRole;
   mode?: ProtectionMode;
   helperMemberIds?: string[];
+  birthYear?: number | null;
   contact?: string | null;
 }
 
@@ -162,12 +176,16 @@ export function memoryUpdateMember(tenantId: string, memberId: string, patch: Me
       ...(patch.helperMemberIds !== undefined ? { helperMemberIds: patch.helperMemberIds } : {}),
       ...(patch.displayName !== undefined ? { displayName: patch.displayName } : {}),
       ...(patch.role !== undefined ? { role: patch.role } : {}),
+      ...(patch.birthYear !== undefined ? { birthYear: patch.birthYear } : {}),
       updatedAt: now,
     });
   } else {
     const c = memoryContactMembers(tenantId).find((x) => x.id === memberId);
     if (c) {
       if (patch.displayName !== undefined) c.displayName = patch.displayName;
+      if (patch.role !== undefined) c.role = patch.role;
+      if (patch.mode !== undefined) c.mode = patch.mode;
+      if (patch.birthYear !== undefined) c.birthYear = patch.birthYear;
       if (patch.helperMemberIds !== undefined) c.helperMemberIds = patch.helperMemberIds;
       if (patch.contact !== undefined) c.contact = patch.contact ?? "";
       c.updatedAt = now;
@@ -186,4 +204,43 @@ export function memoryInsertMemberPolicy(tenantId: string, memberId: string, rul
   const list = [...memoryMemberPolicyVersions(tenantId, memberId), rules];
   g.__neoMemoryMemberPolicies.set(`${tenantId}:${memberId}`, list);
   return list.length;
+}
+
+/** Create a member without an account (the twin of `createMemberWithoutAccount` in @neo/db; the caller has validated the input). */
+export function memoryCreateMemberWithoutAccount(
+  tenantId: string,
+  input: { displayName: string; role: MemberRole; birthYear: number | null; contact: string | null },
+): MemoryMemberRecord {
+  const member: MemoryContactMember = { id: crypto.randomUUID(), displayName: input.displayName, contact: input.contact ?? "", role: input.role, mode: "standard", birthYear: input.birthYear, updatedAt: new Date() };
+  addMemoryContactMember(tenantId, member);
+  return memoryMemberRecords(tenantId).find((m) => m.id === member.id)!;
+}
+
+/** The household's IANA time zone, or null while unset. */
+export function memoryHouseholdTimeZone(tenantId: string): string | null {
+  return g.__neoMemoryTimeZones?.get(tenantId) ?? null;
+}
+
+export function memorySetHouseholdTimeZone(tenantId: string, timeZone: string | null): void {
+  g.__neoMemoryTimeZones ??= new Map();
+  if (timeZone === null) g.__neoMemoryTimeZones.delete(tenantId);
+  else g.__neoMemoryTimeZones.set(tenantId, timeZone);
+}
+
+export interface MemoryConsent {
+  tenantId: string;
+  memberId: string;
+  kind: string;
+  grantedBy: string | null;
+  grantedAt: Date;
+  evidence: Record<string, unknown>;
+}
+
+export function memoryRecordConsent(consent: Omit<MemoryConsent, "grantedAt">): void {
+  g.__neoMemoryConsents ??= [];
+  g.__neoMemoryConsents.push({ ...consent, grantedAt: new Date() });
+}
+
+export function memoryConsents(tenantId: string, memberId: string): MemoryConsent[] {
+  return (g.__neoMemoryConsents ?? []).filter((c) => c.tenantId === tenantId && c.memberId === memberId);
 }

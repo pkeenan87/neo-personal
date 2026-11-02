@@ -91,7 +91,7 @@ function memoryMembersFor(tenantId: string): RecipientMember[] {
     return { id: p.memberId, userId: m.userId, displayName: m.name || m.email || "A member", mode: p.mode, helperMemberIds: p.helperMemberIds, email: m.email, contact: null };
   });
   const contacts = memoryContactMembers(tenantId).map(
-    (c): RecipientMember => ({ id: c.id, userId: null, displayName: c.displayName, mode: "standard", helperMemberIds: [], email: null, contact: c.contact }),
+    (c): RecipientMember => ({ id: c.id, userId: null, displayName: c.displayName, mode: c.mode ?? "standard", helperMemberIds: c.helperMemberIds ?? [], email: null, contact: c.contact || null }),
   );
   return [...accounts, ...contacts];
 }
@@ -124,7 +124,11 @@ async function loadRecipientContext(tenantId: string, q: PlanSubject): Promise<R
   if (subject && protectedMode(subject.mode)) {
     if (db) {
       const tdb = tenantScoped(db, tenantId);
-      const layers = subject.userId ? await getProtectionLayers(tdb, { userId: subject.userId }) : { mode: subject.mode as ProtectionMode };
+      const layers = subject.userId
+        ? await getProtectionLayers(tdb, { userId: subject.userId })
+        : subject.id
+          ? await getProtectionLayers(tdb, { memberId: subject.id })
+          : { mode: subject.mode as ProtectionMode };
       helpersNotifyAt = effectivePolicy(layers as Parameters<typeof effectivePolicy>[0]).notify?.helpersNotifyAt;
       // Decrypt the contact only for helpers who need it.
       for (const id of subject.helperMemberIds) {

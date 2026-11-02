@@ -21,6 +21,7 @@ const safeAlertLabels: Record<string, string> = {
   scam_page: "Possible scam page", dangerous_site: "Dangerous site alert", remote_access: "Remote access alert",
   unwanted_software: "Unwanted software alert", permission_grant: "Device permission alert", scam_in_progress: "Possible scam in progress", breach_detected: "Breach exposure alert",
   install_during_session: "Install during a remote session", payment_under_pressure: "Payment under pressure", protection_disabled: "Protection turned off",
+  self_harm_attempts: "Repeated blocked searches", app_approval: "App waiting for approval", child_request: "Request from a child",
 };
 /** Redact network identifiers before truncation (including bare domains, IPs, emails, hashes and phone/token runs). */
 export function digestHeadline(value: string): string {
