@@ -127,6 +127,13 @@
       "when": 1793632626799,
       "tag": "0018_outbox_sweep",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793632686799,
+      "tag": "0019_eve_sessions",
+      "breakpoints": true
     }
   ]
 }

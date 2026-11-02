@@ -27,6 +27,21 @@ function response(items: AlertItem[]): AlertListResponse {
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("AlertsPanel incident chat link", () => {
+  it("links incidents to the eve chat only when the flag is on", () => {
+    const incident = alert({ kind: "scam_in_progress", verdictId: null });
+    const notice = alert({ kind: "member_joined", verdictId: null, title: "Kid joined your household" });
+    const { unmount } = render(<AlertsPanel initial={response([incident, notice])} isOwner />);
+    expect(screen.queryByRole("link", { name: /Ask Neo about this/ })).toBeNull();
+    unmount();
+
+    render(<AlertsPanel initial={response([incident, notice])} isOwner incidentChat />);
+    const links = screen.getAllByRole("link", { name: /Ask Neo about this/ });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveAttribute("href", `/chat-v2?incident=${incident.id}`);
+  });
+});
+
 describe("AlertsPanel", () => {
   it("renders nothing without open alerts", () => {
     const { container } = render(<AlertsPanel initial={response([])} isOwner />);

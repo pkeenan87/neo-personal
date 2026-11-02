@@ -17,6 +17,19 @@ export type AlertKindName =
   | "install_during_session"
   | "payment_under_pressure"
   | "protection_disabled";
+/** Alerts that are household notices, not incidents to ask Neo about (no chat link). */
+const NON_INCIDENT_KINDS: readonly AlertKindName[] = ["member_joined", "member_left", "breach_detected"];
+
+/** Whether "Ask Neo about this" applies to an alert of this kind (when the eve chat is on). */
+export function incidentChatApplies(kind: AlertKindName): boolean {
+  return !NON_INCIDENT_KINDS.includes(kind);
+}
+
+/** The eve incident chat for one alert (`/chat-v2`, gated by NEO_EVE_CHAT). */
+export function incidentChatPath(alertId: string): string {
+  return `/chat-v2?incident=${encodeURIComponent(alertId)}`;
+}
+
 export type AlertSeverityName = "low" | "medium" | "high" | "critical";
 export type AlertThreshold = "medium" | "high" | "critical" | "off";
 export const ALERT_THRESHOLD_VALUES: readonly AlertThreshold[] = ["medium", "high", "critical", "off"];

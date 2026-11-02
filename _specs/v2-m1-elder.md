@@ -84,7 +84,7 @@ Both documents are amended in this PR.
   - A `payment_page` on its own raises kind `payment_under_pressure` at medium.
   - Server signals (`protection_disabled`) aren't saved as `device_signals` rows; they only raise the alert, alongside today's `device_removed` and `device_offline` alerts.
   - Standard parity: the unchanged `apps/web/test/signal-rules.test.ts` passes against the engine.
-- **Migration ordering:** Drizzle skips a migration whose journal `when` is at or below the last applied one. 0017's `when` is set above 0016's. If 0017 reaches production before #50 merges, #50's migration has to be renumbered (now 0019, since slice 2 takes 0018) with a newer `when`, or it will be skipped silently.
+- **Migration ordering (updated for slice 3):** slice 3 adds `0019_eve_sessions`, so the Outlook connector (#50) now has to renumber to **0020** with a journal `when` above 0019's (`1793632686799`). Drizzle skips a migration whose journal `when` is at or below the last applied one. 0017's `when` is set above 0016's. If 0017 reaches production before #50 merges, #50's migration has to be renumbered (now 0020: slice 2 takes 0018 and slice 3 takes 0019) with a newer `when`, or it will be skipped silently.
 
 ### 5. Incidents (slice 1)
 - `alerts` gains `member_id`, `status` (`open|acknowledged|resolved|false_positive`, default `open`), `signal_ids uuid[]`, `eve_session_id` and `resolved_at`.
@@ -124,6 +124,13 @@ Both documents are amended in this PR.
 - **Incident chat:** the alert email and the dashboard link to `/chat-v2?incident=<id>`, which starts a session seeded with `get_incident`. `eve_session_id` is stored on the alert.
 - `/chat-v2` is gated by the env flag `NEO_EVE_CHAT` (unset means off; add it to `.env.example`). `/api/agent` is untouched.
 - Instructions follow Elder tone: short sentences, "stop and hang up" first, no shaming, and never ask the elder to install anything.
+- **Built (slice 3), decisions made in implementation:**
+  - The session core is `apps/web/lib/server/session-core.ts`. Bearer tokens, `DEV_AUTH_BYPASS` and the result shape are one implementation shared by `getSession()` and the eve channel. The cookie reader differs: `getSession()` keeps Auth.js `auth()` (rolling expiry, household retry), the eve channel reads the `sessions` table and resolves the household with the same `resolveTenant`. With no database neither resolves a cookie session, because the JWT strategy carries no tenant.
+  - The incident tools read Postgres only. The eve server is a separate process from Next, so the in-memory MOCK_MODE stores are empty there; without `DATABASE_URL` they answer `not_found`.
+  - The incident is passed to the agent as per-turn `clientContext` that the channel's `onMessage` verifies and replaces; the first message is a fixed question. The session id comes back through `POST /api/chat-v2/incident-session`.
+  - **Session ownership and the flag (security).** eve has no per-session access list, so any signed-in user who learned a session id could continue it or read its stream. Migration **0019** adds `eve_sessions` (tenant RLS). The channel's `session.started` handler records the initiator; the route auth lets a request that names a session through only for that tenant and user (unknown id: denied after up to 3 s for the record to land, which a stream opened right after create needs). `appSession` also returns no caller unless `NEO_EVE_CHAT=true`, so `/eve/v1/*` is closed with the flag off. `linkIncidentSession` stores only a session the caller owns, and the page resumes `alerts.eve_session_id` only for its creator.
+  - **Verified on a Vercel preview (2026-11-02, `neo-mwnac0vdj`, Vercel Workflow):** `onMessage` gets no session id on a create request, so ownership is recorded from `session.started`. With a full-scope `neo_dt_` token: create 202 in 0.9 s; stream opened immediately 200 (first byte 0.42 s), so the record landed inside the wait. Sonnet 5 replied through AI Gateway. A follow-up called `analyze_url` (202/200). Unknown session id: stream 401 after 3.3 s, continue 401. Own id with no auth, or with a forged token: 401.
+  - A member (non-owner) sees only themselves in `list_members` and only their own alerts and devices elsewhere.
 
 ### 8. Console and acting tools (slice 4)
 - `/settings/household/members/[id]` (owners only) holds the display name, role, mode picker, helper picker (other members), helper contact email for helpers without accounts, and notify thresholds.

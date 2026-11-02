@@ -14,6 +14,7 @@ import {
   markAlertEmail,
   purgeOldAlerts,
   setAlertEmailThreshold,
+  setAlertEveSession,
 } from "../src/alerts.js";
 import { memberships } from "../src/schema/index.js";
 import { tenantScoped } from "../src/tenant.js";
@@ -82,6 +83,18 @@ describe("alerts", () => {
     expect(all.items.some((i) => i.subjectUserId === owner)).toBe(true);
     expect(await countOpenAlerts(t.db, tenant, { subjectUserId: member })).toBe(4);
     expect(await countOpenAlerts(t.db, tenant, { severities: ["critical"] })).toBe(0);
+  });
+
+  it("stores the eve session on this household's alert only", async () => {
+    const a = (await createAlert(t.db, alertInput("eve:1")))!;
+    expect(a.eveSessionId).toBeNull();
+    expect(await setAlertEveSession(t.db, tenant, a.id, "sess_abc123")).toBe(true);
+    expect((await getAlert(t.db, tenant, a.id))?.eveSessionId).toBe("sess_abc123");
+    // Another household's id, an unknown id and a malformed id change nothing.
+    const { tenantId: other } = await createTenantForUser(t.db, { userId: await createUser(t.db, "Other"), name: "Other household" });
+    expect(await setAlertEveSession(t.db, other, a.id, "sess_other")).toBe(false);
+    expect(await setAlertEveSession(t.db, tenant, "not-a-uuid", "sess_x")).toBe(false);
+    expect((await getAlert(t.db, tenant, a.id))?.eveSessionId).toBe("sess_abc123");
   });
 
   it("acknowledges one or all, idempotently", async () => {

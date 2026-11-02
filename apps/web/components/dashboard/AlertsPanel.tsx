@@ -4,7 +4,7 @@ import { BellRing, Check, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { relativeTime } from "@/components/ConversationSidebar";
-import type { AlertItem, AlertListResponse, AlertSeverityName } from "@/lib/alert-types";
+import { incidentChatApplies, incidentChatPath, type AlertItem, type AlertListResponse, type AlertSeverityName } from "@/lib/alert-types";
 
 const SHOWN = 5;
 
@@ -24,8 +24,9 @@ const CRITICAL_CHIP =
 /**
  * Open owner alerts (_specs/owner-alerts.md). Owners see the household's and can mark
  * them as seen; members see alerts about themselves, read-only. Hidden when none are open.
+ * `incidentChat` (NEO_EVE_CHAT) adds "Ask Neo about this", which opens the eve incident chat.
  */
-export function AlertsPanel({ initial, isOwner }: { initial: AlertListResponse; isOwner: boolean }) {
+export function AlertsPanel({ initial, isOwner, incidentChat = false }: { initial: AlertListResponse; isOwner: boolean; incidentChat?: boolean }) {
   const [items, setItems] = useState<AlertItem[]>(initial.items.filter((a) => !a.acknowledgedAt));
   const [openCount, setOpenCount] = useState(initial.openCount);
   const [busy, setBusy] = useState(false);
@@ -111,6 +112,15 @@ export function AlertsPanel({ initial, isOwner }: { initial: AlertListResponse; 
                       {" · "}
                       <Link href={`/verdicts/${a.verdictId}`} className="inline-flex items-center text-accent hover:underline">
                         See the check
+                        <ChevronRight className="size-3" aria-hidden="true" />
+                      </Link>
+                    </>
+                  ) : null}
+                  {incidentChat && incidentChatApplies(a.kind) ? (
+                    <>
+                      {" · "}
+                      <Link href={incidentChatPath(a.id)} className="inline-flex items-center text-accent hover:underline">
+                        Ask Neo about this
                         <ChevronRight className="size-3" aria-hidden="true" />
                       </Link>
                     </>

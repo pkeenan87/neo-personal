@@ -16,6 +16,7 @@ import {
   deviceExpectedTools,
   deviceSignals,
   devices,
+  eveSessions,
   householdInvites,
   inboundAddresses,
   inboundMessages,
@@ -58,6 +59,7 @@ export const tenantTables = {
   policies,
   incidentActions,
   notificationOutbox,
+  eveSessions,
 } as const;
 
 /** Any table with a `tenantId` column. */

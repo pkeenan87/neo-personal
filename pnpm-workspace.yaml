@@ -6,3 +6,6 @@ allowBuilds:
   esbuild: true
   protobufjs: false
 
+minimumReleaseAgeExclude:
+  # eve 1.0.0-rc.1 (published 2026-10-31) for the v2 agent; delete once a day old. No transitive dep needed an exclusion.
+  - 'eve@1.0.0-rc.1'

@@ -178,11 +178,13 @@ export {
   markAlertEmail,
   purgeOldAlerts,
   setAlertEmailThreshold,
+  setAlertEveSession,
   type AlertListItem,
   type AlertOwner,
   type AlertRow,
   type CreateAlertInput,
 } from "./alerts.js";
+export { getEveSessionOwner, isEveSessionId, recordEveSession } from "./eve-sessions.js";
 export {
   PostgresReputationCache,
   SIGNAL_OUTCOMES,
