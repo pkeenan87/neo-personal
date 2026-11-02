@@ -1,9 +1,12 @@
 /**
- * `alert-created`: triggered by `neo/alert.created` from raiseAlert(). Emails the
- * household's owners (_specs/owner-alerts.md); the logic is in lib/server/alerts.
+ * `alert-created`: triggered by `neo/alert.created` from raiseAlert(). Drains the household's
+ * notification outbox (_specs/v2-m1-elder.md §6): the alert's rows were written with it; an
+ * alert with none (raised before the outbox) is enqueued first. The logic is in lib/server/alerts.
+ *
+ * The id stays `alert-created` so in-flight events and retries are not orphaned.
  */
 import { NonRetriableError } from "inngest";
-import { ALERT_CREATED_EVENT, createAlertDeliveryDeps, deliverAlert, type AlertCreatedData } from "@/lib/server/alerts";
+import { ALERT_CREATED_EVENT, deliverAlertNow, type AlertCreatedData } from "@/lib/server/alerts";
 import { inngest } from "../client";
 
 export function parseAlertCreatedData(data: unknown): AlertCreatedData | undefined {
@@ -15,19 +18,20 @@ export function parseAlertCreatedData(data: unknown): AlertCreatedData | undefin
 export const alertCreated = inngest.createFunction(
   {
     id: "alert-created",
-    name: "Email an owner alert",
+    name: "Email an alert",
     triggers: [{ event: ALERT_CREATED_EVENT }],
-    retries: 3,
-    // One household's alerts in order, so the daily cap count is not raced.
+    // Each run spends one send attempt per due row, and a row is given up on (alert `failed`)
+    // after five, so five runs exhaust it.
+    retries: 4,
+    // One household's drains in order.
     concurrency: { limit: 1, key: "event.data.tenantId" },
-    onFailure: async ({ event }) => {
-      const data = parseAlertCreatedData(event.data.event.data);
-      if (data) await createAlertDeliveryDeps().markEmail(data.tenantId, data.alertId, "failed");
-    },
   },
   async ({ event, step }) => {
     const data = parseAlertCreatedData(event.data);
     if (!data) throw new NonRetriableError("invalid neo/alert.created payload");
-    return step.run("deliver", () => deliverAlert(data, createAlertDeliveryDeps()));
+    const r = await step.run("drain", () => deliverAlertNow(data));
+    // Rows that failed with attempts left: let Inngest retry with backoff.
+    if (r.retry > 0) throw new Error(`${r.retry} alert email(s) failed; retrying`);
+    return r;
   },
 );

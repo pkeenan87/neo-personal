@@ -10,19 +10,13 @@ import { hashPii, logger } from "@neo/core";
 import {
   acknowledgeAlert,
   acknowledgeAllAlerts,
-  countAlertEmailsSince,
   countOpenAlerts,
-  createAlert,
-  getAlert,
   getAlertEmailThreshold,
   InvalidCursorError,
-  listAlertOwners,
   listAlerts,
   listMembers,
-  markAlertEmail,
   setAlertEmailThreshold,
   type AlertListItem,
-  type AlertOwner,
   type AlertRow,
   type CreateAlertInput,
   type DevicePublic,
@@ -35,19 +29,12 @@ import { env, inboundEnv } from "@/lib/env";
 import type { NeoSession } from "@/lib/session";
 import { recordAudit } from "../audit";
 import { getDb } from "../db";
-import { renderAlertCapEmail, renderAlertEmail } from "../email/alert-email";
-import { getMailer, type Mailer } from "../email/resend";
 import {
   memoryAcknowledgeAlert,
   memoryAcknowledgeAll,
-  memoryAlertOwners,
-  memoryCountAlertEmailsSince,
   memoryCountOpenAlerts,
-  memoryCreateAlert,
-  memoryGetAlert,
   memoryGetThreshold,
   memoryListAlerts,
-  memoryMarkAlertEmail,
   memorySetThreshold,
 } from "../memory-alerts";
 import { memoryListMembers } from "../memory-state";
@@ -64,19 +51,13 @@ import {
   leftAlertText,
   verdictAlertText,
 } from "./templates";
+import { createAlertAndEnqueue, createOutboxDrainDeps, drainOutbox, enqueueIfLegacy } from "./outbox";
+import { ALERT_EMAIL_DAILY_CAP, meetsThreshold } from "./recipients";
+
+export { ALERT_EMAIL_DAILY_CAP, meetsThreshold };
 
 export const ALERT_CREATED_EVENT = "neo/alert.created";
 export const BREACH_ALERT_KIND = "breach_detected" as const;
-/** Alert emails per household per UTC day before the "more than usual" notice. */
-export const ALERT_EMAIL_DAILY_CAP = 20;
-
-const SEVERITY_RANK = { low: 1, medium: 2, high: 3, critical: 4 } as const;
-const THRESHOLD_RANK: Record<AlertThreshold, number> = { medium: 2, high: 3, critical: 4, off: Infinity };
-
-export function meetsThreshold(severity: AlertRow["severity"], threshold: AlertThreshold): boolean {
-  return SEVERITY_RANK[severity] >= THRESHOLD_RANK[threshold];
-}
-
 export interface AlertCreatedData {
   alertId: string;
   tenantId: string;
@@ -95,13 +76,16 @@ const members = tenantMembers;
 
 // ─── Raising ───────────────────────────────────────────────────────
 
-/** Insert (deduplicated) and queue delivery. Never throws. */
+/**
+ * Insert (deduplicated) with its outbox rows in one transaction, then queue the drain.
+ * Never throws.
+ */
 export async function raiseAlert(input: CreateAlertInput): Promise<AlertRow | null> {
   try {
-    const db = getDb();
-    const row = db ? await createAlert(db, input) : memoryCreateAlert(input);
-    if (row) await queueDelivery({ alertId: row.id, tenantId: row.tenantId });
-    return row;
+    const created = await createAlertAndEnqueue(input);
+    if (!created) return null;
+    if (created.enqueued > 0) await queueDelivery({ alertId: created.alert.id, tenantId: created.alert.tenantId });
+    return created.alert;
   } catch (err) {
     logger.error("Alert creation failed", "alerts", { tenantId: input.tenantId, errorType: input.kind, errorMessage: errText(err) });
     return null;
@@ -110,7 +94,7 @@ export async function raiseAlert(input: CreateAlertInput): Promise<AlertRow | nu
 
 async function queueDelivery(data: AlertCreatedData): Promise<void> {
   if (env().MOCK_MODE && !inboundEnv().INNGEST_EVENT_KEY) {
-    await deliverAlert(data, createAlertDeliveryDeps()).catch((err) =>
+    await deliverAlertNow(data).catch((err) =>
       logger.error("Inline alert delivery failed", "alerts", { tenantId: data.tenantId, errorMessage: errText(err) }),
     );
     return;
@@ -394,67 +378,14 @@ export async function alertProtectionDisabled(input: {
 
 // ─── Delivery ──────────────────────────────────────────────────────
 
-export interface AlertDeliveryDeps {
-  getAlert(tenantId: string, id: string): Promise<AlertRow | undefined>;
-  owners(tenantId: string): Promise<AlertOwner[]>;
-  countSentSince(tenantId: string, since: Date): Promise<number>;
-  markEmail(tenantId: string, id: string, status: AlertRow["emailStatus"]): Promise<void>;
-  mailer: Mailer | null;
-  appUrl: string;
-}
-
-export function createAlertDeliveryDeps(): AlertDeliveryDeps {
-  const db = getDb();
-  return {
-    getAlert: async (t, id) => (db ? getAlert(db, t, id) : memoryGetAlert(t, id)),
-    owners: async (t) => (db ? listAlertOwners(db, t) : memoryAlertOwners(t)),
-    countSentSince: async (t, since) => (db ? countAlertEmailsSince(db, t, since) : memoryCountAlertEmailsSince(t, since)),
-    markEmail: async (t, id, status) => (db ? markAlertEmail(db, t, id, status) : memoryMarkAlertEmail(t, id, status)),
-    mailer: getMailer(),
-    appUrl: inboundEnv().APP_URL,
-  };
-}
-
-export type DeliveryOutcome = "sent" | "skipped" | "capped" | "missing" | "already_handled";
-
 /**
- * Email the household's owners about one alert. Idempotent: an alert that is no longer
- * `pending` is left alone, and Resend idempotency keys cover a retry mid-send. A send
- * error propagates so Inngest retries; the function's onFailure marks it `failed`.
+ * What the `alert-created` function does: enqueue outbox rows for a legacy alert (raised
+ * before the outbox existed, or whose enqueue was deferred), then drain the household.
  */
-export async function deliverAlert(data: AlertCreatedData, deps: AlertDeliveryDeps, now = new Date()): Promise<DeliveryOutcome> {
-  const alert = await deps.getAlert(data.tenantId, data.alertId);
-  if (!alert) return "missing";
-  if (alert.emailStatus !== "pending") return "already_handled";
-
-  const recipients = (await deps.owners(data.tenantId)).filter((o) => o.email && meetsThreshold(alert.severity, o.threshold));
-  if (!deps.mailer || recipients.length === 0) {
-    await deps.markEmail(data.tenantId, alert.id, "skipped");
-    return "skipped";
-  }
-
-  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  if ((await deps.countSentSince(data.tenantId, dayStart)) >= ALERT_EMAIL_DAILY_CAP) {
-    await deps.markEmail(data.tenantId, alert.id, "skipped");
-    const notice = renderAlertCapEmail({ dashboardUrl: `${deps.appUrl}/dashboard`, cap: ALERT_EMAIL_DAILY_CAP });
-    const date = dayStart.toISOString().slice(0, 10);
-    for (const o of recipients) {
-      await deps.mailer.send({ to: o.email!, ...notice, idempotencyKey: `alert-cap:${data.tenantId}:${date}:${o.userId}` });
-    }
-    return "capped";
-  }
-
-  const link = alert.kind === "breach_detected"
-    ? { url: `${deps.appUrl}/settings/breaches`, label: "Review breach status" }
-    : alert.verdictId
-      ? { url: `${deps.appUrl}/verdicts/${alert.verdictId}`, label: "See the check" }
-      : { url: `${deps.appUrl}/settings/household`, label: "Open household settings" };
-  const email = renderAlertEmail({ severity: alert.severity, title: alert.title, body: alert.body, link });
-  for (const o of recipients) {
-    await deps.mailer.send({ to: o.email!, ...email, idempotencyKey: `alert:${alert.id}:${o.userId}` });
-  }
-  await deps.markEmail(data.tenantId, alert.id, "sent");
-  return "sent";
+export async function deliverAlertNow(data: AlertCreatedData, now = new Date()): Promise<{ enqueued: number; retry: number }> {
+  const enqueued = await enqueueIfLegacy(data.tenantId, data.alertId);
+  const r = await drainOutbox(data.tenantId, createOutboxDrainDeps(), now, { alertId: data.alertId });
+  return { enqueued, retry: r.retry };
 }
 
 // ─── Feed and settings ─────────────────────────────────────────────

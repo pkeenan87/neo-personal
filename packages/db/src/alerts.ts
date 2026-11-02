@@ -4,7 +4,7 @@
  */
 import { and, desc, eq, gte, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import type { Db } from "./client.js";
+import type { Db, Tx } from "./client.js";
 import {
   alerts,
   memberships,
@@ -61,35 +61,38 @@ function clip(s: string, max: number): string {
   return chars.length <= max ? s : chars.slice(0, max - 1).join("") + "…";
 }
 
+/** Insert an alert inside a tenant transaction; null on a dedupe hit. `tx` must have app.tenant_id set. */
+export async function insertAlertTx(tx: Tx, input: CreateAlertInput): Promise<AlertRow | null> {
+  const rows = await tx
+    .insert(alerts)
+    .values({
+      memberId:
+        input.memberId !== undefined
+          ? input.memberId
+          : input.subjectUserId
+            ? await memberIdForUserTx(tx, input.tenantId, input.subjectUserId)
+            : null,
+      signalIds: input.signalIds ?? [],
+      tenantId: input.tenantId,
+      subjectUserId: input.subjectUserId,
+      kind: input.kind,
+      severity: input.severity,
+      title: clip(input.title, ALERT_TITLE_MAX),
+      body: clip(input.body, ALERT_BODY_MAX),
+      dedupeKey: input.dedupeKey,
+      verdictId: input.verdictId ?? null,
+      deviceId: input.deviceId ?? null,
+      ...(input.now ? { createdAt: input.now } : {}),
+    })
+    .onConflictDoNothing({ target: [alerts.tenantId, alerts.dedupeKey] })
+    .returning();
+  return rows[0] ?? null;
+}
+
 /** Insert an alert; null when an alert with the same dedupe key already exists in the household. */
 export async function createAlert(db: Db, input: CreateAlertInput): Promise<AlertRow | null> {
   assertTenantId(input.tenantId);
-  const rows = await tenantScoped(db, input.tenantId).transaction(async (t) =>
-    t.tx
-      .insert(alerts)
-      .values({
-        memberId:
-          input.memberId !== undefined
-            ? input.memberId
-            : input.subjectUserId
-              ? await memberIdForUserTx(t.tx, input.tenantId, input.subjectUserId)
-              : null,
-        signalIds: input.signalIds ?? [],
-        tenantId: input.tenantId,
-        subjectUserId: input.subjectUserId,
-        kind: input.kind,
-        severity: input.severity,
-        title: clip(input.title, ALERT_TITLE_MAX),
-        body: clip(input.body, ALERT_BODY_MAX),
-        dedupeKey: input.dedupeKey,
-        verdictId: input.verdictId ?? null,
-        deviceId: input.deviceId ?? null,
-        ...(input.now ? { createdAt: input.now } : {}),
-      })
-      .onConflictDoNothing({ target: [alerts.tenantId, alerts.dedupeKey] })
-      .returning(),
-  );
-  return rows[0] ?? null;
+  return tenantScoped(db, input.tenantId).transaction((t) => insertAlertTx(t.tx, input));
 }
 
 export async function getAlert(db: Db, tenantId: string, id: string): Promise<AlertRow | undefined> {
