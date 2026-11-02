@@ -2,7 +2,7 @@
 
 branch: claude/feature/v2-m1-elder
 plan: `_plans/v2.md` (M1); architecture: `_specs/v2-architecture.md` (§2–§5)
-status: draft, 2026-11-02
+status: draft, 2026-11-02 (slices 1–4 built)
 
 ## Summary
 
@@ -142,6 +142,16 @@ Both documents are amended in this PR.
   - `allow_once`: resolves the incident with no policy change and records the decision.
   
   Both write `incident_actions` and an audit row.
+- **Built (slice 4), decisions made in implementation:**
+  - `requireHouseholdAdmin` (`apps/web/lib/server/household-admin.ts`) takes `{ tenantId, userId, role? }` and re-reads `memberships.role` from the database; the `role` the caller carries is only used by the no-database fallback. Both acting tools and every new route use it; existing routes are not migrated.
+  - The console API is `/api/household/protected-members/[id]` (GET, PATCH) and `.../policy` (PUT), not `/api/household/members/[id]`: `members/[userId]` exists and Next.js allows one slug name per level. The page is `/settings/household/members/[id]` as specified; the household page lists members (owner only) with mode badges.
+  - `member` policy versions store the member's current member-layer rules with `notify` merged over them; `null` removes a member's own threshold. The effective policy is shown in plain words (`lib/policy-summary.ts`).
+  - Contact addresses exist only for a member row with no account. M1 has no way to create such a row (every protected member has an account), so the contact form appears only for rows that exist; creating account-less helpers is not built.
+  - Elder-off email goes straight through the mailer (not the outbox table, which is alert-coupled), templated, to every owner. The Resend idempotency key names the transition (the member row's previous `updated_at`), so a double submit or two racing requests send once.
+  - `resolveAlert` also sets `acknowledged_at/by` when nobody has, so a closed incident leaves the open counts and the nav dot. The dashboard panel therefore shows a "Resolved" / "False alarm" label only on items that were closed while on screen or listed with `status=all`; `/api/alerts` items carry `status`.
+  - `mark_expected` requires an alert of kind `remote_access` on a device, with a tool id in one of its stored signals. A `tcc_grant`-sourced alert that stores only a `bundleId` has no derivable tool and is refused. If the remote ID cannot be stored (limits, characters) nothing changes and the incident stays open.
+  - `recordIncidentAction` refuses an alert outside the household: the `incident_actions.alert_id` foreign key alone would accept another household's alert id.
+  - The mock model does not call the acting tools: the eve process has no database in MOCK_MODE, so they would answer `not_found`.
 - **Not in M1:** `block_site` and `end_session`. They need policy bundles (M2), and the "elder autonomy" question is still open.
 
 ## Possible Edge Cases

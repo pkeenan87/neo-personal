@@ -57,7 +57,7 @@ function toItem(row: { toolId: string; peerIds: string[] }): ExpectedToolItem {
   return { toolId: row.toolId, name: findRemoteAccessTool(row.toolId)?.name ?? row.toolId, peerIds: row.peerIds };
 }
 
-export async function setDeviceExpectedTools(session: NeoSession, deviceId: string, body: Record<string, unknown> | null): Promise<Outcome<SetExpectedToolsResponse>> {
+export async function setDeviceExpectedTools(session: Pick<NeoSession, "tenantId" | "userId" | "role">, deviceId: string, body: Record<string, unknown> | null): Promise<Outcome<SetExpectedToolsResponse>> {
   if (session.role !== "owner") return OWNER_ONLY;
   const tools = parseTools(body?.tools);
   if (!tools) return INVALID;
@@ -68,6 +68,46 @@ export async function setDeviceExpectedTools(session: NeoSession, deviceId: stri
   if (!rows) return DEVICE_NOT_FOUND;
   await recordAudit(session.tenantId, session.userId, "device.expected_tools_changed", { deviceId, toolCount: rows.length });
   return { ok: true, value: { tools: rows.map(toItem) } };
+}
+
+export type AddExpectedToolOutcome =
+  | { ok: true; toolId: string; toolName: string; peerSaved: boolean; toolCount: number }
+  | { ok: false; code: "unknown_tool" | "invalid_peer" | "limit" | "device_not_found"; message: string };
+
+/**
+ * Add one tool, and the peer id that connected, to a device's allow-list, keeping what is already
+ * there (the acting `mark_expected` tool, from an incident's stored signals). The caller has already
+ * passed `requireHouseholdAdmin`. Respects the PUT route's limits and writes the same audit event.
+ */
+export async function addDeviceExpectedTool(
+  actor: { tenantId: string; userId: string },
+  deviceId: string,
+  toolId: string,
+  peerId: string | undefined,
+): Promise<AddExpectedToolOutcome> {
+  const known = findRemoteAccessTool(toolId);
+  if (!known) return { ok: false, code: "unknown_tool", message: `"${toolId}" is not a known remote-access tool.` };
+  if (peerId !== undefined && !PEER_ID_RE.test(peerId)) {
+    return { ok: false, code: "invalid_peer", message: "The remote ID in this alert can't be saved." };
+  }
+  const existing = await listExpectedTools(actor.tenantId, { deviceId });
+  const tools = existing.map((r) => ({ toolId: r.toolId, peerIds: [...r.peerIds] }));
+  let entry = tools.find((t) => t.toolId === toolId);
+  if (!entry) {
+    if (tools.length >= MAX_EXPECTED_TOOLS) return { ok: false, code: "limit", message: `This device already has ${MAX_EXPECTED_TOOLS} expected tools.` };
+    entry = { toolId, peerIds: [] };
+    tools.push(entry);
+  }
+  if (peerId !== undefined && !entry.peerIds.includes(peerId)) {
+    if (entry.peerIds.length >= MAX_EXPECTED_TOOL_PEER_IDS) {
+      return { ok: false, code: "limit", message: `This tool already has ${MAX_EXPECTED_TOOL_PEER_IDS} expected remote IDs.` };
+    }
+    entry.peerIds.push(peerId);
+  }
+  const rows = await setExpectedTools({ tenantId: actor.tenantId, deviceId, tools, createdBy: actor.userId });
+  if (!rows) return { ok: false, code: "device_not_found", message: "That device is no longer in the household." };
+  await recordAudit(actor.tenantId, actor.userId, "device.expected_tools_changed", { deviceId, toolCount: rows.length });
+  return { ok: true, toolId, toolName: known.name, peerSaved: peerId !== undefined, toolCount: rows.length };
 }
 
 /** One device's expected tools, for the heartbeat's `device` item. */

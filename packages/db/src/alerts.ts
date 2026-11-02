@@ -169,6 +169,34 @@ export async function acknowledgeAllAlerts(db: Db, tenantId: string, userId: str
 }
 
 /**
+ * Close an incident (`resolved` or `false_positive`) that is still `open` or `acknowledged`:
+ * sets `status`, `resolved_at`, and, when nobody has yet, `acknowledged_at/by` (a closed incident
+ * is no longer open). Atomic on the status, so two racing closes cannot both win. Undefined for a
+ * malformed id, another household's alert, or one already closed.
+ */
+export async function resolveAlert(
+  db: Db,
+  tenantId: string,
+  id: string,
+  status: "resolved" | "false_positive",
+  userId: string,
+  now = new Date(),
+): Promise<AlertRow | undefined> {
+  if (!UUID_RE.test(id)) return undefined;
+  const [row] = await tenantScoped(db, tenantId).update(
+    alerts,
+    {
+      status,
+      resolvedAt: now,
+      acknowledgedAt: sql`coalesce(${alerts.acknowledgedAt}, ${now.toISOString()}::timestamptz)`,
+      acknowledgedBy: sql`case when ${alerts.acknowledgedAt} is null then ${userId} else ${alerts.acknowledgedBy} end`,
+    },
+    and(eq(alerts.id, id), inArray(alerts.status, ["open", "acknowledged"])),
+  );
+  return row;
+}
+
+/**
  * Remember the eve incident-chat session for an alert (`alerts.eve_session_id`), so opening the
  * incident again resumes it. Tenant-scoped; false for a malformed id or another household's alert.
  */

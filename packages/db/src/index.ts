@@ -177,6 +177,7 @@ export {
   listAlerts,
   markAlertEmail,
   purgeOldAlerts,
+  resolveAlert,
   setAlertEmailThreshold,
   setAlertEveSession,
   type AlertListItem,
@@ -184,6 +185,7 @@ export {
   type AlertRow,
   type CreateAlertInput,
 } from "./alerts.js";
+export { listIncidentActions, recordIncidentAction, type IncidentActionRow, type RecordIncidentActionInput } from "./incident-actions.js";
 export { getEveSessionOwner, isEveSessionId, recordEveSession } from "./eve-sessions.js";
 export {
   PostgresReputationCache,
@@ -247,6 +249,7 @@ export {
 } from "./outbox.js";
 export {
   MAX_HELPERS_PER_MEMBER,
+  countHouseholdOwners,
   createMemberForUser,
   decryptContact,
   defaultDisplayName,
@@ -257,8 +260,10 @@ export {
   getMember,
   getMemberByUserId,
   getMemberContact,
+  getMembershipRole,
   getProtectionLayers,
   insertPolicyVersion,
+  latestMemberRules,
   listMembers as listMemberRecords,
   memberIdForUserTx,
   memberRoleForMembership,

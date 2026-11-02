@@ -4,7 +4,7 @@ import { BellRing, Check, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { relativeTime } from "@/components/ConversationSidebar";
-import { incidentChatApplies, incidentChatPath, type AlertItem, type AlertListResponse, type AlertSeverityName } from "@/lib/alert-types";
+import { CLOSED_STATUS_LABEL, incidentChatApplies, incidentChatPath, type AlertItem, type AlertListResponse, type AlertSeverityName } from "@/lib/alert-types";
 
 const SHOWN = 5;
 
@@ -102,6 +102,11 @@ export function AlertsPanel({ initial, isOwner, incidentChat = false }: { initia
                     <span className="sr-only">{sev.label}: </span>
                   )}
                   {a.title}
+                  {CLOSED_STATUS_LABEL[a.status] ? (
+                    <span className="ml-1.5 inline-block rounded-full bg-surface-2 px-1.5 py-0.5 align-middle text-[10px] font-semibold tracking-wide text-muted uppercase">
+                      {CLOSED_STATUS_LABEL[a.status]}
+                    </span>
+                  ) : null}
                 </p>
                 <p className="mt-0.5 line-clamp-2 text-sm text-muted">{a.body}</p>
                 <p className="mt-1 text-xs text-muted">

@@ -151,3 +151,47 @@ export async function createEveFixture(): Promise<EveFixture> {
 export async function alertRow(db: Db, tenantId: string, id: string) {
   return tenantScoped(db, tenantId).first(alerts, eq(alerts.id, id));
 }
+
+let incidentSeq = 0;
+
+/**
+ * A `remote_access` incident about `person`'s device with one stored `remote_access_session` signal
+ * (the payload is the validated event minus id/type/detector). `payload: null` stores no signal.
+ */
+export async function addRemoteIncident(
+  db: Db,
+  person: Person,
+  payload: Record<string, unknown> | null = { toolId: "anydesk", direction: "incoming", peerId: "123 456 789" },
+  over: { kind?: "remote_access" | "scam_page"; severity?: "high" | "critical" } = {},
+): Promise<string> {
+  incidentSeq += 1;
+  const signalIds = payload
+    ? [
+        (
+          await insertDeviceSignal(db, {
+            tenantId: person.tenantId,
+            deviceId: person.deviceId,
+            userId: person.userId,
+            clientEventId: crypto.randomUUID(),
+            type: "remote_session",
+            detector: "remote_access_session",
+            subject: String(payload.toolId ?? "unknown"),
+            payload,
+            observedAt: new Date(),
+          })
+        ).row.id,
+      ]
+    : [];
+  const alert = await createAlert(db, {
+    tenantId: person.tenantId,
+    subjectUserId: person.userId,
+    kind: over.kind ?? "remote_access",
+    severity: over.severity ?? "critical",
+    title: "A remote session started",
+    body: "Someone connected with a remote access tool.",
+    dedupeKey: `remote-${incidentSeq}-${crypto.randomUUID()}`,
+    deviceId: person.deviceId,
+    signalIds,
+  });
+  return alert!.id;
+}

@@ -15,6 +15,7 @@ function alert(over: Partial<AlertItem> = {}): AlertItem {
     subjectName: "Kid",
     verdictId: "v-1",
     createdAt: new Date().toISOString(),
+    status: "open",
     acknowledgedAt: null,
     acknowledgedByName: null,
     ...over,
@@ -99,5 +100,19 @@ describe("AlertsPanel", () => {
     await userEvent.click(screen.getByRole("button", { name: `Mark "${a.title}" as seen` }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't update the alert");
     expect(screen.getByText(a.title)).toBeInTheDocument();
+  });
+});
+
+describe("AlertsPanel incident status", () => {
+  it("labels an incident that was closed, and nothing else", () => {
+    render(
+      <AlertsPanel
+        initial={response([alert({ title: "Open one" }), alert({ title: "Closed one", status: "false_positive" }), alert({ title: "Seen one", status: "acknowledged" })])}
+        isOwner
+      />,
+    );
+    expect(screen.getByText("False alarm")).toBeInTheDocument();
+    expect(screen.queryByText("Resolved")).not.toBeInTheDocument();
+    expect(screen.getAllByText(/False alarm|Resolved/)).toHaveLength(1);
   });
 });
