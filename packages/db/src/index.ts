@@ -223,3 +223,28 @@ export {
   type AccountHardeningVersion,
 } from "./account-hardening.js";
 export type { SigninEvent, SigninEventInput, SigninEventSource, TenantSigninEvents } from "./signin-events.js";
+export {
+  MAX_HELPERS_PER_MEMBER,
+  createMemberForUser,
+  decryptContact,
+  defaultDisplayName,
+  deleteMemberForUser,
+  deleteMemberForUserTx,
+  encryptContact,
+  ensureMemberForUserTx,
+  getMember,
+  getMemberByUserId,
+  getMemberContact,
+  getProtectionLayers,
+  insertPolicyVersion,
+  listMembers as listMemberRecords,
+  memberIdForUserTx,
+  memberRoleForMembership,
+  normalizeContact,
+  normalizeDisplayName,
+  updateMember,
+  type Member,
+  type MemberPatch,
+  type MemberRow,
+  type ProtectionLayers,
+} from "./members.js";

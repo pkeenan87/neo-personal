@@ -36,6 +36,7 @@ const SUBJECT_TYPE_BY_DETECTOR: Record<SignalDetector, SubjectType> = {
   unwanted_software: "software",
   remote_access_session: "remote_session",
   tcc_grant: "permission",
+  payment_page: "page",
 };
 
 /** Plain-language explanation for one indicator/reason code (client-sent indicator codes, or a server reason code from rules.ts). */

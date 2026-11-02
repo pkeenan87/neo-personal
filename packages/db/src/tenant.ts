@@ -20,7 +20,11 @@ import {
   inboundAddresses,
   inboundMessages,
   knownSigninDevices,
+  incidentActions,
+  members,
   memberships,
+  notificationOutbox,
+  policies,
   signinEvents,
   turns,
   usageEvents,
@@ -50,6 +54,10 @@ export const tenantTables = {
   deviceExpectedTools,
   signinEvents,
   knownSigninDevices,
+  members,
+  policies,
+  incidentActions,
+  notificationOutbox,
 } as const;
 
 /** Any table with a `tenantId` column. */

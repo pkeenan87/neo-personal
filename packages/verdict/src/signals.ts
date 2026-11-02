@@ -15,6 +15,7 @@ export const SIGNAL_DETECTORS = [
   "unwanted_software",
   "remote_access_session",
   "tcc_grant",
+  "payment_page",
 ] as const;
 export type SignalDetector = (typeof SIGNAL_DETECTORS)[number];
 
@@ -65,6 +66,10 @@ export type RemoteSessionDirection = (typeof REMOTE_SESSION_DIRECTIONS)[number];
 
 const TCC_SERVICES = ["screen_recording", "accessibility", "full_disk_access"] as const;
 export type TccService = (typeof TCC_SERVICES)[number];
+
+/** `category` on `payment_page`: what the page asks the user to pay with. */
+export const PAYMENT_CATEGORIES = ["gift_card", "crypto", "wire", "other"] as const;
+export type PaymentCategory = (typeof PAYMENT_CATEGORIES)[number];
 
 /** Maximum events accepted in one `POST /api/signals` batch. */
 export const MAX_SIGNAL_BATCH = 50;
@@ -248,6 +253,18 @@ const TccGrantEvent = z
   })
   .strict();
 
+/** Dormant in M1 (no client sends it yet); `domain` and `category` only, never the URL or page text. */
+const PaymentPageEvent = z
+  .object({
+    id: IdSchema,
+    type: z.literal("page"),
+    detector: z.literal("payment_page"),
+    observedAt: ObservedAtSchema,
+    domain: DomainSchema,
+    category: z.enum(PAYMENT_CATEGORIES),
+  })
+  .strict();
+
 /**
  * Discriminated union on `detector`. Every variant is `.strict()`: unknown
  * keys are rejected. This is the single source of truth for the client and
@@ -264,6 +281,7 @@ export const SignalEventSchema = z.discriminatedUnion("detector", [
   UnwantedSoftwareEvent,
   RemoteAccessSessionEvent,
   TccGrantEvent,
+  PaymentPageEvent,
 ]);
 
 export type SignalEvent = z.infer<typeof SignalEventSchema>;
@@ -286,3 +304,19 @@ export function parseSignalEvent(raw: unknown): ParseSignalEventResult {
   }
   return { ok: false, id, reason: "invalid" };
 }
+
+/**
+ * Server-generated signals (never accepted from clients, so deliberately outside `SIGNAL_DETECTORS`
+ * and `SignalEventSchema`): the extension-uninstall beacon and the devices-offline sweep. The
+ * policy engine in `@neo/core` accepts these alongside `SignalEvent`.
+ */
+export const PROTECTION_DISABLED_REASONS = ["extension_uninstalled", "device_offline"] as const;
+export type ProtectionDisabledReason = (typeof PROTECTION_DISABLED_REASONS)[number];
+
+export type ServerSignalEvent = {
+  id: string;
+  detector: "protection_disabled";
+  reason: ProtectionDisabledReason;
+  /** ISO datetime the server observed it. */
+  observedAt: string;
+};

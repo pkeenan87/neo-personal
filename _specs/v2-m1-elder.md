@@ -77,6 +77,15 @@ Both documents are amended in this PR.
 - The new alert kinds `install_during_session`, `payment_under_pressure` and `protection_disabled` are added by dropping and re-adding `alerts_kind_check`, as 0010 does. Their template text goes in `lib/server/alerts/templates.ts` and is not written by the model.
 - **Enrichment:** when `signal-escalate` gets a lookup result, it calls `evaluateSignal` again with `enrichment` set, and applies that decision. A failed lookup still dismisses the signal and never alerts.
 
+- **Built (slice 1), decisions made in implementation:**
+  - `Decision.correlations` is an array, since one signal can complete more than one correlation. Each one becomes its own alert, deduped by `<kind>:<userId>:<30-minute bucket>`, and `scam_in_progress` keeps its existing key.
+  - Rules 3 and 4 are switched on by policy, not by mode name: they run only when `remote_access.sessionWindowMinutes` or `payments.underPressureWindowMinutes` is set, and the Elder defaults set both. Rule 5 likewise reads `devices.protectionDisabledSeverity`.
+  - Only an incoming, non-baseline remote session that alerted at **high or above** (unknown peer or unexpected tool) arms rules 3 and 4. A helper's own expected session doesn't arm them.
+  - A `payment_page` on its own raises kind `payment_under_pressure` at medium.
+  - Server signals (`protection_disabled`) aren't saved as `device_signals` rows; they only raise the alert, alongside today's `device_removed` and `device_offline` alerts.
+  - Standard parity: the unchanged `apps/web/test/signal-rules.test.ts` passes against the engine.
+- **Migration ordering:** Drizzle skips a migration whose journal `when` is at or below the last applied one. 0017's `when` is set above 0016's. If 0017 reaches production before #50 merges, #50's migration has to be renumbered (0018) with a newer `when`, or it will be skipped silently.
+
 ### 5. Incidents (slice 1)
 - `alerts` gains `member_id`, `status` (`open|acknowledged|resolved|false_positive`, default `open`), `signal_ids uuid[]`, `eve_session_id` and `resolved_at`.
 - **Backfill:**

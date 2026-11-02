@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
+import { ensureMemberForUserTx } from "./members.js";
 import { auditEvents, memberships, tenants, type MembershipRole } from "./schema/index.js";
 import { assertTenantId, setTenantContext, setUserContext, tenantScoped } from "./tenant.js";
 
@@ -30,6 +31,7 @@ export async function createTenantForUser(db: Db, input: { userId: string; name:
     await setTenantContext(tx, tenantId);
     await tx.insert(tenants).values({ id: tenantId, name, kind: "household" });
     await tx.insert(memberships).values({ tenantId, userId: input.userId, role: "owner" });
+    await ensureMemberForUserTx(tx, tenantId, { userId: input.userId, role: "owner" });
     await tx.insert(auditEvents).values({
       tenantId,
       userId: input.userId,

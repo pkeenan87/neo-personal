@@ -31,6 +31,7 @@ import {
   type HouseholdInviteKind,
   type MembershipRole,
 } from "./schema/index.js";
+import { deleteMemberForUserTx, ensureMemberForUserTx } from "./members.js";
 import { assertTenantId, setTenantContext, setUserContext, tenantScoped } from "./tenant.js";
 
 export const INVITE_SECRET_PREFIX = "neo_inv_";
@@ -413,6 +414,7 @@ export async function acceptHouseholdInvite(
 
       await setTenantContext(tx, ids.tenantId);
       await tx.insert(memberships).values({ tenantId: ids.tenantId, userId, role: "member" });
+      await ensureMemberForUserTx(tx, ids.tenantId, { userId, role: "adult" });
       await tx
         .update(householdInvites)
         .set({ acceptedBy: userId, acceptedAt: now })
@@ -461,6 +463,7 @@ async function detachMember(
     // Their private chats go; their verdicts stay as household history.
     const deleted = await t.delete(conversations, eq(conversations.userId, userId));
     await t.delete(memberships, eq(memberships.userId, userId));
+    await deleteMemberForUserTx(t.tx, tenantId, userId);
     const now = new Date();
     // Their devices and pending enrollment codes here stop working (_specs/device-enrollment.md).
     await t.update(devices, { revokedAt: now, revokedBy: actorUserId === userId ? null : actorUserId }, and(eq(devices.userId, userId), isNull(devices.revokedAt)));

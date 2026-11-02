@@ -187,6 +187,11 @@ describe("delivery", () => {
       acknowledgedBy: null,
       emailStatus: "pending" as const,
       emailedAt: null,
+      memberId: null,
+      status: "open" as const,
+      signalIds: [],
+      eveSessionId: null,
+      resolvedAt: null,
     };
     return {
       sent,

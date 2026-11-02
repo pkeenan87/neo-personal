@@ -41,6 +41,7 @@ import { getMailer } from "./email/resend";
 import type { Outcome } from "./household";
 import { takeRateSlot } from "./rate-limit";
 import { expectedToolsByDevice, expectedToolsForDevice } from "./signals/expected-tools";
+import { recordServerSignal } from "./signals/server-signals";
 import { uninstallUrl, verifyDeviceSignature } from "./uninstall";
 import { household } from "./verdict-data";
 
@@ -284,6 +285,7 @@ export async function reportUninstalled(deviceId: string, sig: string): Promise<
     if (!r || r.alreadyRevoked) return;
     await recordAudit(tenantId, r.device.userId, "device.revoked", { deviceId, by: "device" });
     await alertDeviceRemoved(r.device, "device");
+    await recordServerSignal(r.device, "extension_uninstalled");
   } catch (err) {
     logger.error("Uninstall report failed", "devices", { errorMessage: errText(err) });
   }
@@ -295,10 +297,17 @@ export interface OfflineSweepDeps {
   listStale(before: Date): Promise<{ id: string; tenantId: string }[]>;
   markOffline(tenantId: string, deviceId: string, at: Date): Promise<DevicePublic | undefined>;
   alertOffline(device: DevicePublic): Promise<boolean>;
+  /** Policy-driven `protection_disabled` signal (Elder mode); optional so older callers keep working. */
+  protectionDisabled?(device: DevicePublic): Promise<unknown>;
 }
 
 export function createOfflineSweepDeps(): OfflineSweepDeps {
-  return { listStale: listStaleDevices, markOffline: markDeviceOfflineAlerted, alertOffline: alertDeviceOffline };
+  return {
+    listStale: listStaleDevices,
+    markOffline: markDeviceOfflineAlerted,
+    alertOffline: alertDeviceOffline,
+    protectionDisabled: (device) => recordServerSignal(device, "device_offline"),
+  };
 }
 
 /**
@@ -320,6 +329,7 @@ export async function runOfflineDeviceSweep(
       if (!device) continue;
       marked++;
       if (await deps.alertOffline(device)) alerted++;
+      await deps.protectionDisabled?.(device);
     } catch (err) {
       errors++;
       logger.error("Offline device sweep failed for a device", "devices", { tenantId: s.tenantId, errorMessage: errText(err) });
