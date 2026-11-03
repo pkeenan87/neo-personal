@@ -24,6 +24,7 @@ import {
   type EnrollmentCodePreview,
   type EnrollmentCodePublic,
   type MembershipRole,
+  type PolicyBundleRow,
   type RedeemEnrollmentCodeResult,
 } from "@neo/db";
 import { memoryInsertDeviceToken, memoryRevokeDeviceTokens } from "./memory-desktop-tokens";
@@ -51,6 +52,7 @@ interface MemDevice {
   offlineAlertedAt: Date | null;
   revokedAt: Date | null;
   revokedBy: string | null;
+  policyVersionApplied: string | null;
 }
 
 interface MemCode {
@@ -67,7 +69,10 @@ interface MemCode {
   revokedAt: Date | null;
 }
 
-const g = globalThis as typeof globalThis & { __neoMemoryDevices?: { devices: Map<string, MemDevice>; codes: Map<string, MemCode> } };
+const g = globalThis as typeof globalThis & {
+  __neoMemoryDevices?: { devices: Map<string, MemDevice>; codes: Map<string, MemCode> };
+  __neoMemoryPolicyBundles?: Map<string, PolicyBundleRow>;
+};
 
 function state() {
   g.__neoMemoryDevices ??= { devices: new Map(), codes: new Map() };
@@ -76,6 +81,20 @@ function state() {
 
 export function resetMemoryDevices(): void {
   g.__neoMemoryDevices = undefined;
+  g.__neoMemoryPolicyBundles = undefined;
+}
+
+// ─── Signed policy bundles (the twin of @neo/db policy-bundles.ts) ──
+
+export function memoryGetPolicyBundle(tenantId: string, deviceId: string): PolicyBundleRow | undefined {
+  const d = state().devices.get(deviceId);
+  return d && d.tenantId === tenantId ? g.__neoMemoryPolicyBundles?.get(deviceId) : undefined;
+}
+
+export function memoryUpsertPolicyBundle(tenantId: string, row: PolicyBundleRow): void {
+  const d = state().devices.get(row.deviceId);
+  if (!d || d.tenantId !== tenantId) throw new Error("device is not in this household");
+  (g.__neoMemoryPolicyBundles ??= new Map()).set(row.deviceId, row);
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────
@@ -134,6 +153,7 @@ function toPublic(d: MemDevice): DevicePublic {
     lastSeenAt: d.lastSeenAt,
     offlineAlertedAt: d.offlineAlertedAt,
     revokedAt: d.revokedAt,
+    policyVersionApplied: d.policyVersionApplied,
   };
 }
 
@@ -207,6 +227,7 @@ function insertDevice(input: {
     offlineAlertedAt: null,
     revokedAt: null,
     revokedBy: null,
+    policyVersionApplied: null,
   };
   state().devices.set(row.id, row);
   const minted = memoryInsertDeviceToken({
@@ -416,11 +437,13 @@ export function memoryRecordHeartbeat(input: {
   tenantId: string;
   deviceId: string;
   clientVersion?: string;
+  policyVersion?: string;
   now?: Date;
 }): DevicePublic | undefined {
   const d = state().devices.get(input.deviceId);
   if (!d || d.tenantId !== input.tenantId || d.revokedAt) return undefined;
   d.lastSeenAt = input.now ?? new Date();
+  if (input.policyVersion) d.policyVersionApplied = input.policyVersion;
   d.offlineAlertedAt = null;
   const clientVersion = input.clientVersion === undefined ? null : normalizeClientVersion(input.clientVersion);
   if (clientVersion) d.clientVersion = clientVersion;

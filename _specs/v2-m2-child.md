@@ -23,7 +23,7 @@ A child can ask for more time or ask to unblock something. The parent answers in
 ### 1. Slices (one PR each, in order)
 1. **(1a) Member-only devices (server refactor):** the migration in §2 and every read moved to `member_id`. **No behaviour change: every existing test passes unchanged.** *Built as migration `0020_member_devices`; decisions in "Slice 1a: what was built" below.*
    **(1b) Child policy (server):** the Child policy schema, age-band defaults, the Child engine rules, Child enabled in the console, `consents`, and the `child_requests` table (used in slice 3). Standard and Elder behaviour is unchanged. *Built as migration `0021_child_policy`; decisions in "Slice 1b: what was built" below.*
-2. **Policy bundles:** compile, sign, `GET /api/devices/policy`, `policyVersion` on the heartbeat, and the signing key setup.
+2. **Policy bundles:** compile, sign, `GET /api/devices/policy`, `policyVersion` on the heartbeat, and the signing key setup. *Built as migration `0022_policy_bundles`; decisions in "Slice 2: what was built" below.*
 3. **Child requests (server and agent):** the request API for devices, parent notification, eve tools to approve or deny, and an email-link fallback.
 4. **Extension release:** category blocking, SafeSearch, a block page with "Ask to unblock", and the new signals.
 5. **Desktop agent release:** app blocklist, install approval, screen time and downtime, tamper detection, and requests from the tray. Signed MSI and pkg.
@@ -31,7 +31,7 @@ A child can ask for more time or ask to unblock something. The parent answers in
 Server slices ship first. Older clients ignore the new fields, and new clients must not send detectors that an older server rejects (`docs/contracts.md`).
 
 ### 2. Member-only devices (slice 1)
-- **Migration** (slice 1a took `0020_member_devices`, slice 1b `0021_child_policy`; Outlook #50 now renumbers to **0022**, with a journal `when` above 0021's):
+- **Migration** (slice 1a took `0020_member_devices`, slice 1b `0021_child_policy`; Outlook #50 now renumbers to **0023**, with a journal `when` above 0022's, which is `1793632866799`):
   - `devices.member_id` is NOT NULL (backfilled in 0017) and `devices.user_id` becomes nullable.
   - The same applies to `device_enrollment_codes` (`member_id` NOT NULL, `user_id` nullable).
   - `device_signals` gains `member_id` (backfilled from the device), and `user_id` becomes nullable. A new index on `(tenant_id, member_id, observed_at desc)` replaces the user index for reads.
@@ -128,20 +128,36 @@ Server slices ship first. Older clients ignore the new fields, and new clients m
     apps: { block, requireApproval, approved },
     screenTime: { dailyMinutes, downtime, warnMinutes, allowDuringDowntime, grants: [{ minutes, until }] } }
   ```
-  - `policyVersion` is a SHA-256 hash of the canonical bundle body, excluding the timestamps.
-  - `expiresAt` is 7 days out.
+  - `policyVersion` is the hex SHA-256 of the canonical JSON of the bundle **excluding** `issuedAt`, `expiresAt` and `policyVersion`. Canonical JSON: object keys sorted (by UTF-16 code unit; every key is ASCII), no whitespace, arrays in the order given, strings as `JSON.stringify` writes them (non-ASCII is kept as UTF-8), `undefined` properties dropped, `null` kept, integers only.
+  - `expiresAt` is `issuedAt` + 7 days. `timeZone` is the household zone, `UTC` when none is set.
+  - Every section is always present. Standard and Elder devices get the empty form (no categories, `safeSearch: false`, `youtubeRestricted: "off"`, empty lists, every `dailyMinutes` day `null`, no downtime, `warnMinutes: 0`, no grants) so clients have one code path. `grants` is `[]` until slice 3.
   - Bundles carry rules only; there are no category domain lists in them (§5).
-- **Sign:** Ed25519 over the canonical JSON bytes of `{ bundle }`. The response is `{ bundle, sig, keyId }`.
-  - Clients embed the policy **public** keys at build time (`NEO_POLICY_PUBKEYS`, comma-separated, so the key can rotate) and verify before applying.
+- **Sign:** **ES256** (ECDSA P-256 with SHA-256). The signature covers the UTF-8 bytes of `canonicalJson(bundle)`; the response is the envelope `{ bundle, sig, keyId, alg: "ES256" }`, `sig` being base64url (no padding) of the **raw 64-byte `r || s`** (IEEE P1363, what WebCrypto and Rust `p256` use), never DER.
+  - *Why ES256, not Ed25519 (decision 2026-11-02):* Vercel KMS (beta) supports RS\*, PS\* and ES\* but not EdDSA, and ES256 verifies natively in WebCrypto on every browser and in Rust (`p256`). This closes the Open Question about KMS and Ed25519.
+  - *Signers* (`apps/web/lib/server/policy-signer.ts`, one interface `PolicySigner { sign(bytes) → { sig, keyId, alg } }`), chosen from the environment in this order:
+    1. **Vercel KMS** when `NEO_POLICY_KMS_ISSUER` is set (`@vercel/kms` `signMessage`, inside a request; the key never leaves KMS). The returned signature is normalized to raw `r || s` (it is accepted as raw, or as ASN.1 DER and converted), the key's algorithm must be ES256, and a fresh signature is checked against the issuer's published key (`https://kms.vercel.com/<issuerId>/jwks.json`, cached for an hour) when that can be fetched. `keyId` is KMS's `keyId`, which is the JWKS `kid`.
+    2. **Env key** when `NEO_POLICY_SIGNING_KEY` (PKCS8 PEM, P-256) is set. `keyId` is `NEO_POLICY_KEY_ID`, or the first 16 hex of the SHA-256 of the public key (SPKI DER). A key that is not usable (not PEM, not P-256) means no signer, not a fallback.
+    3. **Ephemeral** in-process key when neither is set, and only outside production and preview (`NODE_ENV` not `production`, `VERCEL_ENV` not `production`/`preview`): development, `MOCK_MODE`, tests.
+    4. Otherwise there is no signer: the route answers 503 `policy_signing_unavailable` (logged once). A bundle is never served unsigned.
+  - Clients embed the policy **public** keys at build time (`NEO_POLICY_PUBKEYS`, a JSON array of JWKs each with its `kid`, so the key can rotate) and verify before applying. `verifyPolicyEnvelope(envelope, keys)` in `@neo/verdict` is the reference verifier (WebCrypto only; no `Buffer`).
   - The policy key is separate from the desktop update key.
-  - **Correction to `_specs/v2-architecture.md` §6:** the server signs each bundle when it's requested, so the private key must be usable server-side. Preferred: **Vercel KMS** (managed signing keys, OIDC auth, the key never in env). Verify in slice 2 that it supports Ed25519 (`docs-lookup`). Fallback: an env secret `NEO_POLICY_SIGNING_KEY` (Production only, sensitive) with `keyId` rotation.
-  - Self-hosters generate their own key pair and build clients with their public key. Without a key, the server serves unsigned bundles only to clients built without `NEO_POLICY_PUBKEYS` (dev only).
-- **`GET /api/devices/policy`** (scope `device` plus `deviceId`, reusing the lists route's ETag pattern; its own rate limit of 120 an hour per device, so the 60 s pending-request poll fits):
-  - Returns `ETag: "<policyVersion>"`, 304 on a match, and `Cache-Control: private, no-cache`.
+  - Self-hosters generate their own P-256 key (`docs/self-hosting.md`) and build clients with its public key.
+- **Signature cache** (migration `0022_policy_bundles`): table `policy_bundles` (`device_id` PK → `devices` cascade, `tenant_id`, `policy_version`, `bundle` jsonb, `sig`, `key_id`, `issued_at`, `expires_at`; tenant RLS). On a request the bundle is compiled; a stored row is returned as is when its `policy_version` equals the compiled one, its `key_id` equals the current signer's key id, and it expires more than one day from now. Otherwise the bundle is signed and the row replaced. So KMS is called only when the policy changes, the key changes, or a bundle nears expiry. (With KMS the current key id is the one the last signature came back with, kept for an hour, else the issuer's only published key; with several published keys on a cold instance it is unknown, which costs one extra signature.)
+- **`GET /api/devices/policy`** (`requireDeviceSession("device")`; the device comes from the token and the member from the device, never from input; its own rate limit of 120 an hour per device, so the 60 s pending-request poll fits; 404 for a revoked device; 429; 503 as above):
+  - Returns the envelope with `ETag: "<policyVersion>"`, 304 on a match (reusing the lists route's matching), and `Cache-Control: private, no-cache`. The 304 path compiles but neither reads the row nor signs.
+  - The ETag does not change when only the timestamps do, so **a client whose stored bundle expires within a day omits `If-None-Match`** to get a fresh signature.
   - Standard and Elder devices get a bundle too (with empty web, apps and screenTime), so clients have one code path.
-- **Heartbeat:** the request adds `policyVersion` (what the device applied), stored as `devices.policy_version_applied`. The response adds `policyVersion` (current). A client fetches the policy when the two differ.
+- **`GET /api/devices/policy/keys`** (no authentication, `Cache-Control: public, max-age=3600`) → `{ keys: [{ kid, alg: "ES256", jwk }] }`: the KMS JWKS (cached) or the env or ephemeral key's public JWK. For docs and rotation tooling; **clients never trust it for verification**.
+- **Heartbeat:** the request adds optional `policyVersion` (a hex string of at most 64 characters; blank is absent; anything else is 400 `invalid`), stored as `devices.policy_version_applied`. The response adds `policyVersion` (current, compiled the same way and not signed; `null` if it could not be computed, so a policy problem never fails a check-in). A client fetches the policy when the two differ. Older clients that send and read neither are unaffected.
 - **Fast changes:** a parent's approval (more time, unblock, allow an app) bumps the bundle. Devices also poll `GET /api/devices/policy` every 60 s while a request from that device is pending, so the change lands within about a minute.
 - **Offline:** a device keeps enforcing its last valid bundle past `expiresAt`. Expiry only affects the "pending" badge and a digest note. An invalid signature is rejected; the last valid bundle stays, and the client reports `tamper_detected { reason: "bad_policy_signature" }`.
+- **Console:** the member page lists the member's devices; one shows "Pending on device" when its `policy_version_applied` differs from the current version, and "Update Neo on this device" when the member is in Child mode and the device has never reported a version. Standard and Elder members are not nagged about a device that never reported.
+
+#### Slice 2: what was built, and the decisions
+- Migration `0022_policy_bundles` (journal `when` `1793632866799`): `policy_bundles` and `devices.policy_version_applied`. Outlook (#50) is now **0023**.
+- A failure to read the policy layers is **not** turned into Standard when compiling a bundle (signal processing does that so signals keep flowing): an empty bundle would lift a child's blocks. It surfaces as an error (503 on the route; `policyVersion: null` on the heartbeat).
+- Not verifiable without a real KMS issuer: the exact encoding KMS returns (raw or DER; both are handled and tested with a mocked client), the `algorithm` string it reports (accepted when it contains `ES256` or `P-256`), and the JWKS URL (`https://kms.vercel.com/<issuerId>/jwks.json`, taken from the owner's brief, not from the package docs; if it is wrong the cross-check is skipped with a warning and the keys endpoint answers 503).
+- The badge is on the member page and in the household devices list (`DeviceItem.policy`, set only by `GET /api/household`). `update_needed` is shown for Child-mode members only, so a Standard or Elder device on an older build is not nagged.
 
 ### 5. Category data (slice 4)
 - The bundle names categories, and the extension holds the domain data.
@@ -159,7 +175,7 @@ Server slices ship first. Older clients ignore the new fields, and new clients m
   - `modifyHeaders` for YouTube (`YouTube-Restrict: Strict|Moderate`).
   - Rules are rebuilt whenever the bundle changes.
 - **Block page:** a new extension page in `web_accessible_resources`. It says the site is blocked in Child mode, shows the category, and has an **"Ask to unblock"** button. The button sends a child request with the domain and an optional short reason. It shows the request's status and reloads when the request is approved.
-- **Bundle:** fetched on heartbeat when `policyVersion` differs. The signature is verified with an embedded public key (WebCrypto Ed25519; check that both Chrome and Firefox 128+ support it, otherwise use a small audited library). Stored in `storage.local`.
+- **Bundle:** fetched on heartbeat when `policyVersion` differs. The signature is verified with an embedded public key (WebCrypto ECDSA P-256 / SHA-256, ES256, supported by every browser; `verifyPolicyEnvelope` in `@neo/verdict`). Stored in `storage.local`.
 - **`payment_page` detector (M1 handoff):** gift-card, crypto-ATM and wire-transfer checkout pages, matched from a list plus checkout keywords. It reports `payment_page { domain, category }` (no URL), which wakes Elder rule 4 (`payment_under_pressure`). It runs for every mode; the server decides.
 - **Tamper:** the uninstall beacon already exists. A disable can't be seen from inside, so the desktop agent reports `browser_without_extension` (§7), and a heartbeat gap gives the server `protection_disabled` (M1).
 - **Chromebooks:** the extension can only be enforced (not removable) if the child's account is supervised by Family Link or managed. Docs: how to force-install it for a supervised account. Without that, removal is detected through the uninstall beacon.
@@ -181,7 +197,7 @@ Server slices ship first. Older clients ignore the new fields, and new clients m
   It reports `screen_time_exhausted`. The tray's "Ask for more time" sends a `more_time` child request, and approved minutes arrive as bundle `grants`.
 - **Tamper detection:** `browser_without_extension` (a known browser installed or run without Neo's extension enrolled for the member), `vpn_app` (from a list), `clock_changed`, and `agent_service_stopped` (detected after restart from a gap in the service's own journal). All are sent as `tamper_detected`.
 - **IPC:** new ops `policy_status` and `request` (pipe and socket). The tray shows "Child mode is on", today's remaining time, and request status.
-- **Policy pubkey:** a second compile-time key, `option_env!("NEO_POLICY_PUBKEYS")`, verified with Ed25519, separate from `NEO_DESKTOP_UPDATE_PUBKEY`.
+- **Policy pubkey:** a second compile-time key set, `option_env!("NEO_POLICY_PUBKEYS")` (a JSON array of JWKs), verified with ES256 (the `p256` crate; the signature is raw `r || s`), separate from `NEO_DESKTOP_UPDATE_PUBKEY`.
 - New signed MSI and pkg through the existing release workflows. Existing agents auto-update.
 
 ### 8. Child requests (slice 3)
@@ -218,7 +234,7 @@ Server slices ship first. Older clients ignore the new fields, and new clients m
 
 ## Open Questions
 - **Category list source and licence.** Candidates include the UT1 (Toulouse) blacklists (CC BY-SA), and OISD or Hagezi category lists. Pick one per category, and check the licence for redistribution inside the extension.
-- **Vercel KMS Ed25519 support** (§4). If it isn't supported, accept the env-secret fallback?
+- ~~Vercel KMS Ed25519 support~~ Decided 2026-11-02: sign with ES256, which KMS supports (§4).
 - **Windows "lock":** disconnect versus logoff versus a tray-driven `LockWorkStation`. Decide on real hardware.
 - **Chromebooks:** is Family Link (supervised account) in use, so the extension can be force-installed? If not, extension-only enforcement on a Chromebook is easy to remove.
 - **Shared budget across a child's devices** (M2 or M3)?

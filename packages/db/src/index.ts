@@ -257,6 +257,7 @@ export {
   type OutboxRowInput,
 } from "./outbox.js";
 export { listConsents, recordConsent, type ConsentRow } from "./consents.js";
+export { getPolicyBundle, upsertPolicyBundle, type PolicyBundleRow } from "./policy-bundles.js";
 export {
   MAX_HELPERS_PER_MEMBER,
   countHouseholdOwners,
