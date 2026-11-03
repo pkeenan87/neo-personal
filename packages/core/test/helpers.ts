@@ -8,8 +8,9 @@ import type { AgentEvent, RegisteredTool, ToolContext, ToolRegistry } from "../s
  *
  * `messages.stream` / `beta.messages.stream` replay scripted turns as raw
  * stream events and resolve `finalMessage()` with the scripted Message.
- * `messages.create` (used by the compression model) returns scripted
- * responses from `createResponses`.
+ * `messages.create` returns scripted responses from `createResponses`.
+ * In MOCK_MODE, `prepareMessages` still uses that method when the chat loop
+ * injects this client. The AI SDK compression path takes a `ModelTextClient`.
  */
 
 type Block = Record<string, unknown> & { type: string };
