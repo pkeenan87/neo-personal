@@ -107,6 +107,8 @@ export {
   triageModel,
 } from "./triage.js";
 export type { RunTriageInput, TriageEvidenceKind, TriageResult } from "./triage.js";
+export { generateModelText } from "./model-text.js";
+export type { ModelTextCall, ModelTextClient, ModelTextResponse } from "./model-text.js";
 
 // Account-hardening checklist and score (pure, deterministic)
 export {

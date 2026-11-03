@@ -30,7 +30,6 @@
     "migrate": "tsx src/migrate.ts"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.135.0",
     "@neo/core": "workspace:*",
     "@neo/verdict": "workspace:*",
     "@neondatabase/serverless": "^1.2.0",

@@ -18,6 +18,12 @@ updates:
       react:
         patterns: [react, react-dom, "@types/react", "@types/react-dom"]
         update-types: [major]
+    ignore:
+      # The chat loop still imports this SDK and is removed at M3. Major bumps
+      # (for example 0.x → 1.x) stay closed until that deletion; minor and patch
+      # updates still open in the minor-and-patch group.
+      - dependency-name: "@anthropic-ai/sdk"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
     directory: /
