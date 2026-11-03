@@ -7,7 +7,7 @@
  * `dismissed` and never raises an alert — escalation failures fail open, same as everything
  * else in this feature.
  */
-import { logger } from "@neo/core";
+import { evaluateSignal, logger, type Enrichment } from "@neo/core";
 import type { DevicePublic } from "@neo/db";
 import {
   analyzeUrl,
@@ -29,8 +29,11 @@ import type { SignalAlertKind } from "../alerts";
 import { getDevice } from "../devices";
 import { applyAlertedSignal, type SignalDeviceInfo } from "./apply";
 import { classifyUrlAnalysis } from "./classify";
-import { alertKindForDetector } from "./rules";
-import { getDeviceSignal, listExpectedTools, updateDeviceSignal } from "./store";
+import { loadSignalProtection, toRecentSignals } from "./protection";
+import { ENGINE_CATALOG } from "./rules";
+import { getDeviceSignal, listExpectedTools, listRecentMemberSignals, updateDeviceSignal, type DeviceSignalRow } from "./store";
+
+const RECENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export const SIGNAL_ESCALATE_EVENT = "neo/signal.escalate";
 const ESCALATION_TTL_SECONDS = 24 * 60 * 60;
@@ -134,18 +137,27 @@ export async function runSignalEscalate(data: SignalEscalateData, deps: Escalate
       return;
     }
     const event = reconstructEvent(row);
-    const deviceInfo: SignalDeviceInfo = { id: device.id, tenantId: data.tenantId, userId: device.userId, name: device.name, memberName: device.memberName };
+    // A device whose member is gone has nobody to alert about.
+    if (!device.memberId) {
+      await dismiss(data.tenantId, row.id);
+      return;
+    }
+    const deviceInfo: SignalDeviceInfo = { id: device.id, tenantId: data.tenantId, memberId: device.memberId, userId: device.userId, name: device.name, memberName: device.memberName };
 
+    let enrichment: Enrichment | undefined;
     if (event.detector === "lookalike_login") {
-      await escalateLookalikeLogin(event, row.id, row.subject, deviceInfo, deps);
+      enrichment = await enrichLookalikeLogin(event, deps);
     } else if (event.detector === "dangerous_site") {
-      await escalateDangerousSite(event, row.id, row.subject, deviceInfo, deps);
+      enrichment = await enrichDangerousSite(event, deps);
     } else if (event.detector === "unwanted_software" && event.reason === "unsigned_unknown" && event.sha256) {
-      await escalateUnwantedSoftware(event, row.id, row.subject, deviceInfo, event.sha256, deps);
-    } else {
+      enrichment = await enrichUnwantedSoftware(event.sha256, deps);
+    }
+    if (!enrichment) {
       // Not an escalating detector (defensive: should never be queued as anything else).
       await dismiss(data.tenantId, row.id);
+      return;
     }
+    await applyEnrichment(event, row, deviceInfo, enrichment, deps);
   } catch (err) {
     logger.error("Signal escalation failed", "signals", { tenantId: data.tenantId, signalId: data.signalId, errorMessage: errText(err) });
     await dismiss(data.tenantId, data.signalId).catch(() => undefined);
@@ -153,59 +165,67 @@ export async function runSignalEscalate(data: SignalEscalateData, deps: Escalate
 }
 
 /**
- * lookalike_login escalation: analyze the domain and use the same `classifyUrlAnalysis`
- * mapping as the on-demand check (`_specs/browser-extension.md`). `dangerous` confirms
- * malicious (high severity); `suspicious` confirms suspicious (medium); anything else
- * (`unknown` or `no_known_problems`) dismisses without an alert, same as any other
- * inconclusive escalation.
+ * Run the policy engine on the lookup result and apply the decision through the same helper as
+ * the synchronous path: an `incident` raises the verdict/alert (and any correlated alerts), anything
+ * else (a clean, failed or inconclusive lookup) leaves the signal quietly `dismissed`.
  */
-async function escalateLookalikeLogin(event: Extract<SignalEvent, { detector: "lookalike_login" }>, rowId: string, subject: string, device: SignalDeviceInfo, deps: EscalateDeps): Promise<void> {
-  const analysis = await deps.analyzeUrl(`https://${event.domain}/`, { deps: { cache: deps.cache } });
-  const { rating } = classifyUrlAnalysis(analysis);
-  if (rating === "dangerous") {
-    const codes = ["brand_lookalike", ...analysis.heuristics.filter((h) => h === "safe_browsing_match" || h === "virustotal_malicious" || h === "urlscan_malicious")];
-    await applyAlertedSignal({ device, event, rowId, subject, severity: "high", verdictLabel: "malicious", alertKind: alertKindForDetector("lookalike_login") as SignalAlertKind, reasonCodes: codes });
-    return;
-  }
-  if (rating === "suspicious") {
-    const isYoung = analysis.heuristics.includes("young_domain");
-    const codes = isYoung ? ["brand_lookalike_young_domain"] : ["brand_lookalike"];
-    await applyAlertedSignal({ device, event, rowId, subject, severity: "medium", verdictLabel: "suspicious", alertKind: alertKindForDetector("lookalike_login") as SignalAlertKind, reasonCodes: codes });
-    return;
-  }
-  await dismiss(device.tenantId, rowId);
-}
-
-async function escalateDangerousSite(event: Extract<SignalEvent, { detector: "dangerous_site" }>, rowId: string, subject: string, device: SignalDeviceInfo, deps: EscalateDeps): Promise<void> {
-  const result = await cachedSafeBrowsing(event.domain, deps);
-  if (isSkipped(result) || !result.flagged) {
-    await dismiss(device.tenantId, rowId);
+async function applyEnrichment(event: SignalEvent, row: DeviceSignalRow, device: SignalDeviceInfo, enrichment: Enrichment, deps: EscalateDeps): Promise<void> {
+  const now = deps.now();
+  const { policy, memberId } = await loadSignalProtection(device.tenantId, device, device.id);
+  const [expectedTools, recentRows] = await Promise.all([
+    deps.getExpectedTools(device.tenantId, device.id),
+    listRecentMemberSignals(device.tenantId, device.memberId, { since: new Date(now.getTime() - RECENT_WINDOW_MS) }),
+  ]);
+  const decision = evaluateSignal(policy, { event, signalId: row.id, enrichment }, { now, deviceId: device.id, expectedTools, recent: toRecentSignals(recentRows), catalog: ENGINE_CATALOG });
+  if (decision.action !== "incident") {
+    await dismiss(device.tenantId, row.id);
     return;
   }
   await applyAlertedSignal({
     device,
     event,
-    rowId,
-    subject,
-    severity: "high",
-    verdictLabel: "malicious",
-    alertKind: alertKindForDetector("dangerous_site") as SignalAlertKind,
-    reasonCodes: ["safe_browsing_prefix", "safe_browsing_match"],
+    rowId: row.id,
+    subject: row.subject,
+    severity: decision.severity!,
+    verdictLabel: decision.verdictLabel,
+    alertKind: decision.kind as SignalAlertKind,
+    reasonCodes: decision.reasonCodes,
+    memberId,
+    correlations: decision.correlations,
+    now,
   });
 }
 
-async function escalateUnwantedSoftware(
-  event: Extract<SignalEvent, { detector: "unwanted_software" }>,
-  rowId: string,
-  subject: string,
-  device: SignalDeviceInfo,
-  sha256: string,
-  deps: EscalateDeps,
-): Promise<void> {
-  const result = await cachedVirusTotalFile(sha256, deps);
-  if (!("status" in result) || result.status !== "found" || result.malicious < 3) {
-    await dismiss(device.tenantId, rowId);
-    return;
+/**
+ * lookalike_login lookup: analyze the domain and use the same `classifyUrlAnalysis`
+ * mapping as the on-demand check (`_specs/browser-extension.md`). `dangerous` confirms
+ * malicious (high severity); `suspicious` confirms suspicious (medium); anything else
+ * (`unknown` or `no_known_problems`) is clean, same as any other inconclusive escalation.
+ */
+async function enrichLookalikeLogin(event: Extract<SignalEvent, { detector: "lookalike_login" }>, deps: EscalateDeps): Promise<Enrichment> {
+  const analysis = await deps.analyzeUrl(`https://${event.domain}/`, { deps: { cache: deps.cache } });
+  const { rating } = classifyUrlAnalysis(analysis);
+  if (rating === "dangerous") {
+    const codes = ["brand_lookalike", ...analysis.heuristics.filter((h) => h === "safe_browsing_match" || h === "virustotal_malicious" || h === "urlscan_malicious")];
+    return { label: "malicious", severity: "high", reasonCodes: codes };
   }
-  await applyAlertedSignal({ device, event, rowId, subject, severity: "high", verdictLabel: "malicious", alertKind: alertKindForDetector("unwanted_software") as SignalAlertKind, reasonCodes: ["unsigned_unknown", "virustotal_malicious"] });
+  if (rating === "suspicious") {
+    const isYoung = analysis.heuristics.includes("young_domain");
+    return { label: "suspicious", severity: "medium", reasonCodes: isYoung ? ["brand_lookalike_young_domain"] : ["brand_lookalike"] };
+  }
+  return { label: "clean" };
+}
+
+async function enrichDangerousSite(event: Extract<SignalEvent, { detector: "dangerous_site" }>, deps: EscalateDeps): Promise<Enrichment> {
+  const result = await cachedSafeBrowsing(event.domain, deps);
+  if (isSkipped(result)) return { label: "failed" };
+  if (!result.flagged) return { label: "clean" };
+  return { label: "malicious", severity: "high", reasonCodes: ["safe_browsing_prefix", "safe_browsing_match"] };
+}
+
+async function enrichUnwantedSoftware(sha256: string, deps: EscalateDeps): Promise<Enrichment> {
+  const result = await cachedVirusTotalFile(sha256, deps);
+  if (!("status" in result) || result.status !== "found") return { label: "failed" };
+  if (result.malicious < 3) return { label: "clean" };
+  return { label: "malicious", severity: "high", reasonCodes: ["unsigned_unknown", "virustotal_malicious"] };
 }

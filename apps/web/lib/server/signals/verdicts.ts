@@ -36,6 +36,13 @@ const SUBJECT_TYPE_BY_DETECTOR: Record<SignalDetector, SubjectType> = {
   unwanted_software: "software",
   remote_access_session: "remote_session",
   tcc_grant: "permission",
+  payment_page: "page",
+  // Child-mode detectors never produce a verdict (the engine returns no verdict label); mapped only to keep the record total.
+  web_blocked: "page",
+  app_installed: "software",
+  app_blocked: "software",
+  screen_time_exhausted: "software",
+  tamper_detected: "software",
 };
 
 /** Plain-language explanation for one indicator/reason code (client-sent indicator codes, or a server reason code from rules.ts). */

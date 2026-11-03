@@ -116,6 +116,29 @@ Phase 1 needs no Vercel Cron: scheduled work runs as Inngest cron functions. If 
 - Cron handlers only enqueue Inngest events; the work runs in Inngest, not inside the cron invocation.
 - Hobby plans run cron at most once per day, with imprecise timing.
 
+## Policy signing
+
+Child-mode policy bundles (`GET /api/devices/policy`) are signed with ES256 (ECDSA P-256, SHA-256). On Vercel the private key lives in Vercel KMS (beta) and never leaves it; the server asks KMS to sign only when a device's policy changes or its signed bundle is within a day of expiring (the result is cached in `policy_bundles`). KMS supports RS*, PS* and ES* but not EdDSA, which is why the key is ES256.
+
+1. Create the issuer (once; the output shows its id):
+
+   ```
+   vercel kms add neo-policy --algorithm ES256
+   vercel kms list
+   ```
+
+2. Let the project sign with it, in the environments that serve real devices (add `-e preview` only if you want previews to serve bundles):
+
+   ```
+   vercel kms add-grant <issuerId> --project <project> -e production
+   ```
+
+3. Set `NEO_POLICY_KMS_ISSUER=<issuerId>` on Production (and Preview if granted), then redeploy. It wins over `NEO_POLICY_SIGNING_KEY`. The signing call authenticates with the function's OIDC token, so it only works inside a request on Vercel.
+4. Export the public key for client builds. `curl https://kms.vercel.com/<issuerId>/jwks.json` (or `GET /api/devices/policy/keys` on the deployment, or `vercel kms inspect <issuerId>`) gives the JWK and its `kid`. Build the extension and the desktop agent with `NEO_POLICY_PUBKEYS='[{"kty":"EC","crv":"P-256","x":"...","y":"...","kid":"..."}]'` (a JSON array, so the key can rotate). Clients pin these keys and never trust the keys endpoint.
+5. Rotating: `vercel kms add-key <issuerId>`, add the new JWK to the clients' `NEO_POLICY_PUBKEYS` and release them, then `vercel kms activate-key <issuerId> <keyId>`. Stored bundles signed by the old key are re-signed on the next request, within about an hour of the activation (the public key set is cached that long).
+
+With neither `NEO_POLICY_KMS_ISSUER` nor `NEO_POLICY_SIGNING_KEY` set, a production or preview deployment answers 503 `policy_signing_unavailable` on `GET /api/devices/policy` and serves no bundle. Locally and in CI, an in-process throwaway key is used.
+
 ## Promoting and rolling back
 
 - Production deploys on merge to `main` after **All checks passed** is green.

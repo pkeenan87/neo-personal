@@ -13,13 +13,15 @@ export type DigestFacts = {
   members: Array<{ userId: string; role: "owner" | "member" }>;
   verdicts: Array<{ id: string; userId: string; label: VerdictLabel; headline: string; createdAt: Date }>;
   alerts: Array<{ id: string; subjectUserId: string | null; kind: string; severity: Severity; createdAt: Date }>;
-  devices: Array<{ userId: string; lastSeenAt: Date | null; createdAt: Date; revokedAt: Date | null }>;
+  devices: Array<{ userId: string | null; lastSeenAt: Date | null; createdAt: Date; revokedAt: Date | null }>;
 };
 const labels: VerdictLabel[] = ["malicious", "suspicious", "likely_safe", "insufficient_evidence"];
 const safeAlertLabels: Record<string, string> = {
   member_verdict: "Security check alert", member_left: "Household membership changed", device_removed: "Device removed or uninstalled",
   scam_page: "Possible scam page", dangerous_site: "Dangerous site alert", remote_access: "Remote access alert",
   unwanted_software: "Unwanted software alert", permission_grant: "Device permission alert", scam_in_progress: "Possible scam in progress", breach_detected: "Breach exposure alert",
+  install_during_session: "Install during a remote session", payment_under_pressure: "Payment under pressure", protection_disabled: "Protection turned off",
+  self_harm_attempts: "Repeated blocked searches", app_approval: "App waiting for approval", child_request: "Request from a child",
 };
 /** Redact network identifiers before truncation (including bare domains, IPs, emails, hashes and phone/token runs). */
 export function digestHeadline(value: string): string {
@@ -40,7 +42,8 @@ export function selectDigestContent(input: DigestContentInput, facts: DigestFact
   if (member.role === "owner") {
     const memberIds = new Set(facts.members.filter(m => m.role === "member").map(m => m.userId));
     const eligible = facts.alerts.filter(a => a.subjectUserId !== input.userId && within(a) && verdictSeverityRank(a.severity) >= 2 && safeAlertLabels[a.kind]);
-    const offline = facts.devices.filter(d => memberIds.has(d.userId) && !d.revokedAt && +(d.lastSeenAt ?? d.createdAt) <= +input.periodEnd - 48 * 3600000).length;
+    // A device protects a non-owner when its account is a plain member's, or when it has no account at all (a member without one is never an owner).
+    const offline = facts.devices.filter(d => (d.userId === null || memberIds.has(d.userId)) && !d.revokedAt && +(d.lastSeenAt ?? d.createdAt) <= +input.periodEnd - 48 * 3600000).length;
     if (eligible.length || offline) content.household = {
       alertCounts: (["critical", "high", "medium"] as Severity[]).map(severity => ({ severity, count: eligible.filter(a => a.severity === severity).length })).filter(a => a.count > 0),
       topAlerts: eligible.sort((a, b) => verdictSeverityRank(b.severity) - verdictSeverityRank(a.severity) || +b.createdAt - +a.createdAt || a.id.localeCompare(b.id)).slice(0, 3)

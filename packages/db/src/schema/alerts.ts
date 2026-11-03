@@ -8,6 +8,7 @@ import { sql } from "drizzle-orm";
 import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.js";
 import { devices } from "./devices.js";
+import { members } from "./members.js";
 import { tenants } from "./tenants.js";
 import { verdicts } from "./verdicts.js";
 
@@ -25,6 +26,12 @@ export const ALERT_KINDS = [
   "permission_grant",
   "scam_in_progress",
   "breach_detected",
+  "install_during_session",
+  "payment_under_pressure",
+  "protection_disabled",
+  "self_harm_attempts",
+  "app_approval",
+  "child_request",
 ] as const;
 export type AlertKind = (typeof ALERT_KINDS)[number];
 
@@ -33,6 +40,9 @@ export type AlertSeverity = (typeof ALERT_SEVERITIES)[number];
 
 export const ALERT_EMAIL_STATUSES = ["pending", "sent", "skipped", "failed"] as const;
 export type AlertEmailStatus = (typeof ALERT_EMAIL_STATUSES)[number];
+
+export const ALERT_STATUSES = ["open", "acknowledged", "resolved", "false_positive"] as const;
+export type AlertStatus = (typeof ALERT_STATUSES)[number];
 
 export const alerts = pgTable(
   "alerts",
@@ -56,14 +66,25 @@ export const alerts = pgTable(
     acknowledgedBy: text("acknowledged_by").references(() => users.id, { onDelete: "set null" }),
     emailStatus: text("email_status").$type<AlertEmailStatus>().notNull().default("pending"),
     emailedAt: timestamp("emailed_at", { mode: "date", withTimezone: true }),
+    /** v2: the protected member the incident is about. */
+    memberId: uuid("member_id").references(() => members.id, { onDelete: "set null" }),
+    status: text("status").$type<AlertStatus>().notNull().default("open"),
+    /** The device signals that make up the incident. */
+    signalIds: uuid("signal_ids")
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    eveSessionId: text("eve_session_id"),
+    resolvedAt: timestamp("resolved_at", { mode: "date", withTimezone: true }),
   },
   (t) => [
     uniqueIndex("alerts_tenant_dedupe_idx").on(t.tenantId, t.dedupeKey),
     index("alerts_tenant_created_idx").on(t.tenantId, t.createdAt.desc()),
     check(
       "alerts_kind_check",
-      sql`${t.kind} in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress', 'breach_detected')`,
+      sql`${t.kind} in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress', 'breach_detected', 'install_during_session', 'payment_under_pressure', 'protection_disabled', 'self_harm_attempts', 'app_approval', 'child_request')`,
     ),
+    check("alerts_status_check", sql`${t.status} in ('open', 'acknowledged', 'resolved', 'false_positive')`),
     check("alerts_severity_check", sql`${t.severity} in ('low', 'medium', 'high', 'critical')`),
     check("alerts_email_status_check", sql`${t.emailStatus} in ('pending', 'sent', 'skipped', 'failed')`),
     check("alerts_title_length_check", sql`char_length(${t.title}) <= 140`),

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { AppShell } from "@/components/AppShell";
 import { Dashboard } from "@/components/dashboard/Dashboard";
 import { DevBypassBanner } from "@/components/DevBypassBanner";
-import { env } from "@/lib/env";
+import { env, eveChatEnabled } from "@/lib/env";
 import { listAlertsForSession } from "@/lib/server/alerts";
 import { loadAccountHardeningScore, loadHouseholdHardeningPercents } from "@/lib/server/hardening-score";
 import { hardeningItemViews } from "@/lib/server/hardening-view";
@@ -37,7 +37,7 @@ export default async function DashboardPage() {
     <>
       {env().DEV_AUTH_BYPASS && <DevBypassBanner />}
       <AppShell active="dashboard">
-        <Dashboard household={home} forwardingUsed={used} {...(alerts ? { alerts } : {})} {...(hardening ? { hardening } : {})} />
+        <Dashboard household={home} forwardingUsed={used} incidentChat={eveChatEnabled()} {...(alerts ? { alerts } : {})} {...(hardening ? { hardening } : {})} />
       </AppShell>
     </>
   );

@@ -10,19 +10,13 @@ import { hashPii, logger } from "@neo/core";
 import {
   acknowledgeAlert,
   acknowledgeAllAlerts,
-  countAlertEmailsSince,
   countOpenAlerts,
-  createAlert,
-  getAlert,
   getAlertEmailThreshold,
   InvalidCursorError,
-  listAlertOwners,
   listAlerts,
   listMembers,
-  markAlertEmail,
   setAlertEmailThreshold,
   type AlertListItem,
-  type AlertOwner,
   type AlertRow,
   type CreateAlertInput,
   type DevicePublic,
@@ -35,19 +29,12 @@ import { env, inboundEnv } from "@/lib/env";
 import type { NeoSession } from "@/lib/session";
 import { recordAudit } from "../audit";
 import { getDb } from "../db";
-import { renderAlertCapEmail, renderAlertEmail } from "../email/alert-email";
-import { getMailer, type Mailer } from "../email/resend";
 import {
   memoryAcknowledgeAlert,
   memoryAcknowledgeAll,
-  memoryAlertOwners,
-  memoryCountAlertEmailsSince,
   memoryCountOpenAlerts,
-  memoryCreateAlert,
-  memoryGetAlert,
   memoryGetThreshold,
   memoryListAlerts,
-  memoryMarkAlertEmail,
   memorySetThreshold,
 } from "../memory-alerts";
 import { memoryListMembers } from "../memory-state";
@@ -64,19 +51,13 @@ import {
   leftAlertText,
   verdictAlertText,
 } from "./templates";
+import { createAlertAndEnqueue, createOutboxDrainDeps, drainOutbox, enqueueIfLegacy } from "./outbox";
+import { ALERT_EMAIL_DAILY_CAP, meetsThreshold } from "./recipients";
+
+export { ALERT_EMAIL_DAILY_CAP, meetsThreshold };
 
 export const ALERT_CREATED_EVENT = "neo/alert.created";
 export const BREACH_ALERT_KIND = "breach_detected" as const;
-/** Alert emails per household per UTC day before the "more than usual" notice. */
-export const ALERT_EMAIL_DAILY_CAP = 20;
-
-const SEVERITY_RANK = { low: 1, medium: 2, high: 3, critical: 4 } as const;
-const THRESHOLD_RANK: Record<AlertThreshold, number> = { medium: 2, high: 3, critical: 4, off: Infinity };
-
-export function meetsThreshold(severity: AlertRow["severity"], threshold: AlertThreshold): boolean {
-  return SEVERITY_RANK[severity] >= THRESHOLD_RANK[threshold];
-}
-
 export interface AlertCreatedData {
   alertId: string;
   tenantId: string;
@@ -84,6 +65,16 @@ export interface AlertCreatedData {
 
 function errText(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).slice(0, 300);
+}
+
+/**
+ * The subject part of a correlation dedupe key. A member with an account keeps `<userId>`, so a
+ * pair already alerted before member-only devices is not alerted again; a member without one is
+ * `m:<memberId>`. Null when neither is known (nothing safe to key on).
+ */
+export function subjectKey(subject: { userId?: string | null; memberId?: string | null }): string | null {
+  if (subject.userId) return subject.userId;
+  return subject.memberId ? `m:${subject.memberId}` : null;
 }
 
 /** The household's members (database or memory). */
@@ -95,13 +86,16 @@ const members = tenantMembers;
 
 // ─── Raising ───────────────────────────────────────────────────────
 
-/** Insert (deduplicated) and queue delivery. Never throws. */
+/**
+ * Insert (deduplicated) with its outbox rows in one transaction, then queue the drain.
+ * Never throws.
+ */
 export async function raiseAlert(input: CreateAlertInput): Promise<AlertRow | null> {
   try {
-    const db = getDb();
-    const row = db ? await createAlert(db, input) : memoryCreateAlert(input);
-    if (row) await queueDelivery({ alertId: row.id, tenantId: row.tenantId });
-    return row;
+    const created = await createAlertAndEnqueue(input);
+    if (!created) return null;
+    if (created.enqueued > 0) await queueDelivery({ alertId: created.alert.id, tenantId: created.alert.tenantId });
+    return created.alert;
   } catch (err) {
     logger.error("Alert creation failed", "alerts", { tenantId: input.tenantId, errorType: input.kind, errorMessage: errText(err) });
     return null;
@@ -110,7 +104,7 @@ export async function raiseAlert(input: CreateAlertInput): Promise<AlertRow | nu
 
 async function queueDelivery(data: AlertCreatedData): Promise<void> {
   if (env().MOCK_MODE && !inboundEnv().INNGEST_EVENT_KEY) {
-    await deliverAlert(data, createAlertDeliveryDeps()).catch((err) =>
+    await deliverAlertNow(data).catch((err) =>
       logger.error("Inline alert delivery failed", "alerts", { tenantId: data.tenantId, errorMessage: errText(err) }),
     );
     return;
@@ -194,12 +188,17 @@ export async function alertBreachDetected(input: {
 
 // ─── Devices (_specs/device-enrollment.md) ─────────────────────────
 
+/** What a device alert says about its member: the account's name and email, or only the member's display name. */
+type AlertableMember = Pick<HouseholdMember, "name" | "email">;
+
 /**
  * The device's protected member when it may alert: devices protecting an owner (or
- * someone no longer in the household) never do. Never throws.
+ * someone no longer in the household) never do. A member without an account is never an
+ * owner, so their devices always alert. Never throws.
  */
-async function alertableMember(device: DevicePublic): Promise<HouseholdMember | null> {
+async function alertableMember(device: DevicePublic): Promise<AlertableMember | null> {
   try {
+    if (!device.userId) return device.memberId ? { name: device.memberName, email: null } : null;
     const m = (await members(device.tenantId)).find((x) => x.userId === device.userId);
     return m && m.role === "member" ? m : null;
   } catch (err) {
@@ -216,6 +215,7 @@ export async function alertDeviceEnrolled(device: DevicePublic): Promise<boolean
   const row = await raiseAlert({
     tenantId: device.tenantId,
     subjectUserId: device.userId,
+    ...(device.memberId ? { memberId: device.memberId } : {}),
     kind: "device_enrolled",
     ...deviceEnrolledAlertText(displayName(member.name, member.email), deviceLabel(device.name)),
     deviceId: device.id,
@@ -231,6 +231,7 @@ export async function alertDeviceRemoved(device: DevicePublic, by: "member" | "d
   const row = await raiseAlert({
     tenantId: device.tenantId,
     subjectUserId: device.userId,
+    ...(device.memberId ? { memberId: device.memberId } : {}),
     kind: "device_removed",
     ...deviceRemovedAlertText(displayName(member.name, member.email), deviceLabel(device.name), by),
     deviceId: device.id,
@@ -247,6 +248,7 @@ export async function alertDeviceOffline(device: DevicePublic): Promise<boolean>
   const row = await raiseAlert({
     tenantId: device.tenantId,
     subjectUserId: device.userId,
+    ...(device.memberId ? { memberId: device.memberId } : {}),
     kind: "device_offline",
     ...deviceOfflineAlertText(displayName(member.name, member.email), deviceLabel(device.name), device.lastSeenAt),
     deviceId: device.id,
@@ -258,7 +260,16 @@ export async function alertDeviceOffline(device: DevicePublic): Promise<boolean>
 // ─── Device signals (_specs/signals.md) ─────────────────────────────
 
 /** Alert kinds a signal event can raise directly (everything but the membership/device-lifecycle kinds). */
-export type SignalAlertKind = "scam_page" | "dangerous_site" | "remote_access" | "unwanted_software" | "permission_grant";
+export type SignalAlertKind =
+  | "scam_page"
+  | "dangerous_site"
+  | "remote_access"
+  | "unwanted_software"
+  | "permission_grant"
+  | "payment_under_pressure"
+  | "protection_disabled"
+  | "app_approval"
+  | "self_harm_attempts";
 
 /**
  * Raise a device-signal alert. Dedupe `<kind>:<deviceId>:<detector>:<subject>:<UTC hour>`, so the
@@ -268,7 +279,8 @@ export type SignalAlertKind = "scam_page" | "dangerous_site" | "remote_access" |
  */
 export async function alertSignal(input: {
   tenantId: string;
-  userId: string;
+  /** The member's account; null for a member without one (then `memberId` is set). */
+  userId: string | null;
   deviceId: string;
   kind: SignalAlertKind;
   /** The event's detector (`SignalEvent.detector`), part of the dedupe key. */
@@ -277,12 +289,18 @@ export async function alertSignal(input: {
   subject: string;
   verdictId?: string | null;
   text: AlertText;
+  /** The protected member row (v2), when known. */
+  memberId?: string | null;
+  /** The stored signal this alert is about. */
+  signalIds?: string[];
   now?: Date;
 }): Promise<AlertRow | null> {
   return raiseAlert({
     tenantId: input.tenantId,
     subjectUserId: input.userId,
     deviceId: input.deviceId,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    ...(input.signalIds ? { signalIds: input.signalIds } : {}),
     kind: input.kind,
     severity: input.text.severity,
     title: input.text.title,
@@ -295,17 +313,21 @@ export async function alertSignal(input: {
 /** `warning_bypassed`: dedupe `bypass:<relatesTo>` (one bump alert per dismissed warning). */
 export async function alertSignalBypass(input: {
   tenantId: string;
-  userId: string;
+  userId: string | null;
   deviceId: string;
   kind: SignalAlertKind;
   relatesTo: string;
   verdictId?: string | null;
   text: AlertText;
+  memberId?: string | null;
+  signalIds?: string[];
 }): Promise<AlertRow | null> {
   return raiseAlert({
     tenantId: input.tenantId,
     subjectUserId: input.userId,
     deviceId: input.deviceId,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    ...(input.signalIds ? { signalIds: input.signalIds } : {}),
     kind: input.kind,
     severity: input.text.severity,
     title: input.text.title,
@@ -315,82 +337,125 @@ export async function alertSignalBypass(input: {
   });
 }
 
-/** `scam_in_progress`: dedupe `scam_in_progress:<userId>:<30-minute bucket>`. */
-export async function alertScamInProgress(input: { tenantId: string; userId: string; bucket: string; text: AlertText }): Promise<AlertRow | null> {
+/**
+ * `scam_in_progress`: dedupe `scam_in_progress:<userId>:<30-minute bucket>`, or
+ * `scam_in_progress:m:<memberId>:<bucket>` for a member without an account (see `subjectKey`).
+ */
+export async function alertScamInProgress(input: {
+  tenantId: string;
+  userId: string | null;
+  bucket: string;
+  text: AlertText;
+  memberId?: string | null;
+  signalIds?: string[];
+}): Promise<AlertRow | null> {
+  const key = subjectKey(input);
+  if (!key) return null;
   return raiseAlert({
     tenantId: input.tenantId,
     subjectUserId: input.userId,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    ...(input.signalIds ? { signalIds: input.signalIds } : {}),
     kind: "scam_in_progress",
     severity: input.text.severity,
     title: input.text.title,
     body: input.text.body,
-    dedupeKey: `scam_in_progress:${input.userId}:${input.bucket}`,
+    dedupeKey: `scam_in_progress:${key}:${input.bucket}`,
+  });
+}
+
+/**
+ * `install_during_session` / `payment_under_pressure`: dedupe `<kind>:<userId>:<30-minute bucket>`,
+ * or `<kind>:m:<memberId>:<bucket>` for a member without an account (see `subjectKey`).
+ */
+export async function alertCorrelation(input: {
+  tenantId: string;
+  userId: string | null;
+  kind: "install_during_session" | "payment_under_pressure";
+  bucket: string;
+  text: AlertText;
+  memberId?: string | null;
+  signalIds?: string[];
+}): Promise<AlertRow | null> {
+  const key = subjectKey(input);
+  if (!key) return null;
+  return raiseAlert({
+    tenantId: input.tenantId,
+    subjectUserId: input.userId,
+    kind: input.kind,
+    severity: input.text.severity,
+    title: input.text.title,
+    body: input.text.body,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    ...(input.signalIds ? { signalIds: input.signalIds } : {}),
+    dedupeKey: `${input.kind}:${key}:${input.bucket}`,
+  });
+}
+
+/**
+ * `self_harm_attempts` (Child mode): about the child, not one device, so the dedupe key is
+ * `self_harm_attempts:<userId>:<UTC hour of the triggering block>` (`m:<memberId>` for a member
+ * without an account, see `subjectKey`). Blocks keep arriving after the third; they must not
+ * page the parents again within the same hour.
+ */
+export async function alertSelfHarmAttempts(input: {
+  tenantId: string;
+  userId: string | null;
+  deviceId: string;
+  text: AlertText;
+  memberId?: string | null;
+  signalIds?: string[];
+  /** When the triggering block was observed (default now). */
+  at?: Date;
+}): Promise<AlertRow | null> {
+  const key = subjectKey(input);
+  if (!key) return null;
+  return raiseAlert({
+    tenantId: input.tenantId,
+    subjectUserId: input.userId,
+    deviceId: input.deviceId,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    ...(input.signalIds ? { signalIds: input.signalIds } : {}),
+    kind: "self_harm_attempts",
+    severity: input.text.severity,
+    title: input.text.title,
+    body: input.text.body,
+    dedupeKey: `self_harm_attempts:${key}:${hourBucket(input.at)}`,
+  });
+}
+
+/** `protection_disabled`: dedupe `protection_disabled:<deviceId>:<UTC hour>`. */
+export async function alertProtectionDisabled(input: {
+  tenantId: string;
+  userId: string | null;
+  deviceId: string;
+  text: AlertText;
+  memberId?: string | null;
+  now?: Date;
+}): Promise<AlertRow | null> {
+  return raiseAlert({
+    tenantId: input.tenantId,
+    subjectUserId: input.userId,
+    deviceId: input.deviceId,
+    kind: "protection_disabled",
+    severity: input.text.severity,
+    title: input.text.title,
+    body: input.text.body,
+    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+    dedupeKey: `protection_disabled:${input.deviceId}:${hourBucket(input.now)}`,
   });
 }
 
 // ─── Delivery ──────────────────────────────────────────────────────
 
-export interface AlertDeliveryDeps {
-  getAlert(tenantId: string, id: string): Promise<AlertRow | undefined>;
-  owners(tenantId: string): Promise<AlertOwner[]>;
-  countSentSince(tenantId: string, since: Date): Promise<number>;
-  markEmail(tenantId: string, id: string, status: AlertRow["emailStatus"]): Promise<void>;
-  mailer: Mailer | null;
-  appUrl: string;
-}
-
-export function createAlertDeliveryDeps(): AlertDeliveryDeps {
-  const db = getDb();
-  return {
-    getAlert: async (t, id) => (db ? getAlert(db, t, id) : memoryGetAlert(t, id)),
-    owners: async (t) => (db ? listAlertOwners(db, t) : memoryAlertOwners(t)),
-    countSentSince: async (t, since) => (db ? countAlertEmailsSince(db, t, since) : memoryCountAlertEmailsSince(t, since)),
-    markEmail: async (t, id, status) => (db ? markAlertEmail(db, t, id, status) : memoryMarkAlertEmail(t, id, status)),
-    mailer: getMailer(),
-    appUrl: inboundEnv().APP_URL,
-  };
-}
-
-export type DeliveryOutcome = "sent" | "skipped" | "capped" | "missing" | "already_handled";
-
 /**
- * Email the household's owners about one alert. Idempotent: an alert that is no longer
- * `pending` is left alone, and Resend idempotency keys cover a retry mid-send. A send
- * error propagates so Inngest retries; the function's onFailure marks it `failed`.
+ * What the `alert-created` function does: enqueue outbox rows for a legacy alert (raised
+ * before the outbox existed, or whose enqueue was deferred), then drain the household.
  */
-export async function deliverAlert(data: AlertCreatedData, deps: AlertDeliveryDeps, now = new Date()): Promise<DeliveryOutcome> {
-  const alert = await deps.getAlert(data.tenantId, data.alertId);
-  if (!alert) return "missing";
-  if (alert.emailStatus !== "pending") return "already_handled";
-
-  const recipients = (await deps.owners(data.tenantId)).filter((o) => o.email && meetsThreshold(alert.severity, o.threshold));
-  if (!deps.mailer || recipients.length === 0) {
-    await deps.markEmail(data.tenantId, alert.id, "skipped");
-    return "skipped";
-  }
-
-  const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  if ((await deps.countSentSince(data.tenantId, dayStart)) >= ALERT_EMAIL_DAILY_CAP) {
-    await deps.markEmail(data.tenantId, alert.id, "skipped");
-    const notice = renderAlertCapEmail({ dashboardUrl: `${deps.appUrl}/dashboard`, cap: ALERT_EMAIL_DAILY_CAP });
-    const date = dayStart.toISOString().slice(0, 10);
-    for (const o of recipients) {
-      await deps.mailer.send({ to: o.email!, ...notice, idempotencyKey: `alert-cap:${data.tenantId}:${date}:${o.userId}` });
-    }
-    return "capped";
-  }
-
-  const link = alert.kind === "breach_detected"
-    ? { url: `${deps.appUrl}/settings/breaches`, label: "Review breach status" }
-    : alert.verdictId
-      ? { url: `${deps.appUrl}/verdicts/${alert.verdictId}`, label: "See the check" }
-      : { url: `${deps.appUrl}/settings/household`, label: "Open household settings" };
-  const email = renderAlertEmail({ severity: alert.severity, title: alert.title, body: alert.body, link });
-  for (const o of recipients) {
-    await deps.mailer.send({ to: o.email!, ...email, idempotencyKey: `alert:${alert.id}:${o.userId}` });
-  }
-  await deps.markEmail(data.tenantId, alert.id, "sent");
-  return "sent";
+export async function deliverAlertNow(data: AlertCreatedData, now = new Date()): Promise<{ enqueued: number; retry: number }> {
+  const enqueued = await enqueueIfLegacy(data.tenantId, data.alertId);
+  const r = await drainOutbox(data.tenantId, createOutboxDrainDeps(), now, { alertId: data.alertId });
+  return { enqueued, retry: r.retry };
 }
 
 // ─── Feed and settings ─────────────────────────────────────────────
@@ -406,6 +471,7 @@ function toItem(a: AlertListItem): AlertItem {
     subjectName: a.subjectName,
     verdictId: a.verdictId,
     createdAt: a.createdAt.toISOString(),
+    status: a.status,
     acknowledgedAt: a.acknowledgedAt ? a.acknowledgedAt.toISOString() : null,
     acknowledgedByName: a.acknowledgedByName,
   };
@@ -413,12 +479,17 @@ function toItem(a: AlertListItem): AlertItem {
 
 export class BadCursorError extends Error {}
 
+/** The alert filter of a session: owners see the household's alerts; members only those about their own member. */
+function alertScope(session: NeoSession): { aboutUserId?: string } {
+  return session.role === "owner" ? {} : { aboutUserId: session.userId };
+}
+
 /** Owners see the household's alerts; members only those about themselves. */
 export async function listAlertsForSession(
   session: NeoSession,
   opts: { status: "open" | "all"; cursor?: string; limit?: number },
 ): Promise<AlertListResponse> {
-  const scope = session.role === "owner" ? {} : { subjectUserId: session.userId };
+  const scope = alertScope(session);
   const db = getDb();
   let page: { items: AlertListItem[]; nextCursor?: string };
   try {
@@ -436,7 +507,7 @@ export async function listAlertsForSession(
 /** Open high/critical alerts visible to the session (the nav dot). Zero on storage errors. */
 export async function urgentAlertCount(session: NeoSession): Promise<number> {
   try {
-    const scope = session.role === "owner" ? {} : { subjectUserId: session.userId };
+    const scope = alertScope(session);
     const severities = ["high", "critical"] as const;
     const db = getDb();
     return db

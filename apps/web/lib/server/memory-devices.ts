@@ -24,10 +24,12 @@ import {
   type EnrollmentCodePreview,
   type EnrollmentCodePublic,
   type MembershipRole,
+  type PolicyBundleRow,
   type RedeemEnrollmentCodeResult,
 } from "@neo/db";
 import { memoryInsertDeviceToken, memoryRevokeDeviceTokens } from "./memory-desktop-tokens";
 import { memoryHouseholdName } from "./memory-household";
+import { memoryMemberById, memoryMemberIdForUser } from "./memory-members";
 import { memoryListMembers } from "./memory-state";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -37,7 +39,8 @@ const CODE_RETENTION_MS = 30 * DAY_MS;
 interface MemDevice {
   id: string;
   tenantId: string;
-  userId: string;
+  userId: string | null;
+  memberId: string;
   kind: DeviceInput["kind"];
   platform: DeviceInput["platform"];
   name: string;
@@ -49,12 +52,14 @@ interface MemDevice {
   offlineAlertedAt: Date | null;
   revokedAt: Date | null;
   revokedBy: string | null;
+  policyVersionApplied: string | null;
 }
 
 interface MemCode {
   id: string;
   tenantId: string;
-  userId: string;
+  userId: string | null;
+  memberId: string | null;
   codeHash: string;
   createdBy: string | null;
   createdAt: Date;
@@ -64,7 +69,10 @@ interface MemCode {
   revokedAt: Date | null;
 }
 
-const g = globalThis as typeof globalThis & { __neoMemoryDevices?: { devices: Map<string, MemDevice>; codes: Map<string, MemCode> } };
+const g = globalThis as typeof globalThis & {
+  __neoMemoryDevices?: { devices: Map<string, MemDevice>; codes: Map<string, MemCode> };
+  __neoMemoryPolicyBundles?: Map<string, PolicyBundleRow>;
+};
 
 function state() {
   g.__neoMemoryDevices ??= { devices: new Map(), codes: new Map() };
@@ -73,6 +81,20 @@ function state() {
 
 export function resetMemoryDevices(): void {
   g.__neoMemoryDevices = undefined;
+  g.__neoMemoryPolicyBundles = undefined;
+}
+
+// ─── Signed policy bundles (the twin of @neo/db policy-bundles.ts) ──
+
+export function memoryGetPolicyBundle(tenantId: string, deviceId: string): PolicyBundleRow | undefined {
+  const d = state().devices.get(deviceId);
+  return d && d.tenantId === tenantId ? g.__neoMemoryPolicyBundles?.get(deviceId) : undefined;
+}
+
+export function memoryUpsertPolicyBundle(tenantId: string, row: PolicyBundleRow): void {
+  const d = state().devices.get(row.deviceId);
+  if (!d || d.tenantId !== tenantId) throw new Error("device is not in this household");
+  (g.__neoMemoryPolicyBundles ??= new Map()).set(row.deviceId, row);
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────
@@ -90,12 +112,36 @@ function membershipOf(tenantId: string, userId: string, fallbackRole: Membership
   return m ? { role: m.role } : undefined;
 }
 
+/** Who a code or device protects; undefined when the target is gone (the twin of devices.ts `resolveTarget`). */
+function resolveTarget(
+  tenantId: string,
+  target: { userId: string | null; memberId: string | null },
+  fallbackRole?: MembershipRole,
+): { userId: string | null; memberId: string; role: MembershipRole | null } | undefined {
+  if (target.userId) {
+    const membership = membershipOf(tenantId, target.userId, fallbackRole);
+    if (!membership) return undefined;
+    return { userId: target.userId, memberId: target.memberId ?? memoryMemberIdForUser(tenantId, target.userId), role: membership.role };
+  }
+  if (!target.memberId) return undefined;
+  const m = memoryMemberById(tenantId, target.memberId);
+  if (!m) return undefined;
+  return m.userId ? resolveTarget(tenantId, { userId: m.userId, memberId: m.id }) : { userId: null, memberId: m.id, role: null };
+}
+
+/** Name shown for the protected member: the account name, else the member's display name. */
+function memberNameOf(tenantId: string, userId: string | null, memberId: string | null): string | null {
+  if (userId) return nameOf(tenantId, userId);
+  return memberId ? (memoryMemberById(tenantId, memberId)?.displayName ?? null) : null;
+}
+
 function toPublic(d: MemDevice): DevicePublic {
   return {
     id: d.id,
     tenantId: d.tenantId,
     userId: d.userId,
-    memberName: nameOf(d.tenantId, d.userId),
+    memberId: d.memberId,
+    memberName: memberNameOf(d.tenantId, d.userId, d.memberId),
     kind: d.kind,
     platform: d.platform,
     name: d.name,
@@ -107,6 +153,7 @@ function toPublic(d: MemDevice): DevicePublic {
     lastSeenAt: d.lastSeenAt,
     offlineAlertedAt: d.offlineAlertedAt,
     revokedAt: d.revokedAt,
+    policyVersionApplied: d.policyVersionApplied,
   };
 }
 
@@ -114,7 +161,8 @@ function codeToPublic(c: MemCode): EnrollmentCodePublic {
   return {
     id: c.id,
     userId: c.userId,
-    memberName: nameOf(c.tenantId, c.userId),
+    memberId: c.memberId,
+    memberName: memberNameOf(c.tenantId, c.userId, c.memberId),
     createdBy: c.createdBy,
     createdAt: c.createdAt,
     expiresAt: c.expiresAt,
@@ -154,8 +202,9 @@ function normalizeClientVersion(s: unknown): string | null {
 /** Insert an active device and its monitoring token. Null at the household device cap. */
 function insertDevice(input: {
   tenantId: string;
-  userId: string;
-  role: MembershipRole;
+  userId: string | null;
+  role: MembershipRole | null;
+  memberId: string;
   device: DeviceInput;
   enrollment: DeviceEnrollment;
   enrolledBy: string | null;
@@ -166,6 +215,7 @@ function insertDevice(input: {
     id: crypto.randomUUID(),
     tenantId: input.tenantId,
     userId: input.userId,
+    memberId: input.memberId,
     kind: input.device.kind,
     platform: input.device.platform,
     name: input.device.name,
@@ -177,12 +227,14 @@ function insertDevice(input: {
     offlineAlertedAt: null,
     revokedAt: null,
     revokedBy: null,
+    policyVersionApplied: null,
   };
   state().devices.set(row.id, row);
   const minted = memoryInsertDeviceToken({
     userId: input.userId,
     tenantId: input.tenantId,
     role: input.role,
+    memberId: input.memberId,
     name: input.device.name,
     deviceId: row.id,
     scopes: MONITORING_SCOPES,
@@ -196,16 +248,23 @@ export function memoryDeviceIsActive(tenantId: string, deviceId: string): boolea
   return Boolean(d && d.tenantId === tenantId && !d.revokedAt);
 }
 
+/** The member of an active device, or null (monitoring token resolution). */
+export function memoryDeviceMemberId(tenantId: string, deviceId: string): string | null {
+  const d = state().devices.get(deviceId);
+  return d && d.tenantId === tenantId && !d.revokedAt ? d.memberId : null;
+}
+
 // ─── Owner: enrollment codes ───────────────────────────────────────
 
-export function memoryCreateEnrollmentCode(input: {
-  tenantId: string;
-  userId: string;
-  createdBy: string;
-  now?: Date;
-}): { code: string; record: EnrollmentCodePublic } | { error: "not_member" | "code_limit" | "device_limit" } {
+export function memoryCreateEnrollmentCode(
+  input: { tenantId: string; createdBy: string; now?: Date } & ({ userId: string; memberId?: undefined } | { memberId: string; userId?: undefined }),
+): { code: string; record: EnrollmentCodePublic } | { error: "not_member" | "code_limit" | "device_limit" } {
   const now = input.now ?? new Date();
-  if (!membershipOf(input.tenantId, input.userId)) return { error: "not_member" };
+  const target = resolveTarget(
+    input.tenantId,
+    input.memberId !== undefined ? { userId: null, memberId: input.memberId } : { userId: input.userId, memberId: null },
+  );
+  if (!target) return { error: "not_member" };
   const pending = [...state().codes.values()].filter((c) => c.tenantId === input.tenantId && pendingCode(c, now));
   if (pending.length >= MAX_PENDING_ENROLLMENT_CODES) return { error: "code_limit" };
   if (activeDeviceCount(input.tenantId) >= MAX_DEVICES_PER_HOUSEHOLD) return { error: "device_limit" };
@@ -213,7 +272,8 @@ export function memoryCreateEnrollmentCode(input: {
   const row: MemCode = {
     id: crypto.randomUUID(),
     tenantId: input.tenantId,
-    userId: input.userId,
+    userId: target.userId,
+    memberId: target.memberId,
     codeHash: hashEnrollmentCode(code),
     createdBy: input.createdBy,
     createdAt: now,
@@ -248,11 +308,11 @@ export function memoryPreviewEnrollmentCode(input: { code: string; now?: Date })
   const now = input.now ?? new Date();
   const c = codeByInput(input.code);
   if (!c || !pendingCode(c, now)) return null;
-  if (!membershipOf(c.tenantId, c.userId)) return null;
+  if (!resolveTarget(c.tenantId, c)) return null;
   const owner = memoryListMembers(c.tenantId).find((m) => m.role === "owner");
   return {
     householdName: memoryHouseholdName(c.tenantId),
-    memberName: nameOf(c.tenantId, c.userId),
+    memberName: memberNameOf(c.tenantId, c.userId, c.memberId),
     ownerName: owner?.name ?? null,
     expiresAt: c.expiresAt,
   };
@@ -264,12 +324,13 @@ export function memoryRedeemEnrollmentCode(input: { code: string; device: Device
   const now = input.now ?? new Date();
   const c = codeByInput(input.code);
   if (!c || !pendingCode(c, now)) return { status: "not_found" };
-  const membership = membershipOf(c.tenantId, c.userId);
-  if (!membership) return { status: "not_found" };
+  const target = resolveTarget(c.tenantId, c);
+  if (!target) return { status: "not_found" };
   const enrolled = insertDevice({
     tenantId: c.tenantId,
-    userId: c.userId,
-    role: membership.role,
+    userId: target.userId,
+    role: target.role,
+    memberId: target.memberId,
     device,
     enrollment: "code",
     enrolledBy: c.createdBy,
@@ -305,6 +366,7 @@ export function memoryEnrollSelfDevice(input: {
     tenantId: input.tenantId,
     userId: input.userId,
     role: membership.role,
+    memberId: memoryMemberIdForUser(input.tenantId, input.userId),
     device,
     enrollment: "self",
     enrolledBy: input.userId,
@@ -316,10 +378,16 @@ export function memoryEnrollSelfDevice(input: {
 
 // ─── Household: devices ────────────────────────────────────────────
 
-/** Active devices, newest first; `userId` restricts to one member's devices. */
-export function memoryListDevices(tenantId: string, opts: { userId?: string } = {}): DevicePublic[] {
+/** Active devices, newest first; `memberId` restricts to one member's devices, `userId` to the member behind an account. */
+export function memoryListDevices(tenantId: string, opts: { userId?: string; memberId?: string } = {}): DevicePublic[] {
   return [...state().devices.values()]
-    .filter((d) => d.tenantId === tenantId && !d.revokedAt && (opts.userId === undefined || d.userId === opts.userId))
+    .filter(
+      (d) =>
+        d.tenantId === tenantId &&
+        !d.revokedAt &&
+        (opts.memberId === undefined || d.memberId === opts.memberId) &&
+        (opts.userId === undefined || d.userId === opts.userId || d.memberId === memoryMemberIdForUser(tenantId, opts.userId)),
+    )
     .sort(newestFirst)
     .map(toPublic);
 }
@@ -369,11 +437,13 @@ export function memoryRecordHeartbeat(input: {
   tenantId: string;
   deviceId: string;
   clientVersion?: string;
+  policyVersion?: string;
   now?: Date;
 }): DevicePublic | undefined {
   const d = state().devices.get(input.deviceId);
   if (!d || d.tenantId !== input.tenantId || d.revokedAt) return undefined;
   d.lastSeenAt = input.now ?? new Date();
+  if (input.policyVersion) d.policyVersionApplied = input.policyVersion;
   d.offlineAlertedAt = null;
   const clientVersion = input.clientVersion === undefined ? null : normalizeClientVersion(input.clientVersion);
   if (clientVersion) d.clientVersion = clientVersion;

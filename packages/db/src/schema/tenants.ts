@@ -18,6 +18,8 @@ export const tenants = pgTable("tenants", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: text("name").notNull(),
   kind: text("kind").$type<TenantKind>().notNull().default("household"),
+  /** IANA time zone name of the household (screen time and downtime, M2); null until set, read as UTC. */
+  timeZone: text("time_zone"),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
 });
 

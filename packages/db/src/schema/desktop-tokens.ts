@@ -11,6 +11,7 @@ import { sql } from "drizzle-orm";
 import { check, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.js";
 import { devices } from "./devices.js";
+import { members } from "./members.js";
 import { tenants, type MembershipRole } from "./tenants.js";
 
 export const TOKEN_SCOPES = ["full", "device", "signals:write", "url:check"] as const;
@@ -23,13 +24,13 @@ export const desktopTokens = pgTable(
   "desktop_tokens",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    /** The token's user; null only for a monitoring token of a member without an account (M2). */
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
-    role: text("role").$type<MembershipRole>().notNull(),
+    /** Membership role snapshot; null for a monitoring token of a member without an account (no membership, no role). */
+    role: text("role").$type<MembershipRole>(),
     /** Short label the user chose ("Omarchy bar", "laptop"). */
     name: text("name").notNull(),
     /** SHA-256 hex of the full token string (`neo_dt_…`). */
@@ -42,11 +43,20 @@ export const desktopTokens = pgTable(
     scopes: text("scopes").array().$type<TokenScope[]>().notNull().default(sql`'{full}'::text[]`),
     /** Set for monitoring tokens: the device the token reports for. */
     deviceId: uuid("device_id").references(() => devices.id, { onDelete: "cascade" }),
+    /** Monitoring tokens: the member the device protects (the session's subject). Null for full tokens. */
+    memberId: uuid("member_id").references(() => members.id, { onDelete: "set null" }),
   },
   (t) => [
     index("desktop_tokens_user_idx").on(t.userId),
     index("desktop_tokens_tenant_idx").on(t.tenantId),
-    check("desktop_tokens_role_check", sql`${t.role} in ('owner', 'member')`),
+    check("desktop_tokens_role_check", sql`${t.role} is null or ${t.role} in ('owner', 'member')`),
+    // A full token acts as a user (user and role set); a monitoring token has a device and a member
+    // (the member may be gone once the token is revoked).
+    check(
+      "desktop_tokens_subject_check",
+      sql`('full' = any(${t.scopes}) and ${t.userId} is not null and ${t.role} is not null)
+        or (${t.deviceId} is not null and (${t.memberId} is not null or ${t.revokedAt} is not null))`,
+    ),
     check(
       "desktop_tokens_scopes_check",
       sql`cardinality(${t.scopes}) > 0 and ${t.scopes} <@ array['full', 'device', 'signals:write', 'url:check']::text[]`,

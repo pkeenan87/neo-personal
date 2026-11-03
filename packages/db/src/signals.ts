@@ -4,8 +4,9 @@
  * `tenantScoped()`; `reputation_cache` carries no tenant and no RLS, so it is queried with the
  * raw `db` (see docs/rls.md).
  */
-import { and, asc, eq, gte, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import type { Db } from "./client.js";
+import { memberIdOfUserSql } from "./members.js";
 import { devices, deviceExpectedTools, deviceSignals, reputationCache, SIGNAL_OUTCOMES, type SignalOutcome, type SignalSeverity } from "./schema/index.js";
 import { assertTenantId, tenantScoped } from "./tenant.js";
 
@@ -18,7 +19,10 @@ export type DeviceSignalRow = typeof deviceSignals.$inferSelect;
 export interface InsertDeviceSignalInput {
   tenantId: string;
   deviceId: string;
-  userId: string;
+  /** The member the device protects (the signal's subject); read from the device when absent. */
+  memberId?: string;
+  /** The member's account; null for a member without one. */
+  userId: string | null;
   clientEventId: string;
   type: string;
   detector: string;
@@ -37,11 +41,22 @@ export interface InsertDeviceSignalInput {
 export async function insertDeviceSignal(db: Db, input: InsertDeviceSignalInput): Promise<{ row: DeviceSignalRow; duplicate: boolean }> {
   assertTenantId(input.tenantId);
   return tenantScoped(db, input.tenantId).transaction(async (t) => {
+    let memberId = input.memberId;
+    if (!memberId) {
+      const [device] = await t.tx
+        .select({ memberId: devices.memberId })
+        .from(devices)
+        .where(and(eq(devices.tenantId, input.tenantId), eq(devices.id, input.deviceId)))
+        .limit(1);
+      memberId = device?.memberId ?? undefined;
+      if (!memberId) throw new Error("@neo/db: the device has no member to attribute the signal to");
+    }
     const [inserted] = await t.tx
       .insert(deviceSignals)
       .values({
         tenantId: input.tenantId,
         deviceId: input.deviceId,
+        memberId,
         userId: input.userId,
         clientEventId: input.clientEventId,
         type: input.type,
@@ -119,13 +134,28 @@ export async function listDeviceSignalsByClientIds(
 }
 
 /** A member's signals since `since`, oldest first (for correlation). */
+export async function listRecentMemberSignals(
+  db: Db,
+  tenantId: string,
+  memberId: string,
+  opts: { since: Date; outcomes?: readonly SignalOutcome[] },
+): Promise<DeviceSignalRow[]> {
+  const conds: SQL[] = [eq(deviceSignals.memberId, memberId), gte(deviceSignals.observedAt, opts.since)];
+  if (opts.outcomes?.length) conds.push(inArray(deviceSignals.outcome, [...opts.outcomes]));
+  return tenantScoped(db, tenantId).select(deviceSignals, and(...conds), { orderBy: [asc(deviceSignals.observedAt)] });
+}
+
+/** An account holder's signals since `since`: the signals of their member (`listRecentMemberSignals`), found by user. */
 export async function listRecentUserSignals(
   db: Db,
   tenantId: string,
   userId: string,
   opts: { since: Date; outcomes?: readonly SignalOutcome[] },
 ): Promise<DeviceSignalRow[]> {
-  const conds: SQL[] = [eq(deviceSignals.userId, userId), gte(deviceSignals.observedAt, opts.since)];
+  const conds: SQL[] = [
+    or(eq(deviceSignals.userId, userId), eq(deviceSignals.memberId, memberIdOfUserSql(tenantId, userId))) as SQL,
+    gte(deviceSignals.observedAt, opts.since),
+  ];
   if (opts.outcomes?.length) conds.push(inArray(deviceSignals.outcome, [...opts.outcomes]));
   return tenantScoped(db, tenantId).select(deviceSignals, and(...conds), { orderBy: [asc(deviceSignals.observedAt)] });
 }

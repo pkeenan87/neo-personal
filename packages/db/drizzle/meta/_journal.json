@@ -113,6 +113,48 @@
       "when": 1791251435946,
       "tag": "0015_signin_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793632566799,
+      "tag": "0017_v2_members",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793632626799,
+      "tag": "0018_outbox_sweep",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793632686799,
+      "tag": "0019_eve_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793632746799,
+      "tag": "0020_member_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1793632806799,
+      "tag": "0021_child_policy",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793632866799,
+      "tag": "0022_policy_bundles",
+      "breakpoints": true
     }
   ]
 }

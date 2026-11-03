@@ -8,6 +8,7 @@
  */
 import type { DeviceSignalRow, ExpectedToolRow, SignalOutcome, SignalSeverity } from "@neo/db";
 import { memoryGetDevice } from "./memory-devices";
+import { memoryMemberIdForUser } from "./memory-members";
 
 type MemSignal = DeviceSignalRow;
 
@@ -29,7 +30,9 @@ export function resetMemorySignals(): void {
 export interface MemoryInsertDeviceSignalInput {
   tenantId: string;
   deviceId: string;
-  userId: string;
+  /** The device's member; read from the device when absent. */
+  memberId?: string;
+  userId: string | null;
   clientEventId: string;
   type: string;
   detector: string;
@@ -45,10 +48,13 @@ export function memoryInsertDeviceSignal(input: MemoryInsertDeviceSignalInput): 
   for (const row of signals.values()) {
     if (row.deviceId === input.deviceId && row.clientEventId === input.clientEventId) return { row, duplicate: true };
   }
+  const memberId = input.memberId ?? memoryGetDevice(input.tenantId, input.deviceId)?.memberId;
+  if (!memberId) throw new Error("the device has no member to attribute the signal to");
   const row: MemSignal = {
     id: crypto.randomUUID(),
     tenantId: input.tenantId,
     deviceId: input.deviceId,
+    memberId,
     userId: input.userId,
     clientEventId: input.clientEventId,
     type: input.type,
@@ -96,13 +102,25 @@ export function memoryListDeviceSignalsByClientIds(tenantId: string, deviceId: s
 }
 
 /** A member's signals since `since`, oldest first (for correlation). */
+export function memoryListRecentMemberSignals(
+  tenantId: string,
+  memberId: string,
+  opts: { since: Date; outcomes?: readonly SignalOutcome[] },
+): DeviceSignalRow[] {
+  return [...state().signals.values()]
+    .filter((r) => r.tenantId === tenantId && r.memberId === memberId && r.observedAt.getTime() >= opts.since.getTime())
+    .filter((r) => !opts.outcomes?.length || opts.outcomes.includes(r.outcome))
+    .sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime());
+}
+
+/** An account holder's signals since `since`, oldest first: their member's, found by user. */
 export function memoryListRecentUserSignals(
   tenantId: string,
   userId: string,
   opts: { since: Date; outcomes?: readonly SignalOutcome[] },
 ): DeviceSignalRow[] {
   return [...state().signals.values()]
-    .filter((r) => r.tenantId === tenantId && r.userId === userId && r.observedAt.getTime() >= opts.since.getTime())
+    .filter((r) => r.tenantId === tenantId && (r.userId === userId || r.memberId === memoryMemberIdForUser(tenantId, userId)) && r.observedAt.getTime() >= opts.since.getTime())
     .filter((r) => !opts.outcomes?.length || opts.outcomes.includes(r.outcome))
     .sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime());
 }

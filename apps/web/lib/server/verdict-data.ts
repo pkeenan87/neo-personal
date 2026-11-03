@@ -250,12 +250,15 @@ export async function deleteVerdict(session: NeoSession, id: string): Promise<bo
   return true;
 }
 
+/** The household's display name. Needs only the tenant, so device routes (no person session) can use it. */
+export async function householdName(tenantId: string): Promise<string> {
+  const d = db();
+  return d ? ((await safe(() => getHouseholdName(d, tenantId), "household name")) ?? "Your household") : memoryHouseholdName(tenantId);
+}
+
 export async function household(session: NeoSession): Promise<HouseholdSummary> {
   const members = await householdMembers(session);
-  const d = db();
-  const name = d
-    ? ((await safe(() => getHouseholdName(d, session.tenantId), "household name")) ?? "Your household")
-    : memoryHouseholdName(session.tenantId);
+  const name = await householdName(session.tenantId);
   return {
     tenantId: session.tenantId,
     name,

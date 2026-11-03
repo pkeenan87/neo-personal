@@ -1,7 +1,7 @@
 import type { ApiError } from "@/lib/api-types";
 
-export function jsonError(status: number, error: string, code?: string): Response {
-  const body: ApiError = code ? { error, code } : { error };
+export function jsonError(status: number, error: string, code?: string, fields?: ApiError["fields"]): Response {
+  const body: ApiError = { error, ...(code ? { code } : {}), ...(fields && fields.length > 0 ? { fields } : {}) };
   return Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 }
 

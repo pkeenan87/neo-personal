@@ -9,6 +9,7 @@ import { boolean, check, index, jsonb, pgTable, primaryKey, text, timestamp, uni
 import { alerts } from "./alerts.js";
 import { users } from "./auth.js";
 import { devices } from "./devices.js";
+import { members } from "./members.js";
 import { tenants } from "./tenants.js";
 import { verdicts } from "./verdicts.js";
 
@@ -33,10 +34,15 @@ export const deviceSignals = pgTable(
     deviceId: uuid("device_id")
       .notNull()
       .references(() => devices.id, { onDelete: "cascade" }),
-    /** The member the device protects. */
-    userId: text("user_id")
+    /** The account of the member the device protects; null for a member without an account (M2). */
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * The member the device protects (the device's member when the signal arrived). Cascades:
+     * removing a member removes their telemetry, which retention purges after 30 days anyway.
+     */
+    memberId: uuid("member_id")
       .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+      .references(() => members.id, { onDelete: "cascade" }),
     /** Client-generated uuid; idempotency key together with device_id. */
     clientEventId: uuid("client_event_id").notNull(),
     type: text("type").notNull(),
@@ -56,6 +62,7 @@ export const deviceSignals = pgTable(
   (t) => [
     uniqueIndex("device_signals_device_event_idx").on(t.deviceId, t.clientEventId),
     index("device_signals_tenant_user_observed_idx").on(t.tenantId, t.userId, t.observedAt.desc()),
+    index("device_signals_tenant_member_observed_idx").on(t.tenantId, t.memberId, t.observedAt.desc()),
     index("device_signals_tenant_device_received_idx").on(t.tenantId, t.deviceId, t.receivedAt.desc()),
     check("device_signals_outcome_check", sql`${t.outcome} in (${inList(SIGNAL_OUTCOMES)})`),
     check("device_signals_severity_check", sql`${t.severity} is null or ${t.severity} in (${inList(SIGNAL_SEVERITIES)})`),

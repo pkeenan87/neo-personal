@@ -10,7 +10,7 @@
 import type { AccountHardeningAnswer, HouseholdMember, InboundMessageRow, SigninEvent, VerdictSource } from "@neo/db";
 import type { Verdict } from "@neo/verdict";
 import { env } from "@/lib/env";
-import { DEV_SESSION_IDS } from "@/lib/session";
+import { DEV_SESSION_IDS } from "./session-core";
 
 export interface MemoryVerdictRow {
   id: string;

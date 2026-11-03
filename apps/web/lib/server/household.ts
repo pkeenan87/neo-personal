@@ -53,7 +53,9 @@ export const INVITE_SEND_LIMIT = { limit: 20, windowMs: DAY_MS } as const;
 /** Preview and accept attempts, per user: secrets are unguessable, this only blunts scripted abuse. */
 export const INVITE_USE_LIMIT = { limit: 10, windowMs: 10 * 60 * 1000 } as const;
 
-export type Outcome<T> = { ok: true; value: T } | { ok: false; status: number; code: string; message: string; retryAfterSeconds?: number };
+export type Outcome<T> =
+  | { ok: true; value: T }
+  | { ok: false; status: number; code: string; message: string; retryAfterSeconds?: number; /** Validation errors: which input fields were wrong. */ fields?: { path: string; message: string }[] };
 
 function fail(status: number, code: string, message: string): { ok: false; status: number; code: string; message: string } {
   return { ok: false, status, code, message };

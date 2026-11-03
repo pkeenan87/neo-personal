@@ -6,7 +6,7 @@
  * omitted, 120 requests/hour/device.
  */
 import type { SignalStatusResponse, SignalStatusResult } from "@/lib/signal-types";
-import type { NeoSession } from "@/lib/session";
+import type { DeviceSession } from "@/lib/session";
 import type { Outcome } from "../household";
 import { takeRateSlot } from "../rate-limit";
 import { listDeviceSignalsByClientIds, type DeviceSignalRow } from "./store";
@@ -47,7 +47,7 @@ function toResult(row: DeviceSignalRow): SignalStatusResult {
 }
 
 export async function signalStatus(
-  session: NeoSession,
+  session: DeviceSession,
   deviceId: string,
   idsParam: string | null,
   now = new Date(),
