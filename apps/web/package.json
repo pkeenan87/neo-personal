@@ -15,7 +15,7 @@
     "playbooks:generate": "node scripts/generate-playbooks.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "0.135.0",
+    "@anthropic-ai/sdk": "1.3.0",
     "@auth/drizzle-adapter": "1.11.3",
     "@neo/core": "workspace:*",
     "@neo/db": "workspace:*",
