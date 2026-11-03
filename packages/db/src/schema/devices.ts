@@ -46,6 +46,8 @@ export const devices = pgTable(
     offlineAlertedAt: timestamp("offline_alerted_at", { mode: "date", withTimezone: true }),
     revokedAt: timestamp("revoked_at", { mode: "date", withTimezone: true }),
     revokedBy: text("revoked_by").references(() => users.id, { onDelete: "set null" }),
+    /** The `policyVersion` of the bundle the device last reported applying (heartbeat); null until it reports one. */
+    policyVersionApplied: text("policy_version_applied"),
   },
   (t) => [
     index("devices_tenant_user_idx").on(t.tenantId, t.userId),

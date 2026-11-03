@@ -21,6 +21,7 @@
     "@neo/db": "workspace:*",
     "@neo/tools": "workspace:*",
     "@neo/verdict": "workspace:*",
+    "@vercel/kms": "0.3.8",
     "ai": "7.0.150",
     "drizzle-orm": "^0.45.4",
     "eve": "1.0.0-rc.1",

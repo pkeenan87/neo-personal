@@ -11,6 +11,7 @@ import { detectionLists } from "@neo/tools";
 import type {
   CreateEnrollmentCodeResponse,
   DeviceItem,
+  DevicePolicyState,
   EnrollDeviceResponse,
   EnrollmentCodeItem,
   EnrollmentPreviewResponse,
@@ -37,6 +38,7 @@ import {
   toEnrollmentCodeItem,
 } from "./devices";
 import { requireHouseholdAdmin } from "./household-admin";
+import { compileDeviceBundle, currentPolicyVersion, devicePolicyState } from "./policy-bundles";
 import { renderDeviceEnrolledEmail } from "./email/household-email";
 import { getMailer } from "./email/resend";
 import type { Outcome } from "./household";
@@ -73,6 +75,16 @@ const DEVICE_LIMIT = fail(409, "device_limit", "This household already has the m
 
 // ─── Household view ────────────────────────────────────────────────
 
+/** Whether a device has the current policy; a policy that cannot be compiled reads as "unknown", never an error. */
+async function devicePolicyFor(d: DevicePublic, now: Date): Promise<DevicePolicyState> {
+  try {
+    const bundle = await compileDeviceBundle(d, now);
+    return devicePolicyState(bundle.mode, d.policyVersionApplied, bundle.policyVersion);
+  } catch {
+    return "unknown";
+  }
+}
+
 /** Owners see every active device and pending code; members only their own devices. */
 export async function householdDevices(session: NeoSession): Promise<{ devices: DeviceItem[]; enrollmentCodes: EnrollmentCodeItem[] }> {
   const owner = session.role === "owner";
@@ -82,8 +94,9 @@ export async function householdDevices(session: NeoSession): Promise<{ devices: 
     expectedToolsByDevice(session.tenantId),
   ]);
   const now = new Date();
+  const policy = await Promise.all(devices.map((d) => devicePolicyFor(d, now)));
   return {
-    devices: devices.map((d) => toDeviceItem(d, now, expectedTools.get(d.id) ?? [])),
+    devices: devices.map((d, i) => ({ ...toDeviceItem(d, now, expectedTools.get(d.id) ?? []), policy: policy[i]! })),
     enrollmentCodes: codes.map(toEnrollmentCodeItem),
   };
 }
@@ -255,14 +268,25 @@ export async function heartbeat(
   if (clientVersion !== undefined && clientVersion !== null && (typeof clientVersion !== "string" || clientVersion.length > 32)) {
     return fail(400, "invalid", 'Expected { "clientVersion"?: string of at most 32 characters }.');
   }
+  // The bundle version the device applied: lowercase or uppercase hex, at most 64 characters; blank is absent.
+  const appliedVersion = body?.policyVersion;
+  if (appliedVersion !== undefined && appliedVersion !== null && (typeof appliedVersion !== "string" || appliedVersion.length > 64 || !/^[0-9a-fA-F]*$/.test(appliedVersion))) {
+    return fail(400, "invalid", 'Expected { "policyVersion"?: hex string of at most 64 characters }.');
+  }
   const device = await recordHeartbeat({
     tenantId: session.tenantId,
     deviceId,
     ...(typeof clientVersion === "string" && clientVersion.trim() ? { clientVersion } : {}),
+    ...(typeof appliedVersion === "string" && appliedVersion !== "" ? { policyVersion: appliedVersion.toLowerCase() } : {}),
   });
   // Revoked since the token resolved.
   if (!device) return fail(401, "unauthenticated", "This device is no longer connected to a household.");
   const url = uninstallUrl(origin, deviceId);
+  // The current bundle version, computed without signing. A failure here must not fail the check-in.
+  const policyVersion = await currentPolicyVersion(device).catch((err: unknown) => {
+    logger.error("Policy version unavailable for heartbeat", "devices", { tenantId: session.tenantId, errorMessage: errText(err) });
+    return null;
+  });
   return {
     ok: true,
     value: {
@@ -271,6 +295,7 @@ export async function heartbeat(
       memberName: device.memberName,
       heartbeatSeconds: HEARTBEAT_SECONDS,
       listsVersion: detectionLists().version,
+      policyVersion,
       ...(url ? { uninstallUrl: url } : {}),
     },
   };

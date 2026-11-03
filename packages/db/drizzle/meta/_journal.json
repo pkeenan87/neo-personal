@@ -148,6 +148,13 @@
       "when": 1793632806799,
       "tag": "0021_child_policy",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1793632866799,
+      "tag": "0022_policy_bundles",
+      "breakpoints": true
     }
   ]
 }

@@ -139,6 +139,7 @@ The chat shows which model answered each turn.
 | `RESEND_WEBHOOK_SECRET` | For forwarding | Signing secret of the Resend `email.received` webhook. The webhook returns 503 while unset. |
 | `RESEND_API_KEY` | No | Alias for `AUTH_RESEND_KEY`; used for fetching received mail and sending result emails. |
 | `NEO_INBOUND_RATE_LIMIT_PER_HOUR` | No | Default 30 forwarded messages per address per hour. |
+| `NEO_POLICY_SIGNING_KEY`, `NEO_POLICY_KEY_ID` | For Child mode on devices | A P-256 private key (PEM) that signs the policy bundles devices enforce, and an optional key id. See [Policy signing](#policy-signing). Without a key a production server answers 503 on `GET /api/devices/policy`. |
 | `NEO_EVE_CHAT` | No | `true` turns on the v2 incident chat (`/chat-v2`, "Ask Neo about this" links). Off when unset. Needs `DATABASE_URL`. See [The v2 agent](#the-v2-agent-eve). |
 | `MOCK_MODE` | Yes | **`false`** in production. |
 | `DEV_AUTH_BYPASS` | No | Leave unset/`false`. Refused in production and preview regardless. |
@@ -154,6 +155,21 @@ The incident chat runs on [eve](https://www.npmjs.com/package/eve) (pinned `1.0.
 - **Sessions need a Workflow world.** The default local world keeps them in files under `apps/web/.eve/.workflow-data` on one process; mount that on persistent storage. For several replicas use the Postgres world: add `@workflow/world-postgres`, select it in `apps/web/agent/agent.ts` (`experimental.workflow.world`), set `WORKFLOW_POSTGRES_URL`, and run `pnpm exec bootstrap` once (see `apps/web/node_modules/eve/docs/guides/deployment/workflow-worlds.md`).
 - **Upgrades:** on the local and Postgres worlds any eve version change strands open chats, so upgrade between conversations.
 - The agent resolves the caller in its own process from the same database as the app (the Auth.js `sessions` table or a hashed `neo_dt_` token), so it needs the same `DATABASE_URL`, `AUTH_SECRET` is not read, and there is no origin to configure.
+
+## Policy signing
+
+Child-mode rules reach the browser extension and the desktop agent as a signed policy bundle (`GET /api/devices/policy`). The server signs with ES256 (ECDSA P-256 with SHA-256); clients verify against public keys built into them, so a stolen token or a man in the middle cannot weaken a child's settings. Generate a key pair once:
+
+```
+openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out neo-policy.pem
+openssl ec -in neo-policy.pem -pubout -out neo-policy.pub.pem   # keep; the clients need the public half
+```
+
+- Set `NEO_POLICY_SIGNING_KEY` to the contents of `neo-policy.pem` (a one-line value with literal `\n` for the line breaks also works). Treat it like `AUTH_SECRET`: a secret, never committed, not in a preview environment you do not trust. Optionally set `NEO_POLICY_KEY_ID` (for example `2026-11`); unset, the id is the first 16 hex characters of the SHA-256 of the public key.
+- Publish the public key to clients: `GET /api/devices/policy/keys` returns it as a JWK, and you build the extension and the desktop agent with `NEO_POLICY_PUBKEYS` set to a JSON array of those JWKs (each with its `kid`). Clients verify with the keys they were built with and never trust that endpoint.
+- Rotate by adding the new key to `NEO_POLICY_PUBKEYS` first, releasing clients, then switching `NEO_POLICY_SIGNING_KEY` (and `NEO_POLICY_KEY_ID`) on the server.
+- If you run on Vercel you can use Vercel KMS instead, so the private key never sits in an environment variable: see [deployment](deployment.md#policy-signing).
+- Local development and `MOCK_MODE` need nothing: with no key set, a throwaway key is generated per process. Production (`NODE_ENV=production`) with no key is refused with 503, never served unsigned.
 
 ## Database roles and RLS
 

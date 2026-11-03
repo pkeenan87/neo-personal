@@ -303,6 +303,16 @@ export function DevicesSection({
                   {status.warn ? <TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" /> : null}
                   <span className="truncate">{status.text}</span>
                 </div>
+                {d.policy === "pending" ? (
+                  <div className="mt-1">
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">Pending on device</span>
+                  </div>
+                ) : null}
+                {d.policy === "update_needed" ? (
+                  <div className="mt-1">
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">Update Neo on this device</span>
+                  </div>
+                ) : null}
               </div>
               {isOwner ? (
                 <button
