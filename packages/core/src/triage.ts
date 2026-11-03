@@ -2,31 +2,33 @@
  * Bulk triage: turn one analyzer result (forwarded email, SMS) into a `Verdict` with a
  * single non-streaming structured-output call, no tools, no conversation.
  *
- * Request shape (claude-api skill, TypeScript `tool-use.md` -> Structured Outputs and
- * `shared/tool-use-concepts.md` -> Structured Outputs; SDK type `OutputConfig`):
+ * The call is AI SDK `generateText` (`generateModelText`):
  *
- *   client.messages.create({
- *     model, max_tokens, system, messages,
- *     thinking: { type: "adaptive" },
- *     output_config: { effort: "low", format: { type: "json_schema", schema: verdictJsonSchema } },
+ *   generateText({
+ *     model, maxOutputTokens, system, prompt,
+ *     providerOptions: {
+ *       anthropic: { thinking: { type: "adaptive" }, effort, structuredOutputMode: "outputFormat" },
+ *       gateway: { ... }, // only when the gateway is on
+ *     },
+ *     output: Output.object({ schema: jsonSchema(verdictJsonSchema) }),
  *   })
  *
- * `thinking` / `effort` follow the model's catalog entry (`requestShape`); through AI
- * Gateway the body also carries `providerOptions.gateway` (`withGatewayOptions`).
+ * `thinking` / `effort` follow the model's catalog entry (`requestShape`). Haiku 4.5
+ * gets neither. Never `budget_tokens`. Never an assistant prefill.
  *
- * The response's text block is the JSON document. It is still validated with
- * `VerdictSchema` (the JSON schema sent to the API omits numeric/length bounds). Invalid
- * output (refusal, truncation, schema drift) is retried once at `effort: "medium"`; after
- * that an `insufficient_evidence` verdict with indicator category `triage_failed` is
+ * The loose JSON schema is what the model sees. The parsed value is still validated
+ * with `VerdictSchema` (the schema sent to the API omits numeric/length bounds).
+ * Invalid output (refusal, truncation, schema drift) is retried once at `effort: "medium"`;
+ * after that an `insufficient_evidence` verdict with indicator category `triage_failed` is
  * returned. API errors (after the SDK's own retries) are thrown so a job runner can retry.
+ * `NoObjectGeneratedError` is a failed attempt, not an API error.
  */
-import type Anthropic from "@anthropic-ai/sdk";
-import type { Message, MessageCreateParamsNonStreaming } from "@anthropic-ai/sdk/resources/messages";
 import { VerdictSchema, verdictJsonSchema, type Verdict } from "@neo/verdict";
-import { createModelClient, modelEntryFor, requestShape, withGatewayOptions } from "./client.js";
+import { gatewayProviderOptions, modelEntryFor, requestShape } from "./client.js";
 import { gatewayEnabled } from "./config.js";
 import { wrapToolResult } from "./injection-guard.js";
 import { logger } from "./logger.js";
+import { generateModelText, type ModelTextCall, type ModelTextClient, type ModelTextResponse } from "./model-text.js";
 import { gatewayModelId, pinnedRoute } from "./routing.js";
 import type { AgentUsage } from "./types.js";
 
@@ -45,8 +47,8 @@ export interface RunTriageInput {
   evidenceKind: TriageEvidenceKind;
   /** Analyzer guidance for weighing the evidence (e.g. `EMAIL_ANALYSIS_GUIDANCE`). Trusted. */
   guidance: string;
-  /** Inject a client (tests, MOCK_MODE). Default: `createModelClient()`, or the mock client when `MOCK_MODE=true`. */
-  client?: Anthropic;
+  /** Inject a caller (tests, MOCK_MODE). Default: `generateModelText`, or the mock caller when `MOCK_MODE=true`. */
+  client?: ModelTextClient;
   /** Default: `triageModel()`. Direct ids are converted to gateway slugs when the gateway is on. */
   model?: string;
   signal?: AbortSignal;
@@ -98,10 +100,10 @@ function inModeForm(model: string): string {
 const TOOL_NAME: Record<TriageEvidenceKind, string> = { email: "analyze_email", sms: "analyze_sms" };
 const COMPONENT = "triage";
 
-function resolveClient(input: RunTriageInput): Anthropic {
+function resolveClient(input: RunTriageInput): ModelTextClient {
   if (input.client) return input.client;
   if (process.env.MOCK_MODE === "true") return createMockTriageClient();
-  return createModelClient();
+  return (call) => generateModelText(call);
 }
 
 /** Build the request for one attempt (exported for tests and inspection). */
@@ -109,51 +111,46 @@ export function buildTriageRequest(
   input: Pick<RunTriageInput, "evidence" | "evidenceKind" | "guidance" | "maxTokens">,
   model: string,
   effort: "low" | "medium",
-): MessageCreateParamsNonStreaming {
+): ModelTextCall {
   const wrapped = wrapToolResult(TOOL_NAME[input.evidenceKind], input.evidence, {});
   const guidance = input.guidance.trim();
   const entry = modelEntryFor(model);
   const shape = requestShape(entry, effort);
-  const params: MessageCreateParamsNonStreaming = {
+  const anthropic: NonNullable<ModelTextCall["anthropic"]> = {};
+  if (shape.thinking) anthropic.thinking = { type: "adaptive" };
+  if (shape.output_config) anthropic.effort = shape.output_config.effort;
+  const call: ModelTextCall = {
     model,
-    max_tokens: input.maxTokens ?? DEFAULT_TRIAGE_MAX_TOKENS,
-    system: [
-      { type: "text", text: guidance ? `${TRIAGE_SYSTEM_PROMPT}\n\n## Analysis guidance\n${guidance}` : TRIAGE_SYSTEM_PROMPT, cache_control: { type: "ephemeral" } },
-    ],
-    messages: [
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `A household member forwarded this ${input.evidenceKind === "sms" ? "text message" : "email"} to Neo. Neo's analysis follows. Return the verdict.\n\n${wrapped}`,
-          },
-        ],
-      },
-    ],
-    ...(shape.thinking ? { thinking: shape.thinking } : {}),
-    output_config: { ...shape.output_config, format: { type: "json_schema", schema: verdictJsonSchema } },
+    maxOutputTokens: input.maxTokens ?? DEFAULT_TRIAGE_MAX_TOKENS,
+    cacheSystem: true,
+    system: guidance ? `${TRIAGE_SYSTEM_PROMPT}\n\n## Analysis guidance\n${guidance}` : TRIAGE_SYSTEM_PROMPT,
+    prompt: `A household member forwarded this ${input.evidenceKind === "sms" ? "text message" : "email"} to Neo. Neo's analysis follows. Return the verdict.\n\n${wrapped}`,
+    jsonSchema: verdictJsonSchema,
+    ...(Object.keys(anthropic).length > 0 ? { anthropic } : {}),
   };
-  return withGatewayOptions(params, entry);
+  if (gatewayEnabled()) call.gateway = gatewayProviderOptions(entry).gateway;
+  return call;
 }
 
 type ParseOutcome = { ok: true; verdict: Verdict } | { ok: false; reason: string };
 
 /** Validate a structured-output response. `subject_type` is forced to the evidence kind. */
-export function parseTriageResponse(message: Pick<Message, "content" | "stop_reason">, kind: TriageEvidenceKind): ParseOutcome {
-  if (message.stop_reason === "refusal") return { ok: false, reason: "refusal" };
-  if (message.stop_reason === "max_tokens") return { ok: false, reason: "max_tokens" };
-  const text = message.content
-    .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
-    .map((b) => b.text)
-    .join("")
-    .trim();
-  if (!text) return { ok: false, reason: "empty" };
-  let json: unknown;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    return { ok: false, reason: "invalid_json" };
+export function parseTriageResponse(
+  response: Pick<ModelTextResponse, "text" | "output" | "finishReason" | "invalidObject">,
+  kind: TriageEvidenceKind,
+): ParseOutcome {
+  if (response.finishReason === "content-filter") return { ok: false, reason: "refusal" };
+  if (response.finishReason === "length") return { ok: false, reason: "max_tokens" };
+
+  let json = response.output;
+  if (response.invalidObject || json === undefined) {
+    const text = response.text.trim();
+    if (!text) return { ok: false, reason: "empty" };
+    try {
+      json = JSON.parse(text) as unknown;
+    } catch {
+      return { ok: false, reason: "invalid_json" };
+    }
   }
   if (json && typeof json === "object" && !Array.isArray(json)) {
     json = { ...(json as Record<string, unknown>), subject_type: kind };
@@ -186,12 +183,12 @@ export function triageFailedVerdict(kind: TriageEvidenceKind): Verdict {
   };
 }
 
-function addUsage(total: AgentUsage, u: Message["usage"] | undefined): void {
+function addUsage(total: AgentUsage, u: ModelTextResponse["usage"] | undefined): void {
   if (!u) return;
-  total.input_tokens += u.input_tokens ?? 0;
-  total.output_tokens += u.output_tokens ?? 0;
-  total.cache_read_input_tokens = (total.cache_read_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0);
-  total.cache_creation_input_tokens = (total.cache_creation_input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0);
+  total.input_tokens += u.inputTokens;
+  total.output_tokens += u.outputTokens;
+  total.cache_read_input_tokens = (total.cache_read_input_tokens ?? 0) + u.cacheReadTokens;
+  total.cache_creation_input_tokens = (total.cache_creation_input_tokens ?? 0) + u.cacheWriteTokens;
 }
 
 /** One structured-output triage call (plus at most one retry). See the module comment. */
@@ -203,14 +200,21 @@ export async function runTriage(input: RunTriageInput): Promise<TriageResult> {
 
   for (let i = 0; i < efforts.length; i++) {
     const effort = efforts[i]!;
-    const message = await client.messages.create(
-      buildTriageRequest(input, model, effort),
-      input.signal ? { signal: input.signal } : undefined,
-    );
-    addUsage(usage, message.usage);
-    const outcome = parseTriageResponse(message, input.evidenceKind);
+    const call: ModelTextCall = {
+      ...buildTriageRequest(input, model, effort),
+      ...(input.signal ? { abortSignal: input.signal } : {}),
+    };
+    const response = await client(call);
+    addUsage(usage, response.usage);
+    const outcome = parseTriageResponse(response, input.evidenceKind);
     if (outcome.ok) return { verdict: outcome.verdict, usage, model, attempts: i + 1, fallback: false };
-    logger.warn("Triage output invalid", COMPONENT, { model, effort, attempt: i + 1, errorType: outcome.reason, stopReason: message.stop_reason });
+    logger.warn("Triage output invalid", COMPONENT, {
+      model,
+      effort,
+      attempt: i + 1,
+      errorType: outcome.reason,
+      stopReason: response.finishReason,
+    });
   }
   return { verdict: triageFailedVerdict(input.evidenceKind), usage, model, attempts: efforts.length, fallback: true };
 }
@@ -224,14 +228,14 @@ const MALICIOUS_HEURISTIC = /\b((?:[a-z0-9]+_)*(?:spf|dkim|dmarc)_fail|lookalike
 const SUSPICIOUS_HEURISTIC = /\b([a-z0-9]+(?:_[a-z0-9]+)*_fail|reply_to_mismatch|young_domain|url_shortener|urgency_language|credential_form)\b/g;
 
 /**
- * A deterministic offline client for `MOCK_MODE`: reads heuristic codes from the wrapped
- * evidence in the request (`*_fail` on SPF/DKIM/DMARC, `lookalike_*`, `dangerous_*` →
+ * A deterministic offline caller for `MOCK_MODE`: reads heuristic codes from the wrapped
+ * evidence in the prompt (`*_fail` on SPF/DKIM/DMARC, `lookalike_*`, `dangerous_*` →
  * malicious; other `*_fail` and common red flags → suspicious; none → likely_safe) and
  * answers with a schema-valid verdict. No network, no key.
  */
-export function createMockTriageClient(): Anthropic {
-  const create = async (params: MessageCreateParamsNonStreaming): Promise<Message> => {
-    const text = JSON.stringify(params.messages);
+export function createMockTriageClient(): ModelTextClient {
+  return async (call) => {
+    const text = call.prompt;
     const strong = [...new Set([...text.matchAll(MALICIOUS_HEURISTIC)].map((m) => m[1]!))];
     const weak = [...new Set([...text.matchAll(SUSPICIOUS_HEURISTIC)].map((m) => m[1]!))].filter(
       (h) => !strong.includes(h),
@@ -261,15 +265,16 @@ export function createMockTriageClient(): Anthropic {
       iocs: { urls: [], domains: [], ips: [], hashes: [], phone_numbers: [] },
     };
     return {
-      id: "msg_mock_triage",
-      type: "message",
-      role: "assistant",
-      model: params.model,
-      content: [{ type: "text", text: JSON.stringify(verdict), citations: null }],
-      stop_reason: "end_turn",
-      stop_sequence: null,
-      usage: { input_tokens: Math.ceil(text.length / 4), output_tokens: 200, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-    } as unknown as Message;
+      text: JSON.stringify(verdict),
+      output: verdict,
+      finishReason: "stop",
+      usage: {
+        inputTokens: Math.ceil(text.length / 4),
+        outputTokens: 200,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+      },
+      modelId: call.model,
+    };
   };
-  return { messages: { create } } as unknown as Anthropic;
 }
