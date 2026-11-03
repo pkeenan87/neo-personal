@@ -8,18 +8,16 @@
  */
 import { heartbeat } from "@/lib/server/device-enrollment";
 import { householdRoute } from "@/lib/server/household-http";
-import { jsonError, readJsonObject } from "@/lib/server/http";
-import { requireApiSession } from "@/lib/session";
+import { readJsonObject } from "@/lib/server/http";
+import { requireDeviceSession } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request): Promise<Response> {
-  const { session, response } = await requireApiSession({ scope: "device" });
-  if (!session) return response;
   // Browser sessions resolve for any scope; only a device's own token may check in.
-  const deviceId = session.deviceId;
-  if (!deviceId) return jsonError(403, "Only a device's own token can do that.", "insufficient_scope");
+  const { session, response } = await requireDeviceSession("device");
+  if (!session) return response;
   const body = await readJsonObject(req);
-  return householdRoute("api.devices.heartbeat", session.tenantId, () => heartbeat(session, deviceId, body, new URL(req.url).origin));
+  return householdRoute("api.devices.heartbeat", session.tenantId, () => heartbeat(session, session.deviceId, body, new URL(req.url).origin));
 }

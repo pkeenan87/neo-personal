@@ -2,7 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { accountHardening } from "../src/account-hardening.js";
 import { leaveHousehold } from "../src/household.js";
-import { accountHardeningAnswers, devices, inboundAddresses, inboundMessages, memberships, users } from "../src/schema/index.js";
+import { accountHardeningAnswers, devices, inboundAddresses, inboundMessages, members, memberships, users } from "../src/schema/index.js";
 import { tenantScoped, tenantTables } from "../src/tenant.js";
 import { createTenantForUser } from "../src/tenants.js";
 import { becomeAppUser, createTestDb, createUser, type TestDb } from "./helpers.js";
@@ -22,6 +22,8 @@ async function addMember(tenantId: string): Promise<string> {
   seq += 1;
   const [row] = await t.db.insert(users).values({ name: "M", email: `hm${seq}-${Date.now()}@example.test` }).returning({ id: users.id });
   await tenantScoped(t.db, tenantId).insert(memberships, { userId: row!.id, role: "member" });
+  // Every device needs a members row (member-only devices, migration 0020).
+  await tenantScoped(t.db, tenantId).insert(members, { userId: row!.id, displayName: "M", role: "adult" });
   return row!.id;
 }
 async function forward(tenantId: string, addressId: string, forwarderUserId: string | null, receivedAt: Date, status: "done" | "failed" | "received" | "rejected" = "done") {

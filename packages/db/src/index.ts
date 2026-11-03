@@ -32,7 +32,15 @@ export {
   type RecordCheckInput,
   type UsageCaps,
 } from "./usage.js";
-export { createTenantForUser, findTenantForUser, getHouseholdName, type UserTenant } from "./tenants.js";
+export {
+  createTenantForUser,
+  findTenantForUser,
+  getHouseholdName,
+  getHouseholdTimeZone,
+  normalizeTimeZone,
+  setHouseholdTimeZone,
+  type UserTenant,
+} from "./tenants.js";
 export { createMemoryBlobClient, createVercelBlobClient, type BlobClient } from "./blob.js";
 export {
   ArtifactStoreUnavailableError,
@@ -171,17 +179,22 @@ export {
   countOpenAlerts,
   createAlert,
   getAlert,
+  insertAlertTx,
   getAlertEmailThreshold,
   listAlertOwners,
   listAlerts,
   markAlertEmail,
   purgeOldAlerts,
+  resolveAlert,
   setAlertEmailThreshold,
+  setAlertEveSession,
   type AlertListItem,
   type AlertOwner,
   type AlertRow,
   type CreateAlertInput,
 } from "./alerts.js";
+export { listIncidentActions, recordIncidentAction, type IncidentActionRow, type RecordIncidentActionInput } from "./incident-actions.js";
+export { getEveSessionOwner, isEveSessionId, recordEveSession } from "./eve-sessions.js";
 export {
   PostgresReputationCache,
   SIGNAL_OUTCOMES,
@@ -190,6 +203,7 @@ export {
   insertDeviceSignal,
   listDeviceSignalsByClientIds,
   listExpectedTools,
+  listRecentMemberSignals,
   listRecentUserSignals,
   purgeExpiredReputationCache,
   purgeOldDeviceSignals,
@@ -236,3 +250,56 @@ export {
   type TenantOutlookSeenMessages,
 } from "./outlook.js";
 export type { OutlookConnectorStatus, OutlookFindingAction, OutlookFindingState } from "./schema/outlook.js";
+export {
+  OUTBOX_LEASE_MS,
+  OUTBOX_MAX_ATTEMPTS,
+  claimOutboxRows,
+  countOutboxForAlert,
+  createAlertWithOutbox,
+  decideEnqueue,
+  enqueueOutboxForAlert,
+  listPendingOutboxTenants,
+  markOutboxFailed,
+  markOutboxSent,
+  outboxDestination,
+  settleAlertEmail,
+  utcDayStart,
+  type AlertEnqueuePlan,
+  type EnqueueDecision,
+  type OutboxRow,
+  type OutboxRowInput,
+} from "./outbox.js";
+export { listConsents, recordConsent, type ConsentRow } from "./consents.js";
+export { getPolicyBundle, upsertPolicyBundle, type PolicyBundleRow } from "./policy-bundles.js";
+export {
+  MAX_HELPERS_PER_MEMBER,
+  countHouseholdOwners,
+  createMemberWithoutAccount,
+  MAX_MEMBERS_WITHOUT_ACCOUNT,
+  createMemberForUser,
+  decryptContact,
+  defaultDisplayName,
+  deleteMemberForUser,
+  deleteMemberForUserTx,
+  encryptContact,
+  ensureMemberForUserTx,
+  getMember,
+  getMemberByUserId,
+  getMemberContact,
+  getMembershipRole,
+  getProtectionLayers,
+  insertPolicyVersion,
+  latestMemberRules,
+  listMembers as listMemberRecords,
+  memberIdForUserTx,
+  memberIdOfUserSql,
+  revokeMemberDevicesTx,
+  memberRoleForMembership,
+  normalizeContact,
+  normalizeDisplayName,
+  updateMember,
+  type Member,
+  type MemberPatch,
+  type MemberRow,
+  type ProtectionLayers,
+} from "./members.js";

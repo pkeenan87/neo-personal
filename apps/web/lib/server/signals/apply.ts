@@ -6,34 +6,44 @@
  * verdicts identically. Kept separate from both to avoid a circular import (ingest queues
  * escalations; escalate applies outcomes).
  */
+import type { Correlation } from "@neo/core";
 import { REMOTE_ACCESS_TOOLS, findRemoteAccessTool } from "@neo/tools";
 import type { SignalEvent } from "@neo/verdict";
 import type { SignalSeverity } from "@neo/db";
-import type { AlertKindName } from "@/lib/alert-types";
-import { alertScamInProgress, alertSignal, alertSignalBypass, tenantMembers, type SignalAlertKind } from "../alerts";
+import { alertCorrelation, alertScamInProgress, alertSelfHarmAttempts, alertSignal, alertSignalBypass, tenantMembers, type SignalAlertKind } from "../alerts";
 import {
+  appApprovalAlertText,
   dangerousSiteAlertText,
   deviceLabel,
   displayName,
+  installDuringSessionAlertText,
+  paymentPageAlertText,
+  paymentUnderPressureAlertText,
   permissionGrantAlertText,
+  protectionDisabledAlertText,
   remoteAccessBaselineAlertText,
   remoteAccessInstallAlertText,
   remoteAccessSessionAlertText,
+  scamInProgressAlertText,
   scamPageAlertText,
+  selfHarmAttemptsAlertText,
   unwantedSoftwareAlertText,
   warningBypassedAlertText,
   type AlertText,
 } from "../alerts/templates";
 import { saveVerdict } from "../verdicts";
-import { findScamInProgress, type CorrelationEvent, type RuleVerdictLabel } from "./rules";
-import { listRecentUserSignals, updateDeviceSignal } from "./store";
+import type { RuleVerdictLabel } from "./rules";
+import { updateDeviceSignal } from "./store";
 import { buildSignalVerdict } from "./verdicts";
 
 /** The subset of a device the signal pipeline needs, independent of the devices.ts wire mapper. */
 export interface SignalDeviceInfo {
   id: string;
   tenantId: string;
-  userId: string;
+  /** The member the device protects: the subject of its signals and alerts. */
+  memberId: string;
+  /** The member's account; null for a member without one. */
+  userId: string | null;
   name: string;
   memberName: string | null;
 }
@@ -72,6 +82,15 @@ export function alertTextFor(event: SignalEvent, ctx: { memberName: string; devi
       return permissionGrantAlertText(deviceLbl, event.app, event.service, isRemoteAccessBundle(event.bundleId));
     case "warning_bypassed":
       return warningBypassedAlertText(memberName, deviceLbl);
+    case "payment_page":
+      return paymentPageAlertText(memberName, deviceLbl, event.category);
+    // Child mode. Only the incident outcomes of these detectors reach here (web_blocked: the repeated-self-harm run).
+    case "web_blocked":
+      return selfHarmAttemptsAlertText(memberName, deviceLbl);
+    case "app_installed":
+      return appApprovalAlertText(memberName, deviceLbl, event.name);
+    case "tamper_detected":
+      return protectionDisabledAlertText(memberName, deviceLbl, event.reason, severity);
     default:
       return { severity: "low", title: `${deviceLbl}: Neo flagged an event`, body: `Neo flagged an event on ${deviceLbl}.` };
   }
@@ -87,6 +106,10 @@ export interface AlertedSignalInput {
   alertKind: SignalAlertKind;
   reasonCodes: string[];
   bypassOf?: { relatesTo: string; relatedVerdictId: string | null };
+  /** The protected member row (v2); null when unknown. */
+  memberId?: string | null;
+  /** Correlated incidents the policy engine says this signal completes; one alert each. */
+  correlations?: readonly Correlation[];
   now?: Date;
 }
 
@@ -95,14 +118,18 @@ export interface AlertedSignalResult {
   alertId?: string;
 }
 
-/** Save the verdict (if any), raise the alert, patch the row, and check for correlation. */
+/** Save the verdict (if any), raise the alert, patch the row, and raise any correlated alerts. */
 export async function applyAlertedSignal(input: AlertedSignalInput): Promise<AlertedSignalResult> {
   const { device, event, severity, alertKind } = input;
   let verdictId: string | undefined;
   if (input.verdictLabel) {
-    const verdict = buildSignalVerdict({ event, verdict: input.verdictLabel, severity, reasonCodes: input.reasonCodes, deviceName: device.name });
-    const saved = await saveVerdict({ tenantId: device.tenantId, userId: device.userId, source: "device", verdict });
-    verdictId = saved.id;
+    // Verdicts belong to a signed-in user (verdicts.user_id); a member without an account has none,
+    // so the alert is raised without one (the signal row and the alert still carry the evidence).
+    if (device.userId) {
+      const verdict = buildSignalVerdict({ event, verdict: input.verdictLabel, severity, reasonCodes: input.reasonCodes, deviceName: device.name });
+      const saved = await saveVerdict({ tenantId: device.tenantId, userId: device.userId, source: "device", verdict });
+      verdictId = saved.id;
+    }
   }
   const memberName = displayName(device.memberName, null);
   const deviceLbl = deviceLabel(device.name);
@@ -117,58 +144,64 @@ export async function applyAlertedSignal(input: AlertedSignalInput): Promise<Ale
         relatesTo: input.bypassOf.relatesTo,
         verdictId: verdictId ?? input.bypassOf.relatedVerdictId,
         text,
+        memberId: input.memberId ?? device.memberId,
+        signalIds: [input.rowId],
       })
-    : await alertSignal({ tenantId: device.tenantId, userId: device.userId, deviceId: device.id, kind: alertKind, detector: event.detector, subject: input.subject, verdictId, text, now: input.now });
+    : alertKind === "self_harm_attempts"
+      ? // About the child, not one device: deduped per member and hour (see alertSelfHarmAttempts).
+        await alertSelfHarmAttempts({
+          tenantId: device.tenantId,
+          userId: device.userId,
+          deviceId: device.id,
+          text,
+          memberId: input.memberId ?? device.memberId,
+          signalIds: [input.rowId],
+          at: new Date(event.observedAt),
+        })
+    : await alertSignal({
+        tenantId: device.tenantId,
+        userId: device.userId,
+        deviceId: device.id,
+        kind: alertKind,
+        detector: event.detector,
+        subject: input.subject,
+        verdictId,
+        text,
+        memberId: input.memberId ?? device.memberId,
+        signalIds: [input.rowId],
+        now: input.now,
+      });
 
   await updateDeviceSignal(device.tenantId, input.rowId, { severity, outcome: "alerted", verdictId: verdictId ?? null, alertId: alertRow?.id ?? null });
-  await checkScamInProgress(device.tenantId, device.userId, input.now);
+  await raiseCorrelations(device, input.memberId ?? device.memberId, input.correlations ?? []);
   return { verdictId, alertId: alertRow?.id ?? undefined };
 }
 
-const SCAM_LOOKBACK_MS = 60 * 60 * 1000; // wider than the 30-minute correlation window, so a pair straddling it is still found
-
-/** Detector → correlation alert kind (mirrors lib/server/signals/rules.ts's PAGE/remote_access mapping, for stored rows). */
-function correlationKind(detector: SignalEvent["detector"]): AlertKindName | undefined {
-  if (detector === "tech_support_scam") return "scam_page";
-  if (detector === "lookalike_login" || detector === "dangerous_site") return "dangerous_site";
-  if (detector === "remote_tool_download" || detector === "remote_access_tool" || detector === "remote_access_session") return "remote_access";
-  return undefined;
-}
-
-const EVENT_LABEL: Partial<Record<AlertKindName, string>> = {
+const EVENT_LABEL: Partial<Record<string, string>> = {
   scam_page: "a tech-support scam page was opened",
   dangerous_site: "a dangerous or fake-login page was opened",
   remote_access: "a remote-access event happened",
 };
 
 /**
- * Re-check the member's alerted signals for a scam-in-progress correlation (any of their
- * devices, 30 minutes). Safe to call after every alerted event: `raiseAlert`'s dedupe key makes
- * a repeat call a no-op once the alert exists.
+ * Raise one alert per correlation the policy engine returned (the engine owns correlation).
+ * Safe to repeat: each alert's dedupe key (`<kind>:<userId>:<30-minute bucket>`, or
+ * `<kind>:m:<memberId>:<bucket>` for a member without an account) makes a repeat a no-op.
  */
-export async function checkScamInProgress(tenantId: string, userId: string, now = new Date()): Promise<void> {
-  const rows = await listRecentUserSignals(tenantId, userId, { since: new Date(now.getTime() - SCAM_LOOKBACK_MS), outcomes: ["alerted"] });
-  const events: CorrelationEvent[] = [];
-  for (const r of rows) {
-    const kind = correlationKind(r.detector as SignalEvent["detector"]);
-    if (!kind || !r.severity) continue;
-    // A tool already installed at enrollment is not evidence of a call happening now.
-    if (r.detector === "remote_access_tool" && r.payload.discovery === "baseline") continue;
-    events.push({ id: r.id, deviceId: r.deviceId, kind, severity: r.severity, observedAt: r.observedAt });
+export async function raiseCorrelations(device: SignalDeviceInfo, memberId: string | null | undefined, correlations: readonly Correlation[]): Promise<void> {
+  if (correlations.length === 0) return;
+  const member = device.userId ? (await tenantMembers(device.tenantId)).find((m) => m.userId === device.userId) : undefined;
+  const memberName = displayName(member?.name ?? device.memberName, member?.email ?? null);
+  const deviceLbl = deviceLabel(device.name);
+  const common = { tenantId: device.tenantId, userId: device.userId, bucket: "", memberId: memberId ?? device.memberId };
+  for (const c of correlations) {
+    const args = { ...common, bucket: c.bucket, signalIds: c.signalIds };
+    if (c.kind === "scam_in_progress") {
+      await alertScamInProgress({ ...args, text: scamInProgressAlertText(memberName, c.events.map((e) => ({ at: e.observedAt, label: EVENT_LABEL[e.kind] ?? "an event happened" }))) });
+    } else if (c.kind === "install_during_session") {
+      await alertCorrelation({ ...args, kind: c.kind, text: installDuringSessionAlertText(memberName, deviceLbl) });
+    } else {
+      await alertCorrelation({ ...args, kind: c.kind, text: paymentUnderPressureAlertText(memberName, deviceLbl) });
+    }
   }
-  const found = findScamInProgress(events);
-  if (!found) return;
-  const members = await tenantMembers(tenantId);
-  const member = members.find((m) => m.userId === userId);
-  const memberName = displayName(member?.name ?? null, member?.email ?? null);
-  const body = [
-    `Neo saw a scam warning and a remote-access event close together for ${memberName}:`,
-    ...found.events.map((e) => `${e.observedAt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "UTC" })} UTC — ${EVENT_LABEL[e.kind] ?? "an event happened"}`),
-  ].join("\n");
-  await alertScamInProgress({
-    tenantId,
-    userId,
-    bucket: found.bucket,
-    text: { severity: "critical", title: `${memberName} may be on a scam call right now`, body },
-  });
 }

@@ -7,6 +7,7 @@
 import { sql } from "drizzle-orm";
 import { check, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { users } from "./auth.js";
+import { members } from "./members.js";
 import { tenants } from "./tenants.js";
 
 export const DEVICE_KINDS = ["browser_extension", "desktop_agent"] as const;
@@ -25,10 +26,14 @@ export const devices = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
-    /** The member the device protects. */
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    /** The account of the member the device protects; null for a member without an account (M2). */
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    /**
+     * The members row the device protects: the subject of its signals and alerts. Always set
+     * on an active device (`devices_member_check`); null only on a revoked device whose member
+     * was deleted (ON DELETE SET NULL).
+     */
+    memberId: uuid("member_id").references(() => members.id, { onDelete: "set null" }),
     kind: text("kind").$type<DeviceKind>().notNull(),
     platform: text("platform").$type<DevicePlatform>().notNull(),
     /** Client-supplied label, e.g. "Chrome on Grandma's laptop"; the owner can rename it. */
@@ -41,10 +46,14 @@ export const devices = pgTable(
     offlineAlertedAt: timestamp("offline_alerted_at", { mode: "date", withTimezone: true }),
     revokedAt: timestamp("revoked_at", { mode: "date", withTimezone: true }),
     revokedBy: text("revoked_by").references(() => users.id, { onDelete: "set null" }),
+    /** The `policyVersion` of the bundle the device last reported applying (heartbeat); null until it reports one. */
+    policyVersionApplied: text("policy_version_applied"),
   },
   (t) => [
     index("devices_tenant_user_idx").on(t.tenantId, t.userId),
+    index("devices_tenant_member_idx").on(t.tenantId, t.memberId),
     index("devices_active_last_seen_idx").on(t.lastSeenAt).where(sql`${t.revokedAt} is null`),
+    check("devices_member_check", sql`${t.memberId} is not null or ${t.revokedAt} is not null`),
     check("devices_kind_check", sql`${t.kind} in ('browser_extension', 'desktop_agent')`),
     check("devices_platform_check", sql`${t.platform} in ('chrome', 'edge', 'firefox', 'windows', 'macos', 'linux')`),
     check("devices_enrollment_check", sql`${t.enrollment} in ('code', 'self')`),
@@ -60,10 +69,10 @@ export const deviceEnrollmentCodes = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
-    /** The member the enrolled device will protect. */
-    userId: text("user_id")
-      .notNull()
-      .references(() => users.id, { onDelete: "cascade" }),
+    /** The account of the member the enrolled device will protect; null for a member without an account (M2). */
+    userId: text("user_id").references(() => users.id, { onDelete: "cascade" }),
+    /** The members row the enrolled device will protect (set on every pending code; see `device_enrollment_codes_member_check`). */
+    memberId: uuid("member_id").references(() => members.id, { onDelete: "set null" }),
     /** SHA-256 hex of the canonical `XXXX-XXXX-XXXX` code. */
     codeHash: text("code_hash").notNull().unique(),
     createdBy: text("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -73,5 +82,12 @@ export const deviceEnrollmentCodes = pgTable(
     deviceId: uuid("device_id").references(() => devices.id, { onDelete: "set null" }),
     revokedAt: timestamp("revoked_at", { mode: "date", withTimezone: true }),
   },
-  (t) => [index("device_enrollment_codes_tenant_idx").on(t.tenantId, t.createdAt.desc())],
+  (t) => [
+    index("device_enrollment_codes_tenant_idx").on(t.tenantId, t.createdAt.desc()),
+    index("device_enrollment_codes_member_idx").on(t.memberId),
+    check(
+      "device_enrollment_codes_member_check",
+      sql`${t.memberId} is not null or ${t.revokedAt} is not null or ${t.redeemedAt} is not null`,
+    ),
+  ],
 );

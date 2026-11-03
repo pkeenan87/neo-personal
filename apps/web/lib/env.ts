@@ -47,6 +47,14 @@ export function devAuthBypassRefused(source: EnvSource = process.env): boolean {
   return bool(source.DEV_AUTH_BYPASS) && isDeployedEnvironment(source);
 }
 
+/**
+ * The eve incident chat (`/chat-v2`, "Ask Neo about this" links) is on only when `NEO_EVE_CHAT` is
+ * exactly `true`; unset or anything else keeps the existing chat and links.
+ */
+export function eveChatEnabled(source: EnvSource = process.env): boolean {
+  return source.NEO_EVE_CHAT?.trim() === "true";
+}
+
 export interface WebEnv {
   /** `true` → every external API (Claude, analyzers, email) uses deterministic fixtures. */
   MOCK_MODE: boolean;

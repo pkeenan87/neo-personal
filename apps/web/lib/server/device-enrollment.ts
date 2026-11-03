@@ -11,12 +11,13 @@ import { detectionLists } from "@neo/tools";
 import type {
   CreateEnrollmentCodeResponse,
   DeviceItem,
+  DevicePolicyState,
   EnrollDeviceResponse,
   EnrollmentCodeItem,
   EnrollmentPreviewResponse,
   HeartbeatResponse,
 } from "@/lib/household-types";
-import type { NeoSession } from "@/lib/session";
+import { deviceAuditActor, type DeviceSession, type NeoSession } from "@/lib/session";
 import { alertDeviceOffline, alertDeviceRemoved, tenantMembers } from "./alerts";
 import { recordAudit } from "./audit";
 import {
@@ -36,13 +37,16 @@ import {
   toDeviceItem,
   toEnrollmentCodeItem,
 } from "./devices";
+import { requireHouseholdAdmin } from "./household-admin";
+import { compileDeviceBundle, currentPolicyVersion, devicePolicyState } from "./policy-bundles";
 import { renderDeviceEnrolledEmail } from "./email/household-email";
 import { getMailer } from "./email/resend";
 import type { Outcome } from "./household";
 import { takeRateSlot } from "./rate-limit";
 import { expectedToolsByDevice, expectedToolsForDevice } from "./signals/expected-tools";
+import { recordServerSignal } from "./signals/server-signals";
 import { uninstallUrl, verifyDeviceSignature } from "./uninstall";
-import { household } from "./verdict-data";
+import { householdName as loadHouseholdName } from "./verdict-data";
 
 const HOUR_MS = 60 * 60 * 1000;
 /** Preview and enroll share one bucket per client IP: a wrong guess costs one of 10 per hour. */
@@ -71,6 +75,16 @@ const DEVICE_LIMIT = fail(409, "device_limit", "This household already has the m
 
 // ─── Household view ────────────────────────────────────────────────
 
+/** Whether a device has the current policy; a policy that cannot be compiled reads as "unknown", never an error. */
+async function devicePolicyFor(d: DevicePublic, now: Date): Promise<DevicePolicyState> {
+  try {
+    const bundle = await compileDeviceBundle(d, now);
+    return devicePolicyState(bundle.mode, d.policyVersionApplied, bundle.policyVersion);
+  } catch {
+    return "unknown";
+  }
+}
+
 /** Owners see every active device and pending code; members only their own devices. */
 export async function householdDevices(session: NeoSession): Promise<{ devices: DeviceItem[]; enrollmentCodes: EnrollmentCodeItem[] }> {
   const owner = session.role === "owner";
@@ -80,8 +94,9 @@ export async function householdDevices(session: NeoSession): Promise<{ devices: 
     expectedToolsByDevice(session.tenantId),
   ]);
   const now = new Date();
+  const policy = await Promise.all(devices.map((d) => devicePolicyFor(d, now)));
   return {
-    devices: devices.map((d) => toDeviceItem(d, now, expectedTools.get(d.id) ?? [])),
+    devices: devices.map((d, i) => ({ ...toDeviceItem(d, now, expectedTools.get(d.id) ?? []), policy: policy[i]! })),
     enrollmentCodes: codes.map(toEnrollmentCodeItem),
   };
 }
@@ -89,8 +104,20 @@ export async function householdDevices(session: NeoSession): Promise<{ devices: 
 // ─── Enrollment codes (owner) ──────────────────────────────────────
 
 export async function createCode(session: NeoSession, userId: string): Promise<Outcome<CreateEnrollmentCodeResponse>> {
+  return createCodeFor(session, { userId });
+}
+
+/** `POST /api/household/protected-members/[id]/enrollment-codes`: a code for any member of the household, with or without an account. */
+export async function createCodeForMember(session: NeoSession, memberId: string): Promise<Outcome<CreateEnrollmentCodeResponse>> {
+  // The owner check re-reads the membership (requireHouseholdAdmin), not the session's role snapshot.
+  const admin = await requireHouseholdAdmin(session);
+  if (!admin.ok) return OWNER_ONLY;
+  return createCodeFor(session, { memberId });
+}
+
+async function createCodeFor(session: NeoSession, target: { userId: string } | { memberId: string }): Promise<Outcome<CreateEnrollmentCodeResponse>> {
   if (session.role !== "owner") return OWNER_ONLY;
-  const r = await createEnrollmentCode({ tenantId: session.tenantId, userId, createdBy: session.userId });
+  const r = await createEnrollmentCode({ tenantId: session.tenantId, createdBy: session.userId, ...target });
   if ("error" in r) {
     if (r.error === "not_member") return fail(404, "not_found", "That person is not in your household.");
     if (r.error === "code_limit") {
@@ -98,7 +125,11 @@ export async function createCode(session: NeoSession, userId: string): Promise<O
     }
     return DEVICE_LIMIT;
   }
-  await recordAudit(session.tenantId, session.userId, "device.enrollment_code_created", { codeId: r.record.id, userId });
+  await recordAudit(session.tenantId, session.userId, "device.enrollment_code_created", {
+    codeId: r.record.id,
+    ...(r.record.userId ? { userId: r.record.userId } : {}),
+    ...("memberId" in target ? { memberId: r.record.memberId } : {}),
+  });
   return { ok: true, value: { id: r.record.id, code: r.code, expiresAt: r.record.expiresAt.toISOString(), memberName: r.record.memberName } };
 }
 
@@ -160,8 +191,12 @@ export async function enrollWithCode(
     return CODE_NOT_FOUND;
   }
   // @neo/db audits `device.enrolled` in the redemption transaction.
-  logger.info("Device enrolled by code", "devices", { tenantId: r.device.tenantId, userIdHash: hashPii(r.device.userId) });
-  if (r.createdBy !== r.device.userId) await emailEnrolledMember(r.device, r.householdName, origin);
+  logger.info("Device enrolled by code", "devices", {
+    tenantId: r.device.tenantId,
+    userIdHash: hashPii(r.device.userId ?? r.device.memberId ?? r.device.id),
+  });
+  // A member without an account has no address to tell.
+  if (r.device.userId && r.createdBy !== r.device.userId) await emailEnrolledMember(r.device, r.householdName, origin);
   return {
     ok: true,
     value: { token: r.token, tokenId: r.tokenId, device: toDeviceItem(r.device), householdName: r.householdName, memberName: r.memberName },
@@ -222,7 +257,7 @@ export async function removeHouseholdDevice(session: NeoSession, id: string): Pr
 // ─── Device self-service (scope `device`) ──────────────────────────
 
 export async function heartbeat(
-  session: NeoSession,
+  session: DeviceSession,
   deviceId: string,
   body: Record<string, unknown> | null,
   origin: string,
@@ -233,33 +268,46 @@ export async function heartbeat(
   if (clientVersion !== undefined && clientVersion !== null && (typeof clientVersion !== "string" || clientVersion.length > 32)) {
     return fail(400, "invalid", 'Expected { "clientVersion"?: string of at most 32 characters }.');
   }
+  // The bundle version the device applied: lowercase or uppercase hex, at most 64 characters; blank is absent.
+  const appliedVersion = body?.policyVersion;
+  if (appliedVersion !== undefined && appliedVersion !== null && (typeof appliedVersion !== "string" || appliedVersion.length > 64 || !/^[0-9a-fA-F]*$/.test(appliedVersion))) {
+    return fail(400, "invalid", 'Expected { "policyVersion"?: hex string of at most 64 characters }.');
+  }
   const device = await recordHeartbeat({
     tenantId: session.tenantId,
     deviceId,
     ...(typeof clientVersion === "string" && clientVersion.trim() ? { clientVersion } : {}),
+    ...(typeof appliedVersion === "string" && appliedVersion !== "" ? { policyVersion: appliedVersion.toLowerCase() } : {}),
   });
   // Revoked since the token resolved.
   if (!device) return fail(401, "unauthenticated", "This device is no longer connected to a household.");
   const url = uninstallUrl(origin, deviceId);
+  // The current bundle version, computed without signing. A failure here must not fail the check-in.
+  const policyVersion = await currentPolicyVersion(device).catch((err: unknown) => {
+    logger.error("Policy version unavailable for heartbeat", "devices", { tenantId: session.tenantId, errorMessage: errText(err) });
+    return null;
+  });
   return {
     ok: true,
     value: {
       device: toDeviceItem(device, new Date(), await expectedToolsForDevice(session.tenantId, deviceId)),
-      householdName: (await household(session)).name,
+      householdName: await loadHouseholdName(session.tenantId),
       memberName: device.memberName,
       heartbeatSeconds: HEARTBEAT_SECONDS,
       listsVersion: detectionLists().version,
+      policyVersion,
       ...(url ? { uninstallUrl: url } : {}),
     },
   };
 }
 
 /** "Stop protecting this device": revoke the device and its token; alerts the owner unless it protects an owner. */
-export async function unenrollSelf(session: NeoSession, deviceId: string): Promise<Outcome<null>> {
+export async function unenrollSelf(session: DeviceSession, deviceId: string): Promise<Outcome<null>> {
   const r = await revokeDevice({ tenantId: session.tenantId, deviceId, revokedBy: null });
   if (!r) return fail(401, "unauthenticated", "This device is no longer connected to a household.");
   if (r.alreadyRevoked) return { ok: true, value: null };
-  await recordAudit(session.tenantId, session.userId, "device.revoked", { deviceId, by: "device" });
+  const actor = deviceAuditActor(session);
+  await recordAudit(session.tenantId, actor.userId, "device.revoked", { deviceId, by: "device", ...actor.metadata });
   await alertDeviceRemoved(r.device, "device");
   return { ok: true, value: null };
 }
@@ -282,8 +330,9 @@ export async function reportUninstalled(deviceId: string, sig: string): Promise<
     if (!tenantId) return; // unknown id, or already revoked (nothing left to do)
     const r = await revokeDevice({ tenantId, deviceId, revokedBy: null });
     if (!r || r.alreadyRevoked) return;
-    await recordAudit(tenantId, r.device.userId, "device.revoked", { deviceId, by: "device" });
+    await recordAudit(tenantId, r.device.userId, "device.revoked", { deviceId, by: "device", ...(r.device.userId ? {} : { actor: `device:${deviceId}` }) });
     await alertDeviceRemoved(r.device, "device");
+    await recordServerSignal(r.device, "extension_uninstalled");
   } catch (err) {
     logger.error("Uninstall report failed", "devices", { errorMessage: errText(err) });
   }
@@ -295,10 +344,17 @@ export interface OfflineSweepDeps {
   listStale(before: Date): Promise<{ id: string; tenantId: string }[]>;
   markOffline(tenantId: string, deviceId: string, at: Date): Promise<DevicePublic | undefined>;
   alertOffline(device: DevicePublic): Promise<boolean>;
+  /** Policy-driven `protection_disabled` signal (Elder mode); optional so older callers keep working. */
+  protectionDisabled?(device: DevicePublic): Promise<unknown>;
 }
 
 export function createOfflineSweepDeps(): OfflineSweepDeps {
-  return { listStale: listStaleDevices, markOffline: markDeviceOfflineAlerted, alertOffline: alertDeviceOffline };
+  return {
+    listStale: listStaleDevices,
+    markOffline: markDeviceOfflineAlerted,
+    alertOffline: alertDeviceOffline,
+    protectionDisabled: (device) => recordServerSignal(device, "device_offline"),
+  };
 }
 
 /**
@@ -320,6 +376,7 @@ export async function runOfflineDeviceSweep(
       if (!device) continue;
       marked++;
       if (await deps.alertOffline(device)) alerted++;
+      await deps.protectionDisabled?.(device);
     } catch (err) {
       errors++;
       logger.error("Offline device sweep failed for a device", "devices", { tenantId: s.tenantId, errorMessage: errText(err) });

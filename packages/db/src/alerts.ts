@@ -2,19 +2,22 @@
  * Owner alerts (_specs/owner-alerts.md). Every query is tenant-scoped; the
  * retention purge runs across tenants through `purge_old_alerts()`.
  */
-import { and, desc, eq, gte, inArray, isNull, sql, type SQL } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
-import type { Db } from "./client.js";
+import type { Db, Tx } from "./client.js";
 import {
   alerts,
+  members,
   memberships,
   users,
   type AlertEmailStatus,
   type AlertEmailThreshold,
   type AlertKind,
   type AlertSeverity,
+  type AlertStatus,
   ALERT_EMAIL_THRESHOLDS,
 } from "./schema/index.js";
+import { memberIdForUserTx, memberIdOfUserSql } from "./members.js";
 import { assertTenantId, tenantScoped } from "./tenant.js";
 import { decodeVerdictCursor, encodeVerdictCursor } from "./verdicts.js";
 
@@ -40,6 +43,10 @@ export interface CreateAlertInput {
   dedupeKey: string;
   verdictId?: string | null;
   deviceId?: string | null;
+  /** The member the alert is about; resolved from `subjectUserId` when absent. */
+  memberId?: string | null;
+  /** Device signals that make up the incident. */
+  signalIds?: string[];
   now?: Date;
 }
 
@@ -55,28 +62,38 @@ function clip(s: string, max: number): string {
   return chars.length <= max ? s : chars.slice(0, max - 1).join("") + "…";
 }
 
+/** Insert an alert inside a tenant transaction; null on a dedupe hit. `tx` must have app.tenant_id set. */
+export async function insertAlertTx(tx: Tx, input: CreateAlertInput): Promise<AlertRow | null> {
+  const rows = await tx
+    .insert(alerts)
+    .values({
+      memberId:
+        input.memberId !== undefined
+          ? input.memberId
+          : input.subjectUserId
+            ? await memberIdForUserTx(tx, input.tenantId, input.subjectUserId)
+            : null,
+      signalIds: input.signalIds ?? [],
+      tenantId: input.tenantId,
+      subjectUserId: input.subjectUserId,
+      kind: input.kind,
+      severity: input.severity,
+      title: clip(input.title, ALERT_TITLE_MAX),
+      body: clip(input.body, ALERT_BODY_MAX),
+      dedupeKey: input.dedupeKey,
+      verdictId: input.verdictId ?? null,
+      deviceId: input.deviceId ?? null,
+      ...(input.now ? { createdAt: input.now } : {}),
+    })
+    .onConflictDoNothing({ target: [alerts.tenantId, alerts.dedupeKey] })
+    .returning();
+  return rows[0] ?? null;
+}
+
 /** Insert an alert; null when an alert with the same dedupe key already exists in the household. */
 export async function createAlert(db: Db, input: CreateAlertInput): Promise<AlertRow | null> {
   assertTenantId(input.tenantId);
-  const rows = await tenantScoped(db, input.tenantId).transaction((t) =>
-    t.tx
-      .insert(alerts)
-      .values({
-        tenantId: input.tenantId,
-        subjectUserId: input.subjectUserId,
-        kind: input.kind,
-        severity: input.severity,
-        title: clip(input.title, ALERT_TITLE_MAX),
-        body: clip(input.body, ALERT_BODY_MAX),
-        dedupeKey: input.dedupeKey,
-        verdictId: input.verdictId ?? null,
-        deviceId: input.deviceId ?? null,
-        ...(input.now ? { createdAt: input.now } : {}),
-      })
-      .onConflictDoNothing({ target: [alerts.tenantId, alerts.dedupeKey] })
-      .returning(),
-  );
-  return rows[0] ?? null;
+  return tenantScoped(db, input.tenantId).transaction((t) => insertAlertTx(t.tx, input));
 }
 
 export async function getAlert(db: Db, tenantId: string, id: string): Promise<AlertRow | undefined> {
@@ -87,18 +104,37 @@ export async function getAlert(db: Db, tenantId: string, id: string): Promise<Al
 // Microsecond-precision keyset cursor, as for verdicts.
 const cursorTs = sql<string>`to_char(${alerts.createdAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 
+/** Who an alert list or count is restricted to (all optional; each given one narrows further). */
+export interface AlertSubjectFilter {
+  /** Alerts whose `subject_user_id` is this user. */
+  subjectUserId?: string;
+  /** Alerts about this member (`member_id`), with or without an account. */
+  memberId?: string;
+  /** Alerts about the member behind this account: by the user's member, or by `subject_user_id`. A member's own view. */
+  aboutUserId?: string;
+}
+
+function subjectConds(tenantId: string, opts: AlertSubjectFilter): SQL[] {
+  const conds: SQL[] = [];
+  if (opts.subjectUserId !== undefined) conds.push(eq(alerts.subjectUserId, opts.subjectUserId));
+  if (opts.memberId !== undefined) conds.push(eq(alerts.memberId, opts.memberId));
+  if (opts.aboutUserId !== undefined) {
+    conds.push(or(eq(alerts.memberId, memberIdOfUserSql(tenantId, opts.aboutUserId)), eq(alerts.subjectUserId, opts.aboutUserId)) as SQL);
+  }
+  return conds;
+}
+
 /**
- * Newest first. `subjectUserId` restricts to alerts about one member (members' view);
- * `status: "open"` to unacknowledged alerts. Throws InvalidCursorError on a bad cursor.
+ * Newest first. `subjectUserId` / `memberId` / `aboutUserId` restrict to alerts about one member
+ * (members' view); `status: "open"` to unacknowledged alerts. Throws InvalidCursorError on a bad cursor.
  */
 export async function listAlerts(
   db: Db,
   tenantId: string,
-  opts: { subjectUserId?: string; status?: "open" | "all"; cursor?: string; limit?: number } = {},
+  opts: AlertSubjectFilter & { status?: "open" | "all"; cursor?: string; limit?: number } = {},
 ): Promise<{ items: AlertListItem[]; nextCursor?: string }> {
   const limit = Math.max(1, Math.min(Math.floor(opts.limit ?? 20) || 20, 50));
-  const conds: SQL[] = [eq(alerts.tenantId, tenantId)];
-  if (opts.subjectUserId !== undefined) conds.push(eq(alerts.subjectUserId, opts.subjectUserId));
+  const conds: SQL[] = [eq(alerts.tenantId, tenantId), ...subjectConds(tenantId, opts)];
   if (opts.status === "open") conds.push(isNull(alerts.acknowledgedAt));
   if (opts.cursor) {
     const c = decodeVerdictCursor(opts.cursor);
@@ -106,11 +142,13 @@ export async function listAlerts(
   }
   const subject = alias(users, "subject");
   const acker = alias(users, "acker");
+  const subjectMember = alias(members, "subject_member");
   const rows = await tenantScoped(db, tenantId).transaction((t) =>
     t.tx
-      .select({ row: alerts, cursorTs, subjectName: subject.name, acknowledgedByName: acker.name })
+      .select({ row: alerts, cursorTs, subjectName: subject.name, subjectDisplayName: subjectMember.displayName, acknowledgedByName: acker.name })
       .from(alerts)
       .leftJoin(subject, eq(subject.id, alerts.subjectUserId))
+      .leftJoin(subjectMember, eq(subjectMember.id, alerts.memberId))
       .leftJoin(acker, eq(acker.id, alerts.acknowledgedBy))
       .where(and(...conds))
       .orderBy(desc(alerts.createdAt), desc(alerts.id))
@@ -119,7 +157,8 @@ export async function listAlerts(
   const page = rows.slice(0, limit);
   const last = page[page.length - 1];
   return {
-    items: page.map((r) => ({ ...r.row, subjectName: r.subjectName, acknowledgedByName: r.acknowledgedByName })),
+    // A member without an account has no user to name: use the member's display name.
+    items: page.map((r) => ({ ...r.row, subjectName: r.row.subjectUserId ? r.subjectName : r.subjectDisplayName, acknowledgedByName: r.acknowledgedByName })),
     ...(rows.length > limit && last ? { nextCursor: encodeVerdictCursor(last.cursorTs, last.row.id) } : {}),
   };
 }
@@ -128,25 +167,65 @@ export async function listAlerts(
 export async function countOpenAlerts(
   db: Db,
   tenantId: string,
-  opts: { subjectUserId?: string; severities?: readonly AlertSeverity[] } = {},
+  opts: AlertSubjectFilter & { severities?: readonly AlertSeverity[] } = {},
 ): Promise<number> {
-  const conds: SQL[] = [isNull(alerts.acknowledgedAt)];
-  if (opts.subjectUserId !== undefined) conds.push(eq(alerts.subjectUserId, opts.subjectUserId));
+  const conds: SQL[] = [isNull(alerts.acknowledgedAt), ...subjectConds(tenantId, opts)];
   if (opts.severities?.length) conds.push(inArray(alerts.severity, [...opts.severities]));
   return tenantScoped(db, tenantId).count(alerts, and(...conds));
 }
+
+// An open incident becomes acknowledged; one already resolved or marked a false positive keeps its status.
+const ackStatus = sql<AlertStatus>`case when ${alerts.status} = 'open' then 'acknowledged' else ${alerts.status} end`;
 
 /** Acknowledge one alert. Idempotent: an already acknowledged alert is returned unchanged. */
 export async function acknowledgeAlert(db: Db, tenantId: string, id: string, userId: string, now = new Date()): Promise<AlertRow | undefined> {
   if (!UUID_RE.test(id)) return undefined;
   const scoped = tenantScoped(db, tenantId);
-  const [updated] = await scoped.update(alerts, { acknowledgedAt: now, acknowledgedBy: userId }, and(eq(alerts.id, id), isNull(alerts.acknowledgedAt)));
+  const [updated] = await scoped.update(alerts, { acknowledgedAt: now, acknowledgedBy: userId, status: ackStatus }, and(eq(alerts.id, id), isNull(alerts.acknowledgedAt)));
   return updated ?? scoped.first(alerts, eq(alerts.id, id));
 }
 
 export async function acknowledgeAllAlerts(db: Db, tenantId: string, userId: string, now = new Date()): Promise<number> {
-  const rows = await tenantScoped(db, tenantId).update(alerts, { acknowledgedAt: now, acknowledgedBy: userId }, isNull(alerts.acknowledgedAt));
+  const rows = await tenantScoped(db, tenantId).update(alerts, { acknowledgedAt: now, acknowledgedBy: userId, status: ackStatus }, isNull(alerts.acknowledgedAt));
   return rows.length;
+}
+
+/**
+ * Close an incident (`resolved` or `false_positive`) that is still `open` or `acknowledged`:
+ * sets `status`, `resolved_at`, and, when nobody has yet, `acknowledged_at/by` (a closed incident
+ * is no longer open). Atomic on the status, so two racing closes cannot both win. Undefined for a
+ * malformed id, another household's alert, or one already closed.
+ */
+export async function resolveAlert(
+  db: Db,
+  tenantId: string,
+  id: string,
+  status: "resolved" | "false_positive",
+  userId: string,
+  now = new Date(),
+): Promise<AlertRow | undefined> {
+  if (!UUID_RE.test(id)) return undefined;
+  const [row] = await tenantScoped(db, tenantId).update(
+    alerts,
+    {
+      status,
+      resolvedAt: now,
+      acknowledgedAt: sql`coalesce(${alerts.acknowledgedAt}, ${now.toISOString()}::timestamptz)`,
+      acknowledgedBy: sql`case when ${alerts.acknowledgedAt} is null then ${userId} else ${alerts.acknowledgedBy} end`,
+    },
+    and(eq(alerts.id, id), inArray(alerts.status, ["open", "acknowledged"])),
+  );
+  return row;
+}
+
+/**
+ * Remember the eve incident-chat session for an alert (`alerts.eve_session_id`), so opening the
+ * incident again resumes it. Tenant-scoped; false for a malformed id or another household's alert.
+ */
+export async function setAlertEveSession(db: Db, tenantId: string, id: string, eveSessionId: string): Promise<boolean> {
+  if (!UUID_RE.test(id)) return false;
+  const rows = await tenantScoped(db, tenantId).update(alerts, { eveSessionId }, eq(alerts.id, id));
+  return rows.length > 0;
 }
 
 export async function markAlertEmail(db: Db, tenantId: string, id: string, status: AlertEmailStatus, at = new Date()): Promise<void> {

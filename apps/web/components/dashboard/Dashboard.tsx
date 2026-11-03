@@ -32,6 +32,8 @@ export interface DashboardProps {
   alerts?: AlertListResponse;
   /** The viewer's own hardening score (_specs/hardening-score.md); omitted when it could not be loaded. */
   hardening?: { score: AccountHardeningScore; items: HardeningItemView[]; members?: HardeningMemberPercent[] };
+  /** NEO_EVE_CHAT: alerts link to the eve incident chat ("Ask Neo about this"). */
+  incidentChat?: boolean;
   initialRange?: SinceDays;
 }
 
@@ -69,7 +71,7 @@ interface Loaded {
   recent: VerdictListResponse;
 }
 
-export function Dashboard({ household, forwardingUsed, alerts, hardening, initialRange = 30 }: DashboardProps) {
+export function Dashboard({ household, forwardingUsed, alerts, hardening, incidentChat = false, initialRange = 30 }: DashboardProps) {
   const [range, setRange] = useState<SinceDays>(initialRange);
   const [member, setMember] = useState<string>("");
   const [data, setData] = useState<Loaded | null>(null);
@@ -183,7 +185,7 @@ export function Dashboard({ household, forwardingUsed, alerts, hardening, initia
         </div>
       </div>
 
-      {alerts && <AlertsPanel initial={alerts} isOwner={isOwner} />}
+      {alerts && <AlertsPanel initial={alerts} isOwner={isOwner} incidentChat={incidentChat} />}
       {hardening && <HardeningCard {...hardening} />}
 
       {error && error.key === key && (

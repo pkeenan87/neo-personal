@@ -67,7 +67,8 @@ export type DevicePlatform = "chrome" | "edge" | "firefox" | "windows" | "macos"
 
 export interface DeviceItem {
   id: string;
-  userId: string;
+  /** The protected member's account; null for a member without one. */
+  userId: string | null;
   memberName: string | null;
   kind: DeviceKind;
   platform: DevicePlatform;
@@ -81,11 +82,20 @@ export interface DeviceItem {
   status: "active" | "offline" | "never_seen";
   /** Remote-access tools the owner has marked expected on this device (_specs/signals.md). */
   expectedTools: ExpectedToolItem[];
+  /**
+   * Whether the device has the current policy bundle (_specs/v2-m2-child.md section 4); set only by the
+   * household devices list, absent elsewhere. `pending`: an older bundle is applied. `update_needed`:
+   * Child mode is on and the device never reported a version (an older Neo build).
+   */
+  policy?: DevicePolicyState;
 }
+
+export type DevicePolicyState = "current" | "pending" | "update_needed" | "unknown";
 
 export interface EnrollmentCodeItem {
   id: string;
-  userId: string;
+  /** The member's account; null for a member without one. */
+  userId: string | null;
   memberName: string | null;
   createdAt: string;
   expiresAt: string;
@@ -124,6 +134,11 @@ export interface HeartbeatResponse {
   heartbeatSeconds: number;
   /** Detection-lists content version (_specs/signals.md); refetch GET /api/signals/lists when it changed. */
   listsVersion: string;
+  /**
+   * The current policy bundle version for this device (_specs/v2-m2-child.md section 4); fetch
+   * GET /api/devices/policy when it differs from what the device applied. null when it could not be computed.
+   */
+  policyVersion: string | null;
   /**
    * `<origin>/uninstalled?d=...&s=...` (_specs/browser-extension.md "Uninstall"), passed to
    * `runtime.setUninstallURL`. Absent only when `AUTH_SECRET` is unset on a production

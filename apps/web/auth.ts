@@ -18,7 +18,6 @@ import {
   sessions,
   users,
   verificationTokens,
-  type Db,
 } from "@neo/db";
 import NextAuth, { type NextAuthConfig } from "next-auth";
 import type { Provider } from "next-auth/providers";
@@ -30,7 +29,10 @@ import { resolveAuthRedirect } from "@/lib/safe-redirect";
 import { recordAudit } from "@/lib/server/audit";
 import { syncVerifiedSigninAddress } from "@/lib/server/breach-monitoring/address-sync";
 import { getDb } from "@/lib/server/db";
+import { householdName, resolveTenant } from "@/lib/server/household-tenant";
 import type { MembershipRole } from "@/lib/session";
+
+export { householdName, resolveTenant };
 
 declare module "next-auth" {
   interface Session {
@@ -45,12 +47,6 @@ const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60;
 const SESSION_UPDATE_AGE_S = 24 * 60 * 60;
 const MAGIC_LINK_MAX_AGE_S = 10 * 60;
 
-/** "<first name>'s household", or "My household" when no name is known. */
-export function householdName(name: string | null | undefined): string {
-  const first = name?.trim().split(/\s+/)[0];
-  return first ? `${first}'s household` : "My household";
-}
-
 function errorMessage(err: unknown): string {
   return (err instanceof Error ? err.message : String(err)).slice(0, 300);
 }
@@ -61,19 +57,6 @@ async function ipHash(): Promise<string | undefined> {
     const ip = h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || undefined;
     return ip ? hashPii(ip) : undefined;
   } catch {
-    return undefined;
-  }
-}
-
-/** Resolve the user's tenant, creating the household once if it is missing (retry path of the spec). */
-export async function resolveTenant(db: Db, userId: string, name: string | null | undefined) {
-  const existing = await findTenantForUser(db, userId);
-  if (existing) return existing;
-  try {
-    await createTenantForUser(db, { userId, name: householdName(name) });
-    return await findTenantForUser(db, userId);
-  } catch (err) {
-    logger.error("Tenant creation retry failed", "auth", { userIdHash: hashPii(userId), errorMessage: errorMessage(err) });
     return undefined;
   }
 }

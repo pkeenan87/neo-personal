@@ -31,6 +31,7 @@ import {
   type HouseholdInviteKind,
   type MembershipRole,
 } from "./schema/index.js";
+import { deleteMemberForUserTx, ensureMemberForUserTx } from "./members.js";
 import { assertTenantId, setTenantContext, setUserContext, tenantScoped } from "./tenant.js";
 
 export const INVITE_SECRET_PREFIX = "neo_inv_";
@@ -413,6 +414,7 @@ export async function acceptHouseholdInvite(
 
       await setTenantContext(tx, ids.tenantId);
       await tx.insert(memberships).values({ tenantId: ids.tenantId, userId, role: "member" });
+      await ensureMemberForUserTx(tx, ids.tenantId, { userId, role: "adult" });
       await tx
         .update(householdInvites)
         .set({ acceptedBy: userId, acceptedAt: now })
@@ -475,6 +477,8 @@ async function detachMember(
       .set({ revokedAt: now })
       .where(and(eq(desktopTokens.userId, userId), eq(desktopTokens.tenantId, tenantId), isNull(desktopTokens.revokedAt)));
     await t.tx.delete(desktopAuthRequests).where(and(eq(desktopAuthRequests.userId, userId), eq(desktopAuthRequests.tenantId, tenantId)));
+    // Last: an active device, code or token needs a member, so they are all revoked above first.
+    await deleteMemberForUserTx(t.tx, tenantId, userId);
     await t.insert(auditEvents, {
       userId: actorUserId,
       eventType,

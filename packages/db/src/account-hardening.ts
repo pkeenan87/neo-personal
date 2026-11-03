@@ -1,6 +1,7 @@
-import { and, eq, gt, isNull, lte, ne } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, ne, or } from "drizzle-orm";
 import { isAccountHardeningAnswerAllowed, type AccountHardeningEvidenceId, type AccountHardeningItemId, type AccountHardeningState, type AccountHardeningVersion } from "@neo/core";
 import type { Db } from "./client.js";
+import { memberIdOfUserSql } from "./members.js";
 import { accountHardeningAnswers, devices, inboundMessages } from "./schema/index.js";
 import { tenantScoped } from "./tenant.js";
 
@@ -34,7 +35,7 @@ export const accountHardening = {
         gt(inboundMessages.receivedAt, new Date(+asOf - FORWARDING_WINDOW_MS)),
         lte(inboundMessages.receivedAt, asOf),
       ));
-      const active = await t.select(devices, and(eq(devices.userId, userId), isNull(devices.revokedAt)));
+      const active = await t.select(devices, and(or(eq(devices.userId, userId), eq(devices.memberId, memberIdOfUserSql(tenantId, userId))), isNull(devices.revokedAt)));
       const has = (kind: "browser_extension" | "desktop_agent") => active.some(d => d.kind === kind) ? "complete" as const : "needs_action" as const;
       return {
         forwarding_used_30d: forwarded ? "complete" : "needs_action",

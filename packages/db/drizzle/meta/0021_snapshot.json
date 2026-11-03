@@ -1,6 +1,6 @@
 {
-  "id": "e825d4e9-5d78-44b8-997d-fb67a00e3024",
-  "prevId": "d2c80628-2990-40f1-8874-f06c20a0c8df",
+  "id": "f58c6a92-6450-413d-a4b7-b9ac7ff15e77",
+  "prevId": "de5159a9-88cf-4558-a8f0-e29c4e2bbba1",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -488,6 +488,12 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'household'"
+        },
+        "time_zone": {
+          "name": "time_zone",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -1874,7 +1880,13 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "code_hash": {
           "name": "code_hash",
@@ -1941,6 +1953,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "device_enrollment_codes_member_idx": {
+          "name": "device_enrollment_codes_member_idx",
+          "columns": [
+            {
+              "expression": "member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -1968,6 +1995,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "device_enrollment_codes_member_id_members_id_fk": {
+          "name": "device_enrollment_codes_member_id_members_id_fk",
+          "tableFrom": "device_enrollment_codes",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "device_enrollment_codes_created_by_users_id_fk": {
@@ -2008,7 +2048,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "device_enrollment_codes_member_check": {
+          "name": "device_enrollment_codes_member_check",
+          "value": "\"device_enrollment_codes\".\"member_id\" is not null or \"device_enrollment_codes\".\"revoked_at\" is not null or \"device_enrollment_codes\".\"redeemed_at\" is not null"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.devices": {
@@ -2032,7 +2077,13 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "kind": {
           "name": "kind",
@@ -2124,6 +2175,27 @@
           "method": "btree",
           "with": {}
         },
+        "devices_tenant_member_idx": {
+          "name": "devices_tenant_member_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "devices_active_last_seen_idx": {
           "name": "devices_active_last_seen_idx",
           "columns": [
@@ -2168,6 +2240,19 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
+        "devices_member_id_members_id_fk": {
+          "name": "devices_member_id_members_id_fk",
+          "tableFrom": "devices",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
         "devices_enrolled_by_users_id_fk": {
           "name": "devices_enrolled_by_users_id_fk",
           "tableFrom": "devices",
@@ -2199,6 +2284,10 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
+        "devices_member_check": {
+          "name": "devices_member_check",
+          "value": "\"devices\".\"member_id\" is not null or \"devices\".\"revoked_at\" is not null"
+        },
         "devices_kind_check": {
           "name": "devices_kind_check",
           "value": "\"devices\".\"kind\" in ('browser_extension', 'desktop_agent')"
@@ -2237,7 +2326,7 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "tenant_id": {
           "name": "tenant_id",
@@ -2249,7 +2338,7 @@
           "name": "role",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "name": {
           "name": "name",
@@ -2297,6 +2386,12 @@
         },
         "device_id": {
           "name": "device_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "member_id": {
+          "name": "member_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -2388,6 +2483,19 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "desktop_tokens_member_id_members_id_fk": {
+          "name": "desktop_tokens_member_id_members_id_fk",
+          "tableFrom": "desktop_tokens",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2404,7 +2512,11 @@
       "checkConstraints": {
         "desktop_tokens_role_check": {
           "name": "desktop_tokens_role_check",
-          "value": "\"desktop_tokens\".\"role\" in ('owner', 'member')"
+          "value": "\"desktop_tokens\".\"role\" is null or \"desktop_tokens\".\"role\" in ('owner', 'member')"
+        },
+        "desktop_tokens_subject_check": {
+          "name": "desktop_tokens_subject_check",
+          "value": "('full' = any(\"desktop_tokens\".\"scopes\") and \"desktop_tokens\".\"user_id\" is not null and \"desktop_tokens\".\"role\" is not null)\n        or (\"desktop_tokens\".\"device_id\" is not null and (\"desktop_tokens\".\"member_id\" is not null or \"desktop_tokens\".\"revoked_at\" is not null))"
         },
         "desktop_tokens_scopes_check": {
           "name": "desktop_tokens_scopes_check",
@@ -2875,6 +2987,38 @@
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": false
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'open'"
+        },
+        "signal_ids": {
+          "name": "signal_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::uuid[]"
+        },
+        "eve_session_id": {
+          "name": "eve_session_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2986,6 +3130,19 @@
           ],
           "onDelete": "set null",
           "onUpdate": "no action"
+        },
+        "alerts_member_id_members_id_fk": {
+          "name": "alerts_member_id_members_id_fk",
+          "tableFrom": "alerts",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -2994,7 +3151,11 @@
       "checkConstraints": {
         "alerts_kind_check": {
           "name": "alerts_kind_check",
-          "value": "\"alerts\".\"kind\" in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress', 'breach_detected', 'mailbox_forwarding')"
+          "value": "\"alerts\".\"kind\" in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress', 'breach_detected', 'install_during_session', 'payment_under_pressure', 'protection_disabled', 'self_harm_attempts', 'app_approval', 'child_request')"
+        },
+        "alerts_status_check": {
+          "name": "alerts_status_check",
+          "value": "\"alerts\".\"status\" in ('open', 'acknowledged', 'resolved', 'false_positive')"
         },
         "alerts_severity_check": {
           "name": "alerts_severity_check",
@@ -3162,6 +3323,12 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
+          "notNull": false
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "uuid",
+          "primaryKey": false,
           "notNull": true
         },
         "client_event_id": {
@@ -3289,6 +3456,33 @@
           "method": "btree",
           "with": {}
         },
+        "device_signals_tenant_member_observed_idx": {
+          "name": "device_signals_tenant_member_observed_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "observed_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "device_signals_tenant_device_received_idx": {
           "name": "device_signals_tenant_device_received_idx",
           "columns": [
@@ -3350,6 +3544,19 @@
           "tableTo": "users",
           "columnsFrom": [
             "user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "device_signals_member_id_members_id_fk": {
+          "name": "device_signals_member_id_members_id_fk",
+          "tableFrom": "device_signals",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
           ],
           "columnsTo": [
             "id"
@@ -4437,8 +4644,8 @@
       },
       "isRLSEnabled": false
     },
-    "public.outlook_connectors": {
-      "name": "outlook_connectors",
+    "public.members": {
+      "name": "members",
       "schema": "",
       "columns": {
         "id": {
@@ -4458,62 +4665,43 @@
           "name": "user_id",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
-        "microsoft_user_id": {
-          "name": "microsoft_user_id",
+        "display_name": {
+          "name": "display_name",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "display_address": {
-          "name": "display_address",
+        "role": {
+          "name": "role",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "status": {
-          "name": "status",
+        "mode": {
+          "name": "mode",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'connected'"
+          "default": "'standard'"
         },
-        "token_version": {
-          "name": "token_version",
+        "birth_year": {
+          "name": "birth_year",
           "type": "integer",
           "primaryKey": false,
+          "notNull": false
+        },
+        "helper_member_ids": {
+          "name": "helper_member_ids",
+          "type": "uuid[]",
+          "primaryKey": false,
           "notNull": true,
-          "default": 1
+          "default": "'{}'::uuid[]"
         },
-        "connection_generation": {
-          "name": "connection_generation",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "encrypted_tokens": {
-          "name": "encrypted_tokens",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "encrypted_delta_cursor": {
-          "name": "encrypted_delta_cursor",
-          "type": "bytea",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_audit_at": {
-          "name": "last_audit_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_poll_at": {
-          "name": "last_poll_at",
-          "type": "timestamp with time zone",
+        "contact_ciphertext": {
+          "name": "contact_ciphertext",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -4533,8 +4721,8 @@
         }
       },
       "indexes": {
-        "outlook_connectors_user_idx": {
-          "name": "outlook_connectors_user_idx",
+        "members_tenant_user_idx": {
+          "name": "members_tenant_user_idx",
           "columns": [
             {
               "expression": "tenant_id",
@@ -4554,32 +4742,26 @@
           "method": "btree",
           "with": {}
         },
-        "outlook_connectors_tenant_id_idx": {
-          "name": "outlook_connectors_tenant_id_idx",
+        "members_tenant_idx": {
+          "name": "members_tenant_idx",
           "columns": [
             {
               "expression": "tenant_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
             }
           ],
-          "isUnique": true,
+          "isUnique": false,
           "concurrently": false,
           "method": "btree",
           "with": {}
         }
       },
       "foreignKeys": {
-        "outlook_connectors_tenant_id_tenants_id_fk": {
-          "name": "outlook_connectors_tenant_id_tenants_id_fk",
-          "tableFrom": "outlook_connectors",
+        "members_tenant_id_tenants_id_fk": {
+          "name": "members_tenant_id_tenants_id_fk",
+          "tableFrom": "members",
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
@@ -4590,19 +4772,17 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "outlook_connectors_membership_fk": {
-          "name": "outlook_connectors_membership_fk",
-          "tableFrom": "outlook_connectors",
-          "tableTo": "memberships",
+        "members_user_id_users_id_fk": {
+          "name": "members_user_id_users_id_fk",
+          "tableFrom": "members",
+          "tableTo": "users",
           "columnsFrom": [
-            "tenant_id",
             "user_id"
           ],
           "columnsTo": [
-            "tenant_id",
-            "user_id"
+            "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "set null",
           "onUpdate": "no action"
         }
       },
@@ -4610,15 +4790,23 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {
-        "outlook_connectors_status_check": {
-          "name": "outlook_connectors_status_check",
-          "value": "\"outlook_connectors\".\"status\" in ('connected', 'reauth_required', 'paused', 'disconnected')"
+        "members_role_check": {
+          "name": "members_role_check",
+          "value": "\"members\".\"role\" in ('owner', 'adult', 'child', 'elder')"
+        },
+        "members_mode_check": {
+          "name": "members_mode_check",
+          "value": "\"members\".\"mode\" in ('standard', 'child', 'elder')"
+        },
+        "members_display_name_length_check": {
+          "name": "members_display_name_length_check",
+          "value": "char_length(\"members\".\"display_name\") between 1 and 80"
         }
       },
       "isRLSEnabled": false
     },
-    "public.outlook_oauth_states": {
-      "name": "outlook_oauth_states",
+    "public.policies": {
+      "name": "policies",
       "schema": "",
       "columns": {
         "id": {
@@ -4634,33 +4822,33 @@
           "primaryKey": false,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
+        "scope": {
+          "name": "scope",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "state_hash": {
-          "name": "state_hash",
-          "type": "bytea",
+        "scope_id": {
+          "name": "scope_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "version": {
+          "name": "version",
+          "type": "integer",
           "primaryKey": false,
           "notNull": true
         },
-        "encrypted_pkce_verifier": {
-          "name": "encrypted_pkce_verifier",
-          "type": "bytea",
+        "rules": {
+          "name": "rules",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": true
         },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "consumed_at": {
-          "name": "consumed_at",
-          "type": "timestamp with time zone",
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -4673,11 +4861,29 @@
         }
       },
       "indexes": {
-        "outlook_oauth_states_hash_idx": {
-          "name": "outlook_oauth_states_hash_idx",
+        "policies_scope_version_idx": {
+          "name": "policies_scope_version_idx",
           "columns": [
             {
-              "expression": "state_hash",
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "scope",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "coalesce(\"scope_id\", '00000000-0000-0000-0000-000000000000'::uuid)",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "version",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -4687,27 +4893,12 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "outlook_oauth_states_expires_idx": {
-          "name": "outlook_oauth_states_expires_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
-        "outlook_oauth_states_tenant_id_tenants_id_fk": {
-          "name": "outlook_oauth_states_tenant_id_tenants_id_fk",
-          "tableFrom": "outlook_oauth_states",
+        "policies_tenant_id_tenants_id_fk": {
+          "name": "policies_tenant_id_tenants_id_fk",
+          "tableFrom": "policies",
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
@@ -4717,31 +4908,29 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "outlook_oauth_states_membership_fk": {
-          "name": "outlook_oauth_states_membership_fk",
-          "tableFrom": "outlook_oauth_states",
-          "tableTo": "memberships",
-          "columnsFrom": [
-            "tenant_id",
-            "user_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
-            "user_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "policies_scope_check": {
+          "name": "policies_scope_check",
+          "value": "\"policies\".\"scope\" in ('household', 'member', 'device')"
+        },
+        "policies_scope_id_check": {
+          "name": "policies_scope_id_check",
+          "value": "(\"policies\".\"scope\" = 'household') = (\"policies\".\"scope_id\" is null)"
+        },
+        "policies_version_check": {
+          "name": "policies_version_check",
+          "value": "\"policies\".\"version\" >= 1"
+        }
+      },
       "isRLSEnabled": false
     },
-    "public.outlook_rule_findings": {
-      "name": "outlook_rule_findings",
+    "public.incident_actions": {
+      "name": "incident_actions",
       "schema": "",
       "columns": {
         "id": {
@@ -4757,66 +4946,61 @@
           "primaryKey": false,
           "notNull": true
         },
-        "user_id": {
-          "name": "user_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "connector_id": {
-          "name": "connector_id",
+        "alert_id": {
+          "name": "alert_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "rule_key": {
-          "name": "rule_key",
+        "kind": {
+          "name": "kind",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "state": {
-          "name": "state",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'active'"
-        },
-        "action": {
-          "name": "action",
+        "requested_by": {
+          "name": "requested_by",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "destination_domain": {
-          "name": "destination_domain",
+        "approved_by": {
+          "name": "approved_by",
           "type": "text",
           "primaryKey": false,
           "notNull": false
         },
-        "observed_at": {
-          "name": "observed_at",
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "result": {
+          "name": "result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
         },
-        "resolved_at": {
-          "name": "resolved_at",
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
-          "notNull": false
-        },
-        "alerted_at": {
-          "name": "alerted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
+          "notNull": true,
+          "default": "now()"
         }
       },
       "indexes": {
-        "outlook_rule_findings_rule_idx": {
-          "name": "outlook_rule_findings_rule_idx",
+        "incident_actions_tenant_alert_idx": {
+          "name": "incident_actions_tenant_alert_idx",
           "columns": [
             {
               "expression": "tenant_id",
@@ -4825,25 +5009,294 @@
               "nulls": "last"
             },
             {
-              "expression": "connector_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "rule_key",
+              "expression": "alert_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             }
           ],
-          "isUnique": true,
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "incident_actions_tenant_id_tenants_id_fk": {
+          "name": "incident_actions_tenant_id_tenants_id_fk",
+          "tableFrom": "incident_actions",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "incident_actions_alert_id_alerts_id_fk": {
+          "name": "incident_actions_alert_id_alerts_id_fk",
+          "tableFrom": "incident_actions",
+          "tableTo": "alerts",
+          "columnsFrom": [
+            "alert_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "incident_actions_kind_check": {
+          "name": "incident_actions_kind_check",
+          "value": "\"incident_actions\".\"kind\" in ('mark_expected', 'allow_once')"
+        },
+        "incident_actions_requested_by_check": {
+          "name": "incident_actions_requested_by_check",
+          "value": "\"incident_actions\".\"requested_by\" in ('agent', 'admin')"
+        },
+        "incident_actions_status_check": {
+          "name": "incident_actions_status_check",
+          "value": "\"incident_actions\".\"status\" in ('pending', 'approved', 'rejected', 'done', 'failed')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.notification_outbox": {
+      "name": "notification_outbox",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "destination_ciphertext": {
+          "name": "destination_ciphertext",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "template": {
+          "name": "template",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alert_id": {
+          "name": "alert_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recipient_member_id": {
+          "name": "recipient_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recipient_user_id": {
+          "name": "recipient_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "lease_until": {
+          "name": "lease_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "sent_at": {
+          "name": "sent_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "provider_id": {
+          "name": "provider_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_error": {
+          "name": "last_error",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "notification_outbox_pending_idx": {
+          "name": "notification_outbox_pending_idx",
+          "columns": [
+            {
+              "expression": "sent_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lease_until",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"notification_outbox\".\"sent_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
         },
-        "outlook_rule_findings_user_idx": {
-          "name": "outlook_rule_findings_user_idx",
+        "notification_outbox_tenant_alert_idx": {
+          "name": "notification_outbox_tenant_alert_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "alert_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "notification_outbox_tenant_id_tenants_id_fk": {
+          "name": "notification_outbox_tenant_id_tenants_id_fk",
+          "tableFrom": "notification_outbox",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "notification_outbox_alert_id_alerts_id_fk": {
+          "name": "notification_outbox_alert_id_alerts_id_fk",
+          "tableFrom": "notification_outbox",
+          "tableTo": "alerts",
+          "columnsFrom": [
+            "alert_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "notification_outbox_idempotency_key_unique": {
+          "name": "notification_outbox_idempotency_key_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "idempotency_key"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "notification_outbox_channel_check": {
+          "name": "notification_outbox_channel_check",
+          "value": "\"notification_outbox\".\"channel\" in ('email')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.eve_sessions": {
+      "name": "eve_sessions",
+      "schema": "",
+      "columns": {
+        "session_id": {
+          "name": "session_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "eve_sessions_tenant_user_idx": {
+          "name": "eve_sessions_tenant_user_idx",
           "columns": [
             {
               "expression": "tenant_id",
@@ -4865,9 +5318,9 @@
         }
       },
       "foreignKeys": {
-        "outlook_rule_findings_tenant_id_tenants_id_fk": {
-          "name": "outlook_rule_findings_tenant_id_tenants_id_fk",
-          "tableFrom": "outlook_rule_findings",
+        "eve_sessions_tenant_id_tenants_id_fk": {
+          "name": "eve_sessions_tenant_id_tenants_id_fk",
+          "tableFrom": "eve_sessions",
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
@@ -4878,31 +5331,14 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "outlook_rule_findings_membership_fk": {
-          "name": "outlook_rule_findings_membership_fk",
-          "tableFrom": "outlook_rule_findings",
-          "tableTo": "memberships",
+        "eve_sessions_user_id_users_id_fk": {
+          "name": "eve_sessions_user_id_users_id_fk",
+          "tableFrom": "eve_sessions",
+          "tableTo": "users",
           "columnsFrom": [
-            "tenant_id",
             "user_id"
           ],
           "columnsTo": [
-            "tenant_id",
-            "user_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "outlook_rule_findings_connector_fk": {
-          "name": "outlook_rule_findings_connector_fk",
-          "tableFrom": "outlook_rule_findings",
-          "tableTo": "outlook_connectors",
-          "columnsFrom": [
-            "tenant_id",
-            "connector_id"
-          ],
-          "columnsTo": [
-            "tenant_id",
             "id"
           ],
           "onDelete": "cascade",
@@ -4912,60 +5348,127 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "outlook_rule_findings_state_check": {
-          "name": "outlook_rule_findings_state_check",
-          "value": "\"outlook_rule_findings\".\"state\" in ('active', 'resolved')"
-        },
-        "outlook_rule_findings_action_check": {
-          "name": "outlook_rule_findings_action_check",
-          "value": "\"outlook_rule_findings\".\"action\" in ('forward_to', 'redirect_to', 'forward_as_attachment_to')"
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.outlook_seen_messages": {
-      "name": "outlook_seen_messages",
+    "public.child_requests": {
+      "name": "child_requests",
       "schema": "",
       "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
         "tenant_id": {
           "name": "tenant_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "connector_id": {
-          "name": "connector_id",
+        "member_id": {
+          "name": "member_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
         },
-        "message_key": {
-          "name": "message_key",
+        "device_id": {
+          "name": "device_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kind": {
+          "name": "kind",
           "type": "text",
           "primaryKey": false,
           "notNull": true
         },
-        "seen_at": {
-          "name": "seen_at",
+        "detail": {
+          "name": "detail",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "decided_by": {
+          "name": "decided_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "decided_at": {
+          "name": "decided_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "grant": {
+          "name": "grant",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "alert_id": {
+          "name": "alert_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
-        "outlook_seen_messages_seen_idx": {
-          "name": "outlook_seen_messages_seen_idx",
+        "child_requests_tenant_status_created_idx": {
+          "name": "child_requests_tenant_status_created_idx",
           "columns": [
             {
-              "expression": "connector_id",
+              "expression": "tenant_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
             },
             {
-              "expression": "seen_at",
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -4978,9 +5481,9 @@
         }
       },
       "foreignKeys": {
-        "outlook_seen_messages_tenant_id_tenants_id_fk": {
-          "name": "outlook_seen_messages_tenant_id_tenants_id_fk",
-          "tableFrom": "outlook_seen_messages",
+        "child_requests_tenant_id_tenants_id_fk": {
+          "name": "child_requests_tenant_id_tenants_id_fk",
+          "tableFrom": "child_requests",
           "tableTo": "tenants",
           "columnsFrom": [
             "tenant_id"
@@ -4991,34 +5494,207 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "outlook_seen_messages_connector_fk": {
-          "name": "outlook_seen_messages_connector_fk",
-          "tableFrom": "outlook_seen_messages",
-          "tableTo": "outlook_connectors",
+        "child_requests_member_id_members_id_fk": {
+          "name": "child_requests_member_id_members_id_fk",
+          "tableFrom": "child_requests",
+          "tableTo": "members",
           "columnsFrom": [
-            "tenant_id",
-            "connector_id"
+            "member_id"
           ],
           "columnsTo": [
-            "tenant_id",
             "id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
+        },
+        "child_requests_device_id_devices_id_fk": {
+          "name": "child_requests_device_id_devices_id_fk",
+          "tableFrom": "child_requests",
+          "tableTo": "devices",
+          "columnsFrom": [
+            "device_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "child_requests_decided_by_users_id_fk": {
+          "name": "child_requests_decided_by_users_id_fk",
+          "tableFrom": "child_requests",
+          "tableTo": "users",
+          "columnsFrom": [
+            "decided_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "child_requests_alert_id_alerts_id_fk": {
+          "name": "child_requests_alert_id_alerts_id_fk",
+          "tableFrom": "child_requests",
+          "tableTo": "alerts",
+          "columnsFrom": [
+            "alert_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
         }
       },
-      "compositePrimaryKeys": {
-        "outlook_seen_messages_pk": {
-          "name": "outlook_seen_messages_pk",
-          "columns": [
-            "connector_id",
-            "message_key"
-          ]
-        }
-      },
+      "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "child_requests_kind_check": {
+          "name": "child_requests_kind_check",
+          "value": "\"child_requests\".\"kind\" in ('more_time', 'unblock_site', 'install_app')"
+        },
+        "child_requests_status_check": {
+          "name": "child_requests_status_check",
+          "value": "\"child_requests\".\"status\" in ('pending', 'approved', 'denied', 'expired')"
+        },
+        "child_requests_reason_length_check": {
+          "name": "child_requests_reason_length_check",
+          "value": "\"child_requests\".\"reason\" is null or char_length(\"child_requests\".\"reason\") <= 140"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.consents": {
+      "name": "consents",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "granted_by": {
+          "name": "granted_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "granted_at": {
+          "name": "granted_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "evidence": {
+          "name": "evidence",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        }
+      },
+      "indexes": {
+        "consents_tenant_member_idx": {
+          "name": "consents_tenant_member_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "granted_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "consents_tenant_id_tenants_id_fk": {
+          "name": "consents_tenant_id_tenants_id_fk",
+          "tableFrom": "consents",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "consents_member_id_members_id_fk": {
+          "name": "consents_member_id_members_id_fk",
+          "tableFrom": "consents",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "consents_granted_by_users_id_fk": {
+          "name": "consents_granted_by_users_id_fk",
+          "tableFrom": "consents",
+          "tableTo": "users",
+          "columnsFrom": [
+            "granted_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "consents_kind_check": {
+          "name": "consents_kind_check",
+          "value": "\"consents\".\"kind\" in ('monitoring_notice', 'guardian_consent', 'elder_self_consent')"
+        }
+      },
       "isRLSEnabled": false
     }
   },

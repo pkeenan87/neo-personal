@@ -1,7 +1,8 @@
 import { z } from "zod";
+import { WEB_CATEGORIES } from "./policy.js";
 
 /** `SignalEvent.type`, fixed per detector (see `_specs/signals.md`, Events table). */
-export const SIGNAL_TYPES = ["page", "software", "remote_session", "permission"] as const;
+export const SIGNAL_TYPES = ["page", "software", "remote_session", "permission", "usage", "tamper"] as const;
 export type SignalType = (typeof SIGNAL_TYPES)[number];
 
 /** `SignalEvent.detector`, the discriminant of `SignalEventSchema`. */
@@ -15,6 +16,13 @@ export const SIGNAL_DETECTORS = [
   "unwanted_software",
   "remote_access_session",
   "tcc_grant",
+  "payment_page",
+  // Child mode (_specs/v2-m2-child.md section 3). Accepted by the server first; clients ship after it.
+  "web_blocked",
+  "app_installed",
+  "app_blocked",
+  "screen_time_exhausted",
+  "tamper_detected",
 ] as const;
 export type SignalDetector = (typeof SIGNAL_DETECTORS)[number];
 
@@ -65,6 +73,24 @@ export type RemoteSessionDirection = (typeof REMOTE_SESSION_DIRECTIONS)[number];
 
 const TCC_SERVICES = ["screen_recording", "accessibility", "full_disk_access"] as const;
 export type TccService = (typeof TCC_SERVICES)[number];
+
+/** `category` on `payment_page`: what the page asks the user to pay with. */
+export const PAYMENT_CATEGORIES = ["gift_card", "crypto", "wire", "other"] as const;
+export type PaymentCategory = (typeof PAYMENT_CATEGORIES)[number];
+
+/**
+ * `reason` on `tamper_detected` (Child mode): a way the protection on a child's device was weakened.
+ * `bad_policy_signature` is reported by a client that rejected a policy bundle (slice 2).
+ */
+export const TAMPER_REASONS = [
+  "browser_without_extension",
+  "vpn_app",
+  "extension_disabled",
+  "clock_changed",
+  "agent_service_stopped",
+  "bad_policy_signature",
+] as const;
+export type TamperReason = (typeof TAMPER_REASONS)[number];
 
 /** Maximum events accepted in one `POST /api/signals` batch. */
 export const MAX_SIGNAL_BATCH = 50;
@@ -248,6 +274,65 @@ const TccGrantEvent = z
   })
   .strict();
 
+/** Dormant in M1 (no client sends it yet); `domain` and `category` only, never the URL or page text. */
+const PaymentPageEvent = z
+  .object({
+    id: IdSchema,
+    type: z.literal("page"),
+    detector: z.literal("payment_page"),
+    observedAt: ObservedAtSchema,
+    domain: DomainSchema,
+    category: z.enum(PAYMENT_CATEGORIES),
+  })
+  .strict();
+
+/** Child mode: a site was blocked. `domain` and `category` only, never the URL (`_specs/v2-m2-child.md` section 5). */
+const WebBlockedEvent = z
+  .object({
+    id: IdSchema,
+    type: z.literal("page"),
+    detector: z.literal("web_blocked"),
+    observedAt: ObservedAtSchema,
+    domain: DomainSchema,
+    category: z.enum(WEB_CATEGORIES),
+  })
+  .strict();
+
+/** Child mode: an app was installed (`app_installed`) or closed because it is blocked (`app_blocked`). Names only, never paths. */
+const AppEventFields = {
+  id: IdSchema,
+  type: z.literal("software"),
+  observedAt: ObservedAtSchema,
+  name: BoundedTextSchema,
+  signer: BoundedTextSchema.optional(),
+  image: FileNameSchema.optional(),
+  bundleId: BundleIdSchema.optional(),
+} as const;
+
+const AppInstalledEvent = z.object({ ...AppEventFields, detector: z.literal("app_installed") }).strict();
+const AppBlockedEvent = z.object({ ...AppEventFields, detector: z.literal("app_blocked") }).strict();
+
+/** Child mode: the daily budget ran out, or downtime began. Carries nothing but the time. */
+const ScreenTimeExhaustedEvent = z
+  .object({
+    id: IdSchema,
+    type: z.literal("usage"),
+    detector: z.literal("screen_time_exhausted"),
+    observedAt: ObservedAtSchema,
+  })
+  .strict();
+
+/** Child mode: protection on the device was weakened. */
+const TamperDetectedEvent = z
+  .object({
+    id: IdSchema,
+    type: z.literal("tamper"),
+    detector: z.literal("tamper_detected"),
+    observedAt: ObservedAtSchema,
+    reason: z.enum(TAMPER_REASONS),
+  })
+  .strict();
+
 /**
  * Discriminated union on `detector`. Every variant is `.strict()`: unknown
  * keys are rejected. This is the single source of truth for the client and
@@ -264,6 +349,12 @@ export const SignalEventSchema = z.discriminatedUnion("detector", [
   UnwantedSoftwareEvent,
   RemoteAccessSessionEvent,
   TccGrantEvent,
+  PaymentPageEvent,
+  WebBlockedEvent,
+  AppInstalledEvent,
+  AppBlockedEvent,
+  ScreenTimeExhaustedEvent,
+  TamperDetectedEvent,
 ]);
 
 export type SignalEvent = z.infer<typeof SignalEventSchema>;
@@ -286,3 +377,19 @@ export function parseSignalEvent(raw: unknown): ParseSignalEventResult {
   }
   return { ok: false, id, reason: "invalid" };
 }
+
+/**
+ * Server-generated signals (never accepted from clients, so deliberately outside `SIGNAL_DETECTORS`
+ * and `SignalEventSchema`): the extension-uninstall beacon and the devices-offline sweep. The
+ * policy engine in `@neo/core` accepts these alongside `SignalEvent`.
+ */
+export const PROTECTION_DISABLED_REASONS = ["extension_uninstalled", "device_offline"] as const;
+export type ProtectionDisabledReason = (typeof PROTECTION_DISABLED_REASONS)[number];
+
+export type ServerSignalEvent = {
+  id: string;
+  detector: "protection_disabled";
+  reason: ProtectionDisabledReason;
+  /** ISO datetime the server observed it. */
+  observedAt: string;
+};

@@ -38,7 +38,7 @@ beforeAll(async () => {
   ownerB = await user("ownerB");
   tenantB = (await createTenantForUser(db, { userId: ownerB, name: "B" })).tenantId;
   // Every other table gets the blanket grant from packages/db/sql/create-app-user.sql; the outlook_* tables and
-  // list_outlook_connectors get none here, so what app_user can do with them is exactly what migration 0016 grants.
+  // list_outlook_connectors get none here, so what app_user can do with them is exactly what migration 0023 grants.
   await client.exec(`grant usage on schema public to app_user;
     DO $$ DECLARE t text; BEGIN
       FOR t IN SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename NOT LIKE 'outlook\\_%' LOOP

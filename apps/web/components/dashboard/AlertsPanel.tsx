@@ -4,7 +4,7 @@ import { BellRing, Check, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 import { relativeTime } from "@/components/ConversationSidebar";
-import type { AlertItem, AlertListResponse, AlertSeverityName } from "@/lib/alert-types";
+import { CLOSED_STATUS_LABEL, incidentChatApplies, incidentChatPath, type AlertItem, type AlertListResponse, type AlertSeverityName } from "@/lib/alert-types";
 
 const SHOWN = 5;
 
@@ -24,8 +24,9 @@ const CRITICAL_CHIP =
 /**
  * Open owner alerts (_specs/owner-alerts.md). Owners see the household's and can mark
  * them as seen; members see alerts about themselves, read-only. Hidden when none are open.
+ * `incidentChat` (NEO_EVE_CHAT) adds "Ask Neo about this", which opens the eve incident chat.
  */
-export function AlertsPanel({ initial, isOwner }: { initial: AlertListResponse; isOwner: boolean }) {
+export function AlertsPanel({ initial, isOwner, incidentChat = false }: { initial: AlertListResponse; isOwner: boolean; incidentChat?: boolean }) {
   const [items, setItems] = useState<AlertItem[]>(initial.items.filter((a) => !a.acknowledgedAt));
   const [openCount, setOpenCount] = useState(initial.openCount);
   const [busy, setBusy] = useState(false);
@@ -101,6 +102,11 @@ export function AlertsPanel({ initial, isOwner }: { initial: AlertListResponse; 
                     <span className="sr-only">{sev.label}: </span>
                   )}
                   {a.title}
+                  {CLOSED_STATUS_LABEL[a.status] ? (
+                    <span className="ml-1.5 inline-block rounded-full bg-surface-2 px-1.5 py-0.5 align-middle text-[10px] font-semibold tracking-wide text-muted uppercase">
+                      {CLOSED_STATUS_LABEL[a.status]}
+                    </span>
+                  ) : null}
                 </p>
                 <p className="mt-0.5 line-clamp-2 text-sm text-muted">{a.body}</p>
                 <p className="mt-1 text-xs text-muted">
@@ -111,6 +117,15 @@ export function AlertsPanel({ initial, isOwner }: { initial: AlertListResponse; 
                       {" · "}
                       <Link href={`/verdicts/${a.verdictId}`} className="inline-flex items-center text-accent hover:underline">
                         See the check
+                        <ChevronRight className="size-3" aria-hidden="true" />
+                      </Link>
+                    </>
+                  ) : null}
+                  {incidentChat && incidentChatApplies(a.kind) ? (
+                    <>
+                      {" · "}
+                      <Link href={incidentChatPath(a.id)} className="inline-flex items-center text-accent hover:underline">
+                        Ask Neo about this
                         <ChevronRight className="size-3" aria-hidden="true" />
                       </Link>
                     </>

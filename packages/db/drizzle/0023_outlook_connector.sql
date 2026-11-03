@@ -68,7 +68,7 @@ CREATE INDEX "outlook_oauth_states_expires_idx" ON "outlook_oauth_states" USING 
 CREATE UNIQUE INDEX "outlook_rule_findings_rule_idx" ON "outlook_rule_findings" USING btree ("tenant_id","connector_id","rule_key");--> statement-breakpoint
 CREATE INDEX "outlook_rule_findings_user_idx" ON "outlook_rule_findings" USING btree ("tenant_id","user_id");--> statement-breakpoint
 CREATE INDEX "outlook_seen_messages_seen_idx" ON "outlook_seen_messages" USING btree ("connector_id","seen_at");--> statement-breakpoint
-ALTER TABLE "alerts" ADD CONSTRAINT "alerts_kind_check" CHECK ("alerts"."kind" in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress', 'breach_detected', 'mailbox_forwarding'));
+ALTER TABLE "alerts" ADD CONSTRAINT "alerts_kind_check" CHECK ("alerts"."kind" in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress', 'breach_detected', 'install_during_session', 'payment_under_pressure', 'protection_disabled', 'self_harm_attempts', 'app_approval', 'child_request', 'mailbox_forwarding'));
 --> statement-breakpoint
 ALTER TABLE outlook_oauth_states ENABLE ROW LEVEL SECURITY;
 --> statement-breakpoint

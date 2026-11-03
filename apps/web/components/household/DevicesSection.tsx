@@ -303,6 +303,16 @@ export function DevicesSection({
                   {status.warn ? <TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" /> : null}
                   <span className="truncate">{status.text}</span>
                 </div>
+                {d.policy === "pending" ? (
+                  <div className="mt-1">
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">Pending on device</span>
+                  </div>
+                ) : null}
+                {d.policy === "update_needed" ? (
+                  <div className="mt-1">
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">Update Neo on this device</span>
+                  </div>
+                ) : null}
               </div>
               {isOwner ? (
                 <button
@@ -400,7 +410,8 @@ export function DevicesSection({
   const known = new Set(members.map((m) => m.userId));
   const extra = new Map<string, HouseholdMember>();
   for (const d of devices) {
-    if (!known.has(d.userId) && !extra.has(d.userId)) {
+    // A device of a member without an account is listed by its memberName in the owner's view only (no sign-in to group under).
+    if (d.userId && !known.has(d.userId) && !extra.has(d.userId)) {
       extra.set(d.userId, { userId: d.userId, name: d.memberName, email: null, role: "member" });
     }
   }

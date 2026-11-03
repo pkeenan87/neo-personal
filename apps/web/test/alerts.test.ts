@@ -13,15 +13,7 @@ import { GET as alertsGET } from "@/app/api/alerts/route";
 import { POST as leavePOST } from "@/app/api/household/leave/route";
 import { GET as settingsGET, POST as settingsPOST } from "@/app/api/settings/alerts/route";
 import type { AlertListResponse } from "@/lib/alert-types";
-import {
-  ALERT_EMAIL_DAILY_CAP,
-  alertForVerdict,
-  alertMemberJoined,
-  deliverAlert,
-  meetsThreshold,
-  raiseAlert,
-  type AlertDeliveryDeps,
-} from "@/lib/server/alerts";
+import { alertForVerdict, alertMemberJoined, meetsThreshold, raiseAlert } from "@/lib/server/alerts";
 import { renderAlertEmail } from "@/lib/server/email/alert-email";
 import { memorySentEmails } from "@/lib/server/email/resend";
 import { memoryAlertRows, memorySetThreshold, resetMemoryAlerts } from "@/lib/server/memory-alerts";
@@ -168,68 +160,7 @@ describe("membership alerts", () => {
 });
 
 describe("delivery", () => {
-  function deps(over: Partial<AlertDeliveryDeps> = {}): AlertDeliveryDeps & { sent: string[]; marks: string[] } {
-    const sent: string[] = [];
-    const marks: string[] = [];
-    const alert = {
-      id: "a1",
-      tenantId: TENANT,
-      subjectUserId: KID.userId,
-      deviceId: null,
-      kind: "member_verdict" as const,
-      severity: "high" as const,
-      title: "Kid checked something malicious",
-      body: "body",
-      verdictId: null,
-      dedupeKey: "k",
-      createdAt: new Date(),
-      acknowledgedAt: null,
-      acknowledgedBy: null,
-      emailStatus: "pending" as const,
-      emailedAt: null,
-    };
-    return {
-      sent,
-      marks,
-      getAlert: async () => alert,
-      owners: async () => [{ userId: OWNER.userId, email: OWNER.email, name: "Pat", threshold: "high" }],
-      countSentSince: async () => 0,
-      markEmail: async (_t, _id, status) => {
-        marks.push(status);
-      },
-      mailer: {
-        send: async (e) => {
-          sent.push(e.idempotencyKey);
-          return { id: "x" };
-        },
-      },
-      appUrl: "https://neo.example.test",
-      ...over,
-    };
-  }
-
-  it("caps emails per household per day with one notice", async () => {
-    const d = deps({ countSentSince: async () => ALERT_EMAIL_DAILY_CAP });
-    const now = new Date("2026-09-27T12:00:00Z");
-    expect(await deliverAlert({ alertId: "a1", tenantId: TENANT }, d, now)).toBe("capped");
-    expect(d.marks).toEqual(["skipped"]);
-    expect(d.sent).toEqual([`alert-cap:${TENANT}:2026-09-27:${OWNER.userId}`]);
-  });
-
-  it("leaves already handled alerts alone", async () => {
-    const d = deps();
-    const handled = { ...(await d.getAlert(TENANT, "a1"))!, emailStatus: "sent" as const };
-    const d2 = deps({ getAlert: async () => handled });
-    expect(await deliverAlert({ alertId: "a1", tenantId: TENANT }, d2)).toBe("already_handled");
-    expect(d2.sent).toEqual([]);
-  });
-
-  it("lets a send failure propagate so Inngest retries, leaving the alert pending", async () => {
-    const d = deps({ mailer: { send: async () => Promise.reject(new Error("resend down")) } });
-    await expect(deliverAlert({ alertId: "a1", tenantId: TENANT }, d)).rejects.toThrow("resend down");
-    expect(d.marks).toEqual([]);
-  });
-
+  // The cap, retries and outbox draining are covered in alert-outbox.test.ts.
   it("maps severities to thresholds", () => {
     expect(meetsThreshold("high", "high")).toBe(true);
     expect(meetsThreshold("medium", "high")).toBe(false);
