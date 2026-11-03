@@ -6,7 +6,7 @@
  * verdicts identically. Kept separate from both to avoid a circular import (ingest queues
  * escalations; escalate applies outcomes).
  */
-import type { Correlation } from "@neo/core";
+import { logger, type Correlation } from "@neo/core";
 import { REMOTE_ACCESS_TOOLS, findRemoteAccessTool } from "@neo/tools";
 import type { SignalEvent } from "@neo/verdict";
 import type { SignalSeverity } from "@neo/db";
@@ -31,6 +31,7 @@ import {
   warningBypassedAlertText,
   type AlertText,
 } from "../alerts/templates";
+import { appRefFromSignal, linkRequestAlert, openInstallAppRequest, type OpenedInstallRequest } from "../child-request-intake";
 import { saveVerdict } from "../verdicts";
 import type { RuleVerdictLabel } from "./rules";
 import { updateDeviceSignal } from "./store";
@@ -96,6 +97,22 @@ export function alertTextFor(event: SignalEvent, ctx: { memberName: string; devi
   }
 }
 
+/**
+ * Open the `install_app` request for an `app_installed` event. A failure to open it never stops the alert: the
+ * parents are still told, they just have no Approve link (the console still lists the app). Undefined then.
+ */
+async function openRequestForApp(device: SignalDeviceInfo, event: SignalEvent): Promise<OpenedInstallRequest | undefined> {
+  if (event.detector !== "app_installed") return undefined;
+  const app = appRefFromSignal(event);
+  if (!app) return undefined;
+  try {
+    return await openInstallAppRequest({ tenantId: device.tenantId, memberId: device.memberId, deviceId: device.id, app });
+  } catch (err) {
+    logger.error("Opening an install request failed", "signals", { tenantId: device.tenantId, errorMessage: String(err).slice(0, 300) });
+    return undefined;
+  }
+}
+
 export interface AlertedSignalInput {
   device: SignalDeviceInfo;
   event: SignalEvent;
@@ -135,6 +152,18 @@ export async function applyAlertedSignal(input: AlertedSignalInput): Promise<Ale
   const deviceLbl = deviceLabel(device.name);
   const text = alertTextFor(event, { memberName, deviceLbl, severity });
 
+  // A new app on a device that needs approval opens an install_app request (one per device and app while it
+  // is pending). If one is already waiting, the parents have been told: no second alert or email.
+  let request: { id: string; token: string } | undefined;
+  if (alertKind === "app_approval" && event.detector === "app_installed") {
+    const opened = await openRequestForApp(device, event);
+    if (opened?.status === "existing") {
+      await updateDeviceSignal(device.tenantId, input.rowId, { severity, outcome: "alerted", verdictId: null, alertId: opened.alertId });
+      return { alertId: opened.alertId ?? undefined };
+    }
+    if (opened?.status === "created") request = { id: opened.requestId, token: opened.token };
+  }
+
   const alertRow = input.bypassOf
     ? await alertSignalBypass({
         tenantId: device.tenantId,
@@ -169,8 +198,10 @@ export async function applyAlertedSignal(input: AlertedSignalInput): Promise<Ale
         text,
         memberId: input.memberId ?? device.memberId,
         signalIds: [input.rowId],
+        ...(request ? { request } : {}),
         now: input.now,
       });
+  if (request && alertRow) await linkRequestAlert(device.tenantId, request.id, alertRow.id).catch((err: unknown) => logger.error("Linking a child request to its alert failed", "signals", { tenantId: device.tenantId, errorMessage: String(err).slice(0, 300) }));
 
   await updateDeviceSignal(device.tenantId, input.rowId, { severity, outcome: "alerted", verdictId: verdictId ?? null, alertId: alertRow?.id ?? null });
   await raiseCorrelations(device, input.memberId ?? device.memberId, input.correlations ?? []);

@@ -4,6 +4,7 @@
  * alerts (acknowledged > 90 days, any > 180 days; _specs/owner-alerts.md), old devices
  * and enrollment codes (revoked devices > 90 days, spent codes > 30 days; _specs/device-enrollment.md),
  * device_signals rows older than 30 days, expired reputation_cache rows, and expired encrypted weekly-digest payloads.
+ * It also expires child requests past the end of the child's day and resolves their alerts (_specs/v2-m2-child.md section 8).
  */
 import { logger } from "@neo/core";
 import type { ArtifactStore } from "@neo/db";
@@ -27,6 +28,8 @@ export interface ExpireDeps {
   purgeExpiredReputationCache(): Promise<number>;
   /** Clear non-sending digest payloads and sending payloads older than 24 hours; returns the count. */
   purgeWeeklyDigestPayloads(): Promise<number>;
+  /** Mark pending child requests past their expiry `expired` and resolve their alerts, across households; returns the count. */
+  expireChildRequests?(): Promise<number>;
 }
 
 export async function runArtifactsExpire(
@@ -41,6 +44,8 @@ export async function runArtifactsExpire(
   signalsDeleted: number;
   reputationCacheDeleted: number;
   digestPayloadsDeleted: number;
+  /** Present when the run expires child requests. */
+  childRequestsExpired?: number;
 }> {
   const artifacts = await step.run("purge-artifacts", async () => {
     if (!deps.artifacts) return { purged: 0, errors: 0 };
@@ -69,6 +74,7 @@ export async function runArtifactsExpire(
   const signalsDeleted = await step.run("purge-signals", () => deps.purgeOldDeviceSignals());
   const reputationCacheDeleted = await step.run("purge-reputation-cache", () => deps.purgeExpiredReputationCache());
   const digestPayloadsDeleted = await step.run("purge-digest-payloads", () => deps.purgeWeeklyDigestPayloads());
+  const childRequestsExpired = deps.expireChildRequests ? await step.run("expire-child-requests", () => deps.expireChildRequests!()) : undefined;
   const result = {
     artifactsPurged: artifacts.purged,
     artifactErrors: artifacts.errors,
@@ -78,6 +84,7 @@ export async function runArtifactsExpire(
     signalsDeleted,
     reputationCacheDeleted,
     digestPayloadsDeleted,
+    ...(childRequestsExpired !== undefined ? { childRequestsExpired } : {}),
   };
   logger.info("Retention run finished", "retention", result);
   return result;

@@ -5,6 +5,7 @@ import { analyzeEmail, EMAIL_ANALYSIS_GUIDANCE } from "@neo/tools";
 import { inboundEnv } from "@/lib/env";
 import { sharedUrlCache } from "../agent-run";
 import { recordAudit } from "../audit";
+import { expireDueChildRequests } from "../child-requests";
 import { getDb } from "../db";
 import { purgeOldDevices } from "../devices";
 import { getMailer, getReceivedMailClient } from "../email/resend";
@@ -50,5 +51,6 @@ export function createExpireDeps(): ExpireDeps {
     purgeOldDeviceSignals,
     purgeExpiredReputationCache,
     purgeWeeklyDigestPayloads: async () => db ? weeklyDigest.purgeStalePayloads(db) : 0,
+    expireChildRequests: () => expireDueChildRequests(),
   };
 }

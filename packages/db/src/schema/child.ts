@@ -46,6 +46,9 @@ export type ChildRequestKind = (typeof CHILD_REQUEST_KINDS)[number];
 export const CHILD_REQUEST_STATUSES = ["pending", "approved", "denied", "expired"] as const;
 export type ChildRequestStatus = (typeof CHILD_REQUEST_STATUSES)[number];
 
+export const CHILD_REQUEST_ORIGINS = ["device", "engine"] as const;
+export type ChildRequestOrigin = (typeof CHILD_REQUEST_ORIGINS)[number];
+
 export const CHILD_REQUEST_REASON_MAX = 140;
 
 export const childRequests = pgTable(
@@ -73,11 +76,17 @@ export const childRequests = pgTable(
     createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
     expiresAt: timestamp("expires_at", { mode: "date", withTimezone: true }),
+    /** Who opened it: the child through the device API, or the policy engine (a new app). Only `device` requests count towards the per-device limits. */
+    origin: text("origin").$type<ChildRequestOrigin>().notNull().default("device"),
+    /** SHA-256 (hex) of the email-link token; cleared when the request is decided. The token alone decides nothing. */
+    decisionTokenHash: text("decision_token_hash"),
+    decisionTokenExpiresAt: timestamp("decision_token_expires_at", { mode: "date", withTimezone: true }),
   },
   (t) => [
     index("child_requests_tenant_status_created_idx").on(t.tenantId, t.status, t.createdAt),
     check("child_requests_kind_check", sql`${t.kind} in (${inList(CHILD_REQUEST_KINDS)})`),
     check("child_requests_status_check", sql`${t.status} in (${inList(CHILD_REQUEST_STATUSES)})`),
+    check("child_requests_origin_check", sql`${t.origin} in (${inList(CHILD_REQUEST_ORIGINS)})`),
     check("child_requests_reason_length_check", sql`${t.reason} is null or char_length(${t.reason}) <= ${sql.raw(String(CHILD_REQUEST_REASON_MAX))}`),
   ],
 );

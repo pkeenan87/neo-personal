@@ -32,7 +32,7 @@ Both documents are amended in this PR.
 4. **Console + actions:** member and mode pages, helpers, notify rules, and the `mark_expected` and `allow_once` acting tools.
 
 ### 2. Members (slice 1)
-- Migration `0017_v2_members.sql`. 0016 stays reserved for the Outlook connector (#50). If #50 merges first, renumber nothing.
+- Migration `0017_v2_members.sql`. The Outlook connector (#50) later merged as 0023.
 - `members` per `docs/contracts.md`: `id`, `tenant_id`, `user_id` (nullable, unique per tenant), `display_name`, `role` (`owner|adult|child|elder`), `mode` (`standard|child|elder`), `birth_year`, `helper_member_ids uuid[]`, `contact` (encrypted, via `packages/core` artifact crypto), and timestamps.
   - The tenant RLS policy `tenant_isolation` is set as in 0010.
   - Add the table to `tenantTables` (`packages/db/src/tenant.ts`) and `schema/index.ts`. `create-app-user.sql` default privileges cover the grant.
@@ -84,7 +84,7 @@ Both documents are amended in this PR.
   - A `payment_page` on its own raises kind `payment_under_pressure` at medium.
   - Server signals (`protection_disabled`) aren't saved as `device_signals` rows; they only raise the alert, alongside today's `device_removed` and `device_offline` alerts.
   - Standard parity: the unchanged `apps/web/test/signal-rules.test.ts` passes against the engine.
-- **Migration ordering (updated for M2 slice 2):** slice 3 added `0019_eve_sessions`, M2 slice 1a `0020_member_devices`, M2 slice 1b `0021_child_policy` (journal `when` `1793632806799`) and M2 slice 2 `0022_policy_bundles`, so the Outlook connector (#50) now has to renumber to **0023** with a journal `when` above 0022's (`1793632866799`). Drizzle skips a migration whose journal `when` is at or below the last applied one. 0017's `when` is set above 0016's. If the v2 migrations reach production before #50 merges, #50's migration has to be renumbered (now 0023) with a newer `when`, or it will be skipped silently.
+- **Migration ordering (updated for M2 slice 3):** slice 3 added `0019_eve_sessions`, M2 slice 1a `0020_member_devices`, M2 slice 1b `0021_child_policy` (journal `when` `1793632806799`) and M2 slice 2 `0022_policy_bundles`, and the Outlook connector (#50) merged as `0023_outlook_connector` (journal `when` `1793632926799`), so M2 slice 3 is `0024_child_request_tokens` (journal `when` `1793632986799`). Drizzle skips a migration whose journal `when` is at or below the last applied one. 0017's `when` is set above 0016's.
 
 ### 5. Incidents (slice 1)
 - `alerts` gains `member_id`, `status` (`open|acknowledged|resolved|false_positive`, default `open`), `signal_ids uuid[]`, `eve_session_id` and `resolved_at`.

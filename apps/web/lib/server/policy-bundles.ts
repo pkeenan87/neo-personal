@@ -11,6 +11,7 @@ import { getProtectionLayers, tenantScoped, type DevicePublic } from "@neo/db";
 import { base64urlEncode, type PolicyBundle, type PolicyEnvelope } from "@neo/verdict";
 import type { DevicePolicyState } from "@/lib/household-types";
 import type { DeviceSession } from "@/lib/session";
+import { activeGrantsFor } from "./child-requests";
 import { getDb } from "./db";
 import { getDevice, getPolicyBundle, upsertPolicyBundle } from "./devices";
 import { memoryHouseholdTimeZone, memoryMemberPolicyVersions, memoryMemberRecords, memoryProtection } from "./memory-members";
@@ -28,11 +29,6 @@ export const POLICY_REUSE_MIN_REMAINING_MS = DAY_MS;
 export const POLICY_CACHE_CONTROL = "private, no-cache";
 
 type DeviceRef = Pick<DevicePublic, "id" | "tenantId" | "userId" | "memberId">;
-
-/** Approved extra screen time that is still valid (filled by the child-request slice). */
-async function loadGrants(): Promise<PolicyBundle["screenTime"]["grants"]> {
-  return [];
-}
 
 /** The bundle for a device as of `now`, unsigned. Throws when the device has no member or the layers cannot be read. */
 export async function compileDeviceBundle(device: DeviceRef, now = new Date()): Promise<PolicyBundle> {
@@ -59,7 +55,11 @@ export async function compileDeviceBundle(device: DeviceRef, now = new Date()): 
       timeZone = memoryHouseholdTimeZone(device.tenantId);
     }
   }
-  return compileBundle({ device: { id: device.id }, member: { id: memberId }, layers: base, birthYear, timeZone, now, grants: await loadGrants() });
+  // Approved child requests that are still running: extra minutes (`screenTime.grants`) and one-hour
+  // site allows (`web.allowOnce`). Only a Child device's bundle carries them, and one that has run
+  // out is simply absent, so a grant ending changes the version like any other policy change.
+  const running = base.mode === "child" ? await activeGrantsFor(device.tenantId, memberId, now) : { grants: [], allowOnce: [] };
+  return compileBundle({ device: { id: device.id }, member: { id: memberId }, layers: base, birthYear, timeZone, now, grants: running.grants, allowOnce: running.allowOnce });
 }
 
 /** The current `policyVersion` for a device, computed without signing. */

@@ -7,7 +7,7 @@ import { check, index, integer, jsonb, pgTable, text, timestamp, uuid } from "dr
 import { alerts } from "./alerts.js";
 import { tenants } from "./tenants.js";
 
-export const INCIDENT_ACTION_KINDS = ["mark_expected", "allow_once"] as const;
+export const INCIDENT_ACTION_KINDS = ["mark_expected", "allow_once", "approve_request", "deny_request"] as const;
 export type IncidentActionKind = (typeof INCIDENT_ACTION_KINDS)[number];
 
 export const INCIDENT_ACTION_REQUESTERS = ["agent", "admin"] as const;

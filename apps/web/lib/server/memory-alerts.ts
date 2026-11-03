@@ -9,6 +9,7 @@ import {
   OUTBOX_MAX_ATTEMPTS,
   decideEnqueue,
   encryptContact,
+  isRequestAlertKind,
   utcDayStart,
   type AlertEnqueuePlan,
   type AlertListItem,
@@ -207,7 +208,7 @@ function insertMemoryOutbox(tenantId: string, alertId: string, rows: OutboxRowIn
 function enqueueMemory(alert: AlertRow, plan: AlertEnqueuePlan): { alert: AlertRow; enqueued: number; capped: boolean } {
   const dayStart = utcDayStart(alert.createdAt);
   const admitted = state().rows.filter(
-    (r) => r.tenantId === alert.tenantId && r.id !== alert.id && r.createdAt >= dayStart && (r.emailStatus === "pending" || r.emailStatus === "sent"),
+    (r) => r.tenantId === alert.tenantId && r.id !== alert.id && !isRequestAlertKind(r.kind) && r.createdAt >= dayStart && (r.emailStatus === "pending" || r.emailStatus === "sent"),
   ).length;
   const d = decideEnqueue(alert, plan, plan.rows(alert), () => plan.capRows(alert, dayStart), admitted);
   if (d.status === "skipped") {

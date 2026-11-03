@@ -28,6 +28,14 @@ export function renderWeeklyDigest(input: DigestContent, unsubscribeUrl: string,
     if (input.household.devices.offline) line(`Offline member devices: ${input.household.devices.offline}`);
     if (input.household.devices.removedOrUninstalled) line(`Removed or uninstalled member devices: ${input.household.devices.removedOrUninstalled}`);
   }
+  if (input.childRequests) {
+    html.push("<h2>Requests from children</h2>"); text.push("Requests from children");
+    const KIND: Record<string, string> = { more_time: "More time", unblock_site: "Unblock a site", install_app: "Allow an app" };
+    for (const k of input.childRequests.byKind) {
+      const parts = [k.approved && `${k.approved} approved`, k.denied && `${k.denied} said no`, k.expired && `${k.expired} expired`, k.waiting && `${k.waiting} still waiting`].filter(Boolean);
+      line(`${KIND[k.kind] ?? "Request"}: ${k.approved + k.denied + k.expired + k.waiting} (${parts.join(", ")})`);
+    }
+  }
   if (input.hardeningScore) {
     html.push("<h2>Account hardening</h2>"); text.push("Account hardening");
     const { scorePercent } = input.hardeningScore;
