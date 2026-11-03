@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ContentBlockParam, MessageParam } from "@anthropic-ai/sdk/resources/messages";
+import type { ContentBlockParam, Message, MessageCreateParamsNonStreaming, MessageParam } from "@anthropic-ai/sdk/resources/messages";
+import { gatewayProviderOptions, modelEntryFor } from "./client.js";
 import {
   CHARS_PER_TOKEN,
   COMPRESSION_INPUT_MAX_TOKENS,
@@ -8,9 +9,15 @@ import {
   maxInputTokens,
   toolResultMaxTokens,
 } from "./config.js";
-import { createModelClient, modelEntryFor, withGatewayOptions } from "./client.js";
 import { parseEnvelope } from "./injection-guard.js";
 import { hashPii, logger } from "./logger.js";
+import {
+  generateModelText,
+  type ModelFinishReason,
+  type ModelTextCall,
+  type ModelTextClient,
+  type ModelTextResponse,
+} from "./model-text.js";
 import { gatewayModelId, pinnedRoute } from "./routing.js";
 import { truncateToolResult } from "./truncate.js";
 
@@ -516,8 +523,18 @@ export function renderTranscript(messages: readonly MessageParam[]): string {
 export interface PrepareMessagesOptions {
   /** Hard ceiling on estimated input tokens. Default env `NEO_CONTEXT_MAX_INPUT_TOKENS` or 180000. */
   maxInputTokens?: number;
-  // ── Additive options (not in docs/contracts.md) ──
-  /** Client for the compression call. Default `createModelClient()`. */
+  // ── Additive options (documented in docs/contracts.md, Phase 2) ──
+  /**
+   * AI SDK caller for the compression summary. Wins over `client`.
+   * Default: `generateModelText`.
+   */
+  generate?: ModelTextClient;
+  /**
+   * Anthropic client from the live chat loop. Consulted only when `MOCK_MODE=true`
+   * and `generate` is omitted, so the scripted demo client can answer without a
+   * network call. Real compression goes through `generateModelText`. History
+   * itself stays `MessageParam` until that loop is removed.
+   */
   client?: Anthropic;
   /**
    * Default `pinnedRoute("compression")`: Haiku 4.5 (env `NEO_MODEL_SMALL` /
@@ -548,43 +565,91 @@ function budgetFor(opts: PrepareMessagesOptions): Budget {
   };
 }
 
-function clientFor(opts: PrepareMessagesOptions): Anthropic {
-  return opts.client ?? createModelClient();
+function compressionCaller(opts: PrepareMessagesOptions): ModelTextClient {
+  if (opts.generate) return opts.generate;
+  // The demo mock implements messages.create. Real runs use the AI SDK even
+  // when the chat loop also passes its Anthropic client.
+  if (opts.client && process.env.MOCK_MODE === "true") return anthropicMessagesClient(opts.client);
+  return (call) => generateModelText(call);
 }
 
-async function callCompressionModel(opts: PrepareMessagesOptions, system: string, userText: string): Promise<string> {
+/**
+ * Map one `ModelTextCall` onto the Anthropic SDK `messages.create` the live chat
+ * loop still injects. Thinking and effort are forwarded only when the call sets
+ * them; compression does not. Removed with that loop at M3.
+ */
+function anthropicMessagesClient(client: Anthropic): ModelTextClient {
+  return async (call) => {
+    const params = {
+      model: call.model,
+      max_tokens: call.maxOutputTokens,
+      system: call.system,
+      messages: [{ role: "user" as const, content: call.prompt }],
+      ...(call.anthropic?.thinking ? { thinking: call.anthropic.thinking } : {}),
+      ...(call.anthropic?.effort ? { output_config: { effort: call.anthropic.effort } } : {}),
+      ...(call.anthropic?.userId ? { metadata: { user_id: call.anthropic.userId } } : {}),
+      ...(call.gateway ? { providerOptions: { gateway: call.gateway } } : {}),
+    };
+    const response = await client.messages.create(
+      params as MessageCreateParamsNonStreaming,
+      call.abortSignal ? { signal: call.abortSignal } : undefined,
+    );
+    return anthropicMessageToResponse(response);
+  };
+}
+
+function anthropicMessageToResponse(response: Message): ModelTextResponse {
+  const text = response.content
+    .filter((b): b is Extract<typeof b, { type: "text" }> => b.type === "text")
+    .map((b) => b.text)
+    .join("\n")
+    .trim();
+  const finishReason: ModelFinishReason =
+    response.stop_reason === "refusal" ? "content-filter" : response.stop_reason === "max_tokens" ? "length" : "stop";
+  return {
+    text,
+    finishReason,
+    modelId: response.model,
+    usage: {
+      inputTokens: response.usage.input_tokens ?? 0,
+      outputTokens: response.usage.output_tokens ?? 0,
+      cacheReadTokens: response.usage.cache_read_input_tokens ?? 0,
+      cacheWriteTokens: response.usage.cache_creation_input_tokens ?? 0,
+    },
+  };
+}
+
+function buildCompressionCall(opts: PrepareMessagesOptions, system: string, userText: string): ModelTextCall {
   const model = opts.compressionModel
     ? gatewayEnabled()
       ? gatewayModelId(opts.compressionModel)
       : opts.compressionModel
     : pinnedRoute("compression").model;
   // No thinking / effort: Haiku 4.5 supports neither, and summarisation needs neither.
-  const response = await clientFor(opts).messages.create(
-    withGatewayOptions(
-      {
-        model,
-        max_tokens: 4096,
-        system,
-        messages: [{ role: "user", content: userText }],
-        ...(opts.userId ? { metadata: { user_id: hashPii(opts.userId) } } : {}),
-      },
-      modelEntryFor(model),
-    ),
-  );
-  if (response.stop_reason === "refusal") {
+  const entry = modelEntryFor(model);
+  return {
+    model,
+    maxOutputTokens: 4096,
+    system,
+    prompt: userText,
+    ...(opts.userId ? { anthropic: { userId: hashPii(opts.userId) } } : {}),
+    ...(gatewayEnabled() ? { gateway: gatewayProviderOptions(entry).gateway } : {}),
+  };
+}
+
+async function callCompressionModel(opts: PrepareMessagesOptions, system: string, userText: string): Promise<string> {
+  const call = buildCompressionCall(opts, system, userText);
+  const response = await compressionCaller(opts)(call);
+  if (response.finishReason === "content-filter") {
     throw new Error("compression model declined the request");
   }
-  const text = response.content
-    .filter((b): b is Anthropic.TextBlock => b.type === "text")
-    .map((b) => b.text)
-    .join("\n")
-    .trim();
+  const text = response.text.trim();
   if (!text) throw new Error("compression model returned no text");
   logger.info("Context compression usage", "context-manager", {
     conversationId: opts.conversationId,
-    inputTokens: response.usage.input_tokens,
-    outputTokens: response.usage.output_tokens,
-    model: response.model,
+    inputTokens: response.usage.inputTokens,
+    outputTokens: response.usage.outputTokens,
+    model: response.modelId,
   });
   return sanitizeSummaryText(text);
 }
