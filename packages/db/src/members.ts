@@ -32,6 +32,7 @@ import type { TenantDb } from "./tenant.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CONTACT_LABEL = "neo-member-contact-v1";
+const TOKEN_LABEL = "neo-child-request-token-v1";
 const DEV_MASTER_KEY = "neo-dev-member-contact-not-for-production";
 export const MAX_HELPERS_PER_MEMBER = 10;
 const MAX_CONTACT = 254;
@@ -100,6 +101,27 @@ export function decryptContact(tenantId: string, subject: string, ciphertext: st
   } catch {
     throw new ArtifactDecryptError("contact address is not valid UTF-8");
   }
+}
+
+/**
+ * Seal a child-request email-link token for an outbox row (`subject` is the row's idempotency key). Same
+ * envelope and key source as contacts, with its own key label and AAD, so a sealed token never opens as a
+ * contact and the other way round. The raw token is never stored in the clear.
+ */
+export function sealDecisionToken(tenantId: string, subject: string, token: string, source: NodeJS.ProcessEnv = process.env): string {
+  const master = masterKeyFromEnv(source);
+  if (!master && (source.NODE_ENV === "production" || source.VERCEL_ENV)) throw new Error("@neo/db: NEO_MASTER_KEY is required to seal a decision token");
+  const key = deriveKey(master ?? new Uint8Array(createHash("sha256").update(DEV_MASTER_KEY, "utf8").digest()), TOKEN_LABEL, tenantId);
+  return Buffer.from(encryptArtifact(key, new TextEncoder().encode(token), `neo:decision-token:v1:${tenantId}:${subject}`)).toString("base64");
+}
+
+/** Inverse of `sealDecisionToken`. Throws ArtifactDecryptError on any failure. */
+export function openDecisionToken(tenantId: string, subject: string, sealed: string, source: NodeJS.ProcessEnv = process.env): string {
+  const master = masterKeyFromEnv(source);
+  if (!master && (source.NODE_ENV === "production" || source.VERCEL_ENV)) throw new ArtifactDecryptError("no master key");
+  const key = deriveKey(master ?? new Uint8Array(createHash("sha256").update(DEV_MASTER_KEY, "utf8").digest()), TOKEN_LABEL, tenantId);
+  const plain = decryptArtifact(key, new Uint8Array(Buffer.from(sealed, "base64")), `neo:decision-token:v1:${tenantId}:${subject}`);
+  return new TextDecoder("utf-8", { fatal: true }).decode(plain);
 }
 
 // ─── Pure helpers ──────────────────────────────────────────────────
@@ -347,6 +369,31 @@ async function latestRules(t: { first: TenantDb["first"] }, scope: PolicyScope, 
 export async function latestMemberRules(tdb: TenantDb, memberId: string): Promise<unknown> {
   if (!UUID_RE.test(memberId)) return undefined;
   return tdb.transaction((t) => latestRules(t, "member", memberId));
+}
+
+/**
+ * Read-modify-write of a member's own `member`-scope rules under the same advisory lock as
+ * `insertPolicyVersion`: `change` gets the latest raw rules (undefined when none) and returns the rules
+ * to store, or null to store nothing (no change). It may throw to abort. Returns the new version, or
+ * undefined when nothing was written.
+ */
+export async function updateMemberRules(
+  tdb: TenantDb,
+  memberId: string,
+  change: (current: unknown) => unknown,
+  createdBy: string | null,
+): Promise<{ version: number } | undefined> {
+  if (!UUID_RE.test(memberId)) throw new Error("@neo/db: invalid scopeId");
+  return tdb.transaction(async (t) => {
+    await t.tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`neo:policy:${tdb.tenantId}:member:${memberId}`}, 0))`);
+    const scopeCond = and(eq(policies.scope, "member"), eq(policies.scopeId, memberId));
+    const [top] = await t.select(policies, scopeCond, { orderBy: [sql`${policies.version} desc`], limit: 1 });
+    const next = change(top?.rules);
+    if (next === null || next === undefined) return undefined;
+    const [row] = await t.insert(policies, { scope: "member", scopeId: memberId, version: (top?.version ?? 0) + 1, rules: next, createdBy });
+    if (!row) throw new Error("@neo/db: policy insert returned no row");
+    return { version: row.version };
+  });
 }
 
 /**

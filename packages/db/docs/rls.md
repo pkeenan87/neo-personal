@@ -52,6 +52,7 @@ return only ids, and pin `search_path = pg_catalog, public`:
 | `purge_old_device_signals()` (migration `0010`) | `integer`: deletes `device_signals` rows with `received_at` older than 30 days, across tenants, and returns the count | `purgeOldDeviceSignals()` in the retention job |
 | `purge_expired_reputation_cache()` (migration `0010`) | `integer`: deletes `reputation_cache` rows with `expires_at < now()` and returns the count | `purgeExpiredReputationCache()` in the retention job |
 | `purge_old_inbound_messages(older_than_days integer)` | `integer`: deletes `inbound_messages` rows with status `rejected` or `failed` received more than `older_than_days` (at least 1, default 90) days ago, across tenants, and returns the count | `inbound.purgeOld()` in the retention job |
+| `expire_child_requests(now timestamptz)` (migration `0024`) | `integer`: marks every `child_requests` row still `pending` past its `expires_at` as `expired` (clearing its email-link token) and resolves its linked open alert, across tenants, and returns the count | `expireChildRequests()` in the retention job |
 | `lookup_device_tenant(device_id uuid)` (migration `0011`) | `(tenant_id uuid)` of that device, only while it is **active** (not revoked), at most one row | `lookupDeviceTenant()` on the unauthenticated `POST /api/devices/uninstalled` route |
 
 Everything after the lookup is tenant-scoped as usual (the caller passes the returned
@@ -84,9 +85,10 @@ back to the inviting household to insert the membership. `app.user_id` is set as
   GRANT EXECUTE ON FUNCTION public.purge_expired_reputation_cache() TO app_user;
   GRANT SELECT, INSERT, UPDATE, DELETE ON reputation_cache TO app_user;
   GRANT EXECUTE ON FUNCTION public.lookup_device_tenant(uuid) TO app_user;
+  GRANT EXECUTE ON FUNCTION public.expire_child_requests(timestamptz) TO app_user;
   ```
 
-Verify with `select proname, proacl from pg_proc where proname in ('resolve_inbound_address', 'list_expired_artifacts', 'purge_old_inbound_messages', 'lookup_household_invite', 'purge_old_alerts', 'lookup_device_enrollment_code', 'list_stale_devices', 'purge_old_devices', 'purge_old_device_signals', 'purge_expired_reputation_cache', 'lookup_device_tenant');`
+Verify with `select proname, proacl from pg_proc where proname in ('resolve_inbound_address', 'list_expired_artifacts', 'purge_old_inbound_messages', 'lookup_household_invite', 'purge_old_alerts', 'lookup_device_enrollment_code', 'list_stale_devices', 'purge_old_devices', 'purge_old_device_signals', 'purge_expired_reputation_cache', 'lookup_device_tenant', 'expire_child_requests');`
 (expect `app_user=X/...` and no entry starting with `=`). `test/inbound.test.ts` and
 `test/artifact-store.test.ts` exercise the functions under `SET ROLE app_user`.
 

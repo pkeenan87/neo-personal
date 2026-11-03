@@ -37,7 +37,7 @@ export const MAX_DOWNTIME_WINDOWS = 6;
  * labels of letters, digits and hyphens (no leading or trailing hyphen), a non-numeric last label
  * (so an IP address is not a domain), 253 characters at most. Punycode (`xn--`) labels are fine.
  */
-const PolicyDomainSchema = z
+export const PolicyDomainSchema = z
   .string()
   .min(3)
   .max(253)

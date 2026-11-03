@@ -1,4 +1,4 @@
-import { alerts, devices, memberships, tenantScoped, users, verdicts, weeklyDigest, type Db } from "@neo/db";
+import { alerts, devices, memberships, summarizeChildRequests, tenantScoped, users, verdicts, weeklyDigest, type Db } from "@neo/db";
 import { and, eq, gte, lt } from "drizzle-orm";
 import { memoryAlertRows } from "../memory-alerts";
 import { memoryListDevices } from "../memory-devices";
@@ -71,7 +71,9 @@ async function loadDbDigestContent(db: Db, input: DigestContentInput): Promise<D
     const householdAlerts = await t.tx.select({ id: alerts.id, subjectUserId: alerts.subjectUserId, kind: alerts.kind, severity: alerts.severity, createdAt: alerts.createdAt }).from(alerts)
       .where(and(eq(alerts.tenantId, input.tenantId), gte(alerts.createdAt, input.periodStart), lt(alerts.createdAt, input.periodEnd)));
     const householdDevices = await t.tx.select({ userId: devices.userId, lastSeenAt: devices.lastSeenAt, createdAt: devices.createdAt, revokedAt: devices.revokedAt }).from(devices).where(eq(devices.tenantId, input.tenantId));
-    return selectDigestContent(input, { members, verdicts: personal, alerts: householdAlerts, devices: householdDevices });
+    // Counts of the week's child requests (no names or text).
+    const requests = await summarizeChildRequests(t, input.periodStart, input.periodEnd);
+    return selectDigestContent(input, { members, verdicts: personal, alerts: householdAlerts, devices: householdDevices, requests });
   });
 }
 export async function resolveMemoryDigestRecipient(tenantId: string, userId: string): Promise<DigestRecipient | undefined> {

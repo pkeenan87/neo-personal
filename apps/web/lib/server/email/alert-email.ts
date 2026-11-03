@@ -15,13 +15,13 @@ const SEVERITY_STYLE: Record<string, { bg: string; fg: string; label: string }> 
 export const ALERT_FOOTER = "You get these because you own a household on Neo. Change which alerts are emailed under Settings → Household.";
 export const HELPER_FOOTER = "You get these because you are named as a helper for someone in a Neo household. Replying to this email does nothing.";
 
-function safeUrl(url: string): string {
+export function safeUrl(url: string): string {
   const u = new URL(url);
   if (u.protocol !== "https:" && u.protocol !== "http:") throw new Error("link must be http(s)");
   return u.toString();
 }
 
-function layout(title: string, inner: string, footer = ALERT_FOOTER): string {
+export function layout(title: string, inner: string, footer = ALERT_FOOTER): string {
   return [
     "<!doctype html>",
     '<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">',

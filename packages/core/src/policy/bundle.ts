@@ -10,6 +10,7 @@ import {
   WEEKDAYS,
   policyVersionBody,
   type PolicyBundle,
+  type AllowOnceGrant,
   type ScreenTimeGrant,
 } from "@neo/verdict";
 import { effectivePolicy, type PolicyLayers } from "./defaults.js";
@@ -26,13 +27,19 @@ export interface CompileBundleInput {
   /** The household's IANA zone; null is UTC. */
   timeZone: string | null;
   now: Date;
-  /** Approved extra screen time (slice 3 fills this; empty for now). */
+  /** Approved extra screen time that has not run out (child requests, `more_time`). */
   grants: readonly ScreenTimeGrant[];
+  /** Approved one-off site allows that have not run out (child requests, `unblock_site` once). Omitted from the bundle when empty. */
+  allowOnce?: readonly AllowOnceGrant[];
 }
 
 /** Hex SHA-256 of the canonical bundle body, excluding the timestamps and the version itself. */
 export function computePolicyVersion(bundle: Parameters<typeof policyVersionBody>[0]): string {
   return createHash("sha256").update(policyVersionBody(bundle), "utf8").digest("hex");
+}
+
+function sortedBy<T>(items: T[], key: (t: T) => string): T[] {
+  return items.sort((a, b) => (key(a) < key(b) ? -1 : key(a) > key(b) ? 1 : 0));
 }
 
 export function compileBundle(input: CompileBundleInput): PolicyBundle {
@@ -57,6 +64,9 @@ export function compileBundle(input: CompileBundleInput): PolicyBundle {
       youtubeRestricted: web?.youtubeRestricted ?? ("off" as const),
       allow: [...(web?.allow ?? [])],
       block: [...(web?.block ?? [])],
+      ...(child && input.allowOnce && input.allowOnce.length > 0
+        ? { allowOnce: sortedBy(input.allowOnce.map((g) => ({ domain: g.domain, until: g.until })), (g) => `${g.until}|${g.domain}`) }
+        : {}),
     },
     apps: {
       block: [...(apps?.block ?? [])],
@@ -68,7 +78,7 @@ export function compileBundle(input: CompileBundleInput): PolicyBundle {
       downtime: (st?.downtime ?? []).map((w) => ({ start: w.start, end: w.end })),
       warnMinutes: st?.warnMinutes ?? 0,
       allowDuringDowntime: [...(st?.allowDuringDowntime ?? [])],
-      grants: child ? input.grants.map((g) => ({ minutes: g.minutes, until: g.until })) : [],
+      grants: child ? sortedBy(input.grants.map((g) => ({ minutes: g.minutes, until: g.until })), (g) => `${g.until}|${String(g.minutes).padStart(5, "0")}`) : [],
     },
   };
   const policyVersion = computePolicyVersion(body);

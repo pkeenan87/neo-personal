@@ -52,7 +52,7 @@ import {
   mailboxForwardingAlertText,
   verdictAlertText,
 } from "./templates";
-import { createAlertAndEnqueue, createOutboxDrainDeps, drainOutbox, enqueueIfLegacy } from "./outbox";
+import { createAlertAndEnqueue, createOutboxDrainDeps, drainOutbox, enqueueIfLegacy, type AlertRequestRef } from "./outbox";
 import { ALERT_EMAIL_DAILY_CAP, meetsThreshold } from "./recipients";
 
 export { ALERT_EMAIL_DAILY_CAP, meetsThreshold };
@@ -91,9 +91,9 @@ const members = tenantMembers;
  * Insert (deduplicated) with its outbox rows in one transaction, then queue the drain.
  * Never throws.
  */
-export async function raiseAlert(input: CreateAlertInput): Promise<AlertRow | null> {
+export async function raiseAlert(input: CreateAlertInput, request?: AlertRequestRef): Promise<AlertRow | null> {
   try {
-    const created = await createAlertAndEnqueue(input);
+    const created = await createAlertAndEnqueue(input, request);
     if (!created) return null;
     if (created.enqueued > 0) await queueDelivery({ alertId: created.alert.id, tenantId: created.alert.tenantId });
     return created.alert;
@@ -328,21 +328,61 @@ export async function alertSignal(input: {
   memberId?: string | null;
   /** The stored signal this alert is about. */
   signalIds?: string[];
+  /** The child request this alert is about (`app_approval`): its email goes to the request's recipients with Approve and Deny links. */
+  request?: AlertRequestRef;
   now?: Date;
 }): Promise<AlertRow | null> {
-  return raiseAlert({
-    tenantId: input.tenantId,
-    subjectUserId: input.userId,
-    deviceId: input.deviceId,
-    ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
-    ...(input.signalIds ? { signalIds: input.signalIds } : {}),
-    kind: input.kind,
-    severity: input.text.severity,
-    title: input.text.title,
-    body: input.text.body,
-    ...(input.verdictId ? { verdictId: input.verdictId } : {}),
-    dedupeKey: `${input.kind}:${input.deviceId}:${input.detector}:${input.subject}:${hourBucket(input.now)}`,
-  });
+  return raiseAlert(
+    {
+      tenantId: input.tenantId,
+      subjectUserId: input.userId,
+      deviceId: input.deviceId,
+      ...(input.memberId !== undefined ? { memberId: input.memberId } : {}),
+      ...(input.signalIds ? { signalIds: input.signalIds } : {}),
+      kind: input.kind,
+      severity: input.text.severity,
+      title: input.text.title,
+      body: input.text.body,
+      ...(input.verdictId ? { verdictId: input.verdictId } : {}),
+      dedupeKey: `${input.kind}:${input.deviceId}:${input.detector}:${input.subject}:${hourBucket(input.now)}`,
+    },
+    input.request,
+  );
+}
+
+/**
+ * The alert that tells the parents about a child's request (`child_request`, or `app_approval` when the
+ * policy engine opened an `install_app` request for a new app). One alert per request: the dedupe key is
+ * the request id, so a repeat is a no-op. The email goes to the request's recipients (not the owners'
+ * thresholds) with the sealed token for Approve and Deny.
+ */
+export async function alertChildRequest(input: {
+  tenantId: string;
+  /** The child's account; null for a child without one. */
+  userId: string | null;
+  memberId: string;
+  deviceId: string;
+  kind: "child_request" | "app_approval";
+  requestId: string;
+  token: string;
+  text: AlertText;
+  signalIds?: string[];
+}): Promise<AlertRow | null> {
+  return raiseAlert(
+    {
+      tenantId: input.tenantId,
+      subjectUserId: input.userId,
+      memberId: input.memberId,
+      deviceId: input.deviceId,
+      ...(input.signalIds ? { signalIds: input.signalIds } : {}),
+      kind: input.kind,
+      severity: input.text.severity,
+      title: input.text.title,
+      body: input.text.body,
+      dedupeKey: `${input.kind}:${input.requestId}`,
+    },
+    { id: input.requestId, token: input.token },
+  );
 }
 
 /** `warning_bypassed`: dedupe `bypass:<relatesTo>` (one bump alert per dismissed warning). */

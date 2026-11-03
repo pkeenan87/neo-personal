@@ -56,6 +56,13 @@ export const ScreenTimeGrantSchema = z.object({
 });
 export type ScreenTimeGrant = z.infer<typeof ScreenTimeGrantSchema>;
 
+/** A site a parent allowed for a limited time (an approved one-hour "unblock"): enforced like `web.allow` until `until`. */
+export const AllowOnceGrantSchema = z.object({
+  domain: z.string().min(3).max(253),
+  until: Iso,
+});
+export type AllowOnceGrant = z.infer<typeof AllowOnceGrantSchema>;
+
 /** Every section is present for every mode: Standard and Elder devices get the empty form, so clients have one code path. */
 export const PolicyBundleSchema = z.object({
   v: z.literal(POLICY_BUNDLE_VERSION),
@@ -74,6 +81,8 @@ export const PolicyBundleSchema = z.object({
     youtubeRestricted: z.enum(YOUTUBE_LEVELS),
     allow: z.array(z.string()),
     block: z.array(z.string()),
+    /** Temporary allows (child requests); absent, not empty, when there are none, so a bundle without them keeps its `policyVersion`. */
+    allowOnce: z.array(AllowOnceGrantSchema).optional(),
   }),
   apps: z.object({
     block: z.array(AppRefSchema),

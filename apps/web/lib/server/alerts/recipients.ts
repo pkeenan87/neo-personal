@@ -104,3 +104,46 @@ export function recipientKeyPart(r: Pick<AlertRecipient, "userId" | "memberId">)
 export function resendKeyFor(alertId: string, r: Pick<AlertRecipient, "userId" | "memberId">): string {
   return r.userId ? `alert:${alertId}:${r.userId}` : `alert:${alertId}:m:${r.memberId ?? "unknown"}`;
 }
+
+/**
+ * Who is emailed about a child's request (_specs/v2-m2-child.md section 8). A request must reach a
+ * parent, so the owners' alert thresholds do not apply:
+ *  - `owners` (the default): every owner with an address.
+ *  - `helpers`: the child's helpers with an address; if none has one, the owners.
+ * The child is never a recipient of their own request. Deduped by lowercased address, owners first.
+ */
+export function resolveRequestRecipients(input: {
+  owners: readonly RecipientOwner[];
+  members: readonly RecipientMember[];
+  subject: RecipientMember | null;
+  target: "owners" | "helpers";
+}): AlertRecipient[] {
+  const { subject } = input;
+  const isSubject = (userId: string | null, memberId: string | null): boolean =>
+    subject !== null && ((userId !== null && userId === subject.userId) || (memberId !== null && memberId === subject.id));
+  const owners = (): AlertRecipient[] => {
+    const out: AlertRecipient[] = [];
+    const seen = new Set<string>();
+    for (const o of input.owners) {
+      const key = o.email?.trim().toLowerCase();
+      const memberId = input.members.find((m) => m.userId === o.userId)?.id ?? null;
+      if (!o.email || !key || seen.has(key) || isSubject(o.userId, memberId)) continue;
+      seen.add(key);
+      out.push({ address: o.email.trim(), kind: "owner", userId: o.userId, memberId });
+    }
+    return out;
+  };
+  if (input.target === "helpers" && subject) {
+    const out: AlertRecipient[] = [];
+    const seen = new Set<string>();
+    for (const helperId of subject.helperMemberIds) {
+      const h = input.members.find((m) => m.id === helperId);
+      const address = (h?.email || h?.contact)?.trim();
+      if (!h || !address || seen.has(address.toLowerCase()) || isSubject(h.userId, h.id)) continue;
+      seen.add(address.toLowerCase());
+      out.push({ address, kind: "helper", userId: h.userId, memberId: h.id });
+    }
+    if (out.length > 0) return out;
+  }
+  return owners();
+}

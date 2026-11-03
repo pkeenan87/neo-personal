@@ -411,7 +411,7 @@ describe("Child signals end to end", () => {
   });
   const iso = (offsetMs = 0) => new Date(Date.now() + offsetMs).toISOString();
   const blocked = (category: string, offsetMs = -1000) => ({ id: crypto.randomUUID(), type: "page", detector: "web_blocked", observedAt: iso(offsetMs), domain: "bad.test", category });
-  const installed = (name = "Roblox") => ({ id: crypto.randomUUID(), type: "software", detector: "app_installed", observedAt: iso(-1000), name, signer: "Roblox Corporation", image: "RobloxPlayerBeta.exe" });
+  const installed = (name = "Roblox") => ({ id: crypto.randomUUID(), type: "software", detector: "app_installed", observedAt: iso(-1000), name, signer: "Roblox Corporation", image: name === "Roblox" ? "RobloxPlayerBeta.exe" : `${name}.exe` });
   const tamper = (reason: string) => ({ id: crypto.randomUUID(), type: "tamper", detector: "tamper_detected", observedAt: iso(-1000), reason });
   const exhausted = () => ({ id: crypto.randomUUID(), type: "usage", detector: "screen_time_exhausted", observedAt: iso(-1000) });
   const appBlocked = () => ({ id: crypto.randomUUID(), type: "software", detector: "app_blocked", observedAt: iso(-1000), name: "Fortnite", image: "Fortnite.exe" });
@@ -524,8 +524,12 @@ describe("Child signals end to end", () => {
     expect(found[0]!.dedupeKey).toBe(`app_approval:${young.deviceId}:app_installed:Roblox:${new Date().toISOString().slice(0, 13)}`);
     await send(young.token, [installed(), installed("Minecraft")]);
     expect((await alertsFor(young.memberId)).map((x) => x.title).sort().length).toBe(2); // Roblox once, Minecraft once
-    // No child request is created yet (slice 3).
-    expect(await tenantScoped(fx.db, fx.owner.tenantId).count(childRequests, eq(childRequests.memberId, young.memberId))).toBe(0);
+    // Slice 3: each new app also opens one pending install_app request (a repeat of the same app adds none).
+    const opened = await tenantScoped(fx.db, fx.owner.tenantId).select(childRequests, eq(childRequests.memberId, young.memberId));
+    expect(opened.map((r) => [r.kind, r.status, (r.detail as { app: { image: string } }).app.image]).sort()).toEqual([
+      ["install_app", "pending", "Minecraft.exe"],
+      ["install_app", "pending", "RobloxPlayerBeta.exe"],
+    ]);
 
     const teen = await enrolledChild("Tee", thisYear - 15);
     expect((await send(teen.token, [installed()])).results[0]).toEqual({ id: expect.any(String), status: "accepted" });

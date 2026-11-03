@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { browserTimeZone } from "@/lib/child-settings-form";
+import type { ChildRequestItem } from "@/lib/child-request-types";
+import { ChildRequestsPanel } from "./ChildRequestsPanel";
 import { ChildSettingsEditor, type ChildPolicyBody } from "./ChildSettingsEditor";
 import {
   NOTIFY_SEVERITIES,
@@ -40,7 +42,7 @@ const primary = "min-h-11 rounded-xl bg-accent px-4 text-sm font-medium text-acc
  * through the protected-members routes; the server answers with the fresh detail, which replaces
  * what is shown, so the summary always matches what is stored.
  */
-export function MemberConsole({ initial }: { initial: MemberDetailResponse }) {
+export function MemberConsole({ initial, requests }: { initial: MemberDetailResponse; /** This child's requests, loaded by the page (owners only). */ requests?: ChildRequestItem[] }) {
   const [detail, setDetail] = useState(initial);
   const m = detail.member;
   const [name, setName] = useState(m.displayName);
@@ -233,6 +235,8 @@ export function MemberConsole({ initial }: { initial: MemberDetailResponse }) {
           {busy === "mode" ? "Saving…" : "Save mode"}
         </button>
       </form>
+
+      {requests && requests.length > 0 && <ChildRequestsPanel initial={requests} scope={m.id} />}
 
       {m.mode === "child" && (
         <ChildSettingsEditor
