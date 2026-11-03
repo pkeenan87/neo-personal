@@ -300,7 +300,7 @@ describe("limits and revocation", () => {
     expect(spy.calls()).toBeLessThanOrEqual(1);
     // The bucket is per device: Sam's is untouched.
     expect((await getPolicy(samDevice.token)).status).toBe(200);
-  });
+  }, 30_000); // 121 requests through PGlite: slow on shared CI runners
 
   it("answers 404 for a device revoked after its token resolved, and 401 for the token once it is revoked", async () => {
     const extra = await enrollFor(gran);
