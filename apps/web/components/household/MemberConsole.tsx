@@ -244,6 +244,30 @@ export function MemberConsole({ initial }: { initial: MemberDetailResponse }) {
         />
       )}
 
+      {(detail.devices?.length ?? 0) > 0 && (
+        <section className="space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-sm" aria-labelledby="devices-heading">
+          <h2 id="devices-heading" className="text-sm font-semibold">
+            Devices
+          </h2>
+          <ul className="space-y-2">
+            {detail.devices?.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center gap-2 text-sm">
+                <span>{d.name}</span>
+                {d.policy === "pending" && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">Pending on device</span>
+                )}
+                {d.policy === "update_needed" && (
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-900 dark:bg-amber-900/40 dark:text-amber-100">Update Neo on this device</span>
+                )}
+              </li>
+            ))}
+          </ul>
+          {detail.devices?.some((d) => d.policy === "update_needed") && (
+            <p className="text-xs text-muted">Update Neo on this device to enforce Child mode. Until then it only watches; it does not block.</p>
+          )}
+        </section>
+      )}
+
       {!m.hasAccount && (
         <section className="space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-sm" aria-labelledby="enroll-heading">
           <h2 id="enroll-heading" className="text-sm font-semibold">

@@ -46,6 +46,7 @@ import {
   type ChildSettings,
   type ChildView,
   type CreatableMemberRole,
+  type MemberDeviceItem,
   type HouseholdTimeZoneResponse,
   type MemberDetailResponse,
   type MemberListResponse,
@@ -56,6 +57,8 @@ import {
 } from "@/lib/member-types";
 import { describePolicy, maskEmail } from "@/lib/policy-summary";
 import { recordAudit } from "./audit";
+import { deviceStatus, listDevices } from "./devices";
+import { currentPolicyVersion, devicePolicyState } from "./policy-bundles";
 import { getDb } from "./db";
 import { renderChildModeOffEmail, renderElderModeOffEmail } from "./email/household-email";
 import { getMailer } from "./email/resend";
@@ -232,7 +235,7 @@ async function childView(store: Store, rec: Rec, memberRaw: unknown): Promise<Ch
   };
 }
 
-async function detail(store: Store, all: Rec[], rec: Rec): Promise<MemberDetailResponse> {
+async function detail(store: Store, all: Rec[], rec: Rec, tenantId: string): Promise<MemberDetailResponse> {
   const memberRaw = await store.memberRules(rec.id);
   const timeZone = rec.mode === "child" ? await store.timeZone() : null;
   const rules = effectivePolicy({ mode: rec.mode, birthYear: rec.birthYear, timeZone, member: memberRaw });
@@ -245,8 +248,38 @@ async function detail(store: Store, all: Rec[], rec: Rec): Promise<MemberDetailR
     policySummary: describePolicy(rec.mode, rules),
     child: await childView(store, rec, memberRaw),
     isLastOwner: rec.role === "owner" && (await store.ownerCount()) <= 1,
+    devices: await memberDevices(tenantId, rec),
   };
 }
+
+/**
+ * The member's active devices with whether each has applied the current policy bundle. A failure to
+ * read devices or compile the policy leaves the list out rather than failing the page.
+ */
+async function memberDevices(tenantId: string, rec: Rec): Promise<MemberDeviceItem[]> {
+  try {
+    const devices = await listDevices(tenantId, { memberId: rec.id });
+    const now = new Date();
+    return await Promise.all(
+      devices.map(async (d): Promise<MemberDeviceItem> => {
+        const current = await currentPolicyVersion(d, now).catch(() => null);
+        return {
+          id: d.id,
+          name: d.name,
+          kind: d.kind,
+          platform: d.platform,
+          status: deviceStatus(d, now),
+          lastSeenAt: d.lastSeenAt ? d.lastSeenAt.toISOString() : null,
+          policy: devicePolicyState(rec.mode, d.policyVersionApplied, current),
+        };
+      }),
+    );
+  } catch (err) {
+    logger.error("Member devices unavailable", "household", { tenantId, errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300) });
+    return [];
+  }
+}
+
 
 async function adminOr<T>(actor: HouseholdActor, fn: () => Promise<Outcome<T>>): Promise<Outcome<T>> {
   const admin = await requireHouseholdAdmin(actor);
@@ -265,7 +298,7 @@ export async function getMemberDetail(actor: HouseholdActor, id: string): Promis
     const store = storeFor(actor.tenantId);
     const all = await store.list();
     const rec = all.find((m) => m.id === id.toLowerCase());
-    return rec ? { ok: true, value: await detail(store, all, rec) } : NOT_FOUND;
+    return rec ? { ok: true, value: await detail(store, all, rec, actor.tenantId) } : NOT_FOUND;
   });
 }
 
@@ -395,7 +428,7 @@ export async function patchMember(actor: HouseholdActor, id: string, body: Recor
       }
     }
 
-    if (Object.keys(patch).length === 0) return { ok: true, value: await detail(store, all, current) };
+    if (Object.keys(patch).length === 0) return { ok: true, value: await detail(store, all, current, actor.tenantId) };
 
     // The household acknowledges the monitoring before it starts. Appended first: if the update below
     // fails the notice stays on record, which is harmless, whereas Child mode without one is not.
@@ -421,7 +454,7 @@ export async function patchMember(actor: HouseholdActor, id: string, body: Recor
     if ((current.mode === "elder" || current.mode === "child") && patch.mode !== undefined) await emailOwnersModeOff(actor, store, updated, current, current.mode);
 
     const fresh = await store.list();
-    return { ok: true, value: await detail(store, fresh, fresh.find((m) => m.id === current.id) ?? updated) };
+    return { ok: true, value: await detail(store, fresh, fresh.find((m) => m.id === current.id) ?? updated, actor.tenantId) };
   });
 }
 
@@ -510,7 +543,7 @@ export async function putMemberPolicy(actor: HouseholdActor, id: string, body: R
       // Audit metadata names what changed, never the lists themselves.
       await recordAudit(actor.tenantId, actor.userId, "member.policy_changed", { memberId: rec.id, version, ...changed });
     }
-    return { ok: true, value: await detail(store, all, rec) };
+    return { ok: true, value: await detail(store, all, rec, actor.tenantId) };
   });
 }
 
@@ -562,7 +595,7 @@ export async function createProtectedMember(actor: HouseholdActor, body: Record<
     }
     await recordAudit(actor.tenantId, actor.userId, "member.created", { memberId: created.id, role: created.role, hasBirthYear: birthYear !== null, hasContact: contact !== null });
     const fresh = await store.list();
-    return { ok: true, value: await detail(store, fresh, fresh.find((m) => m.id === created.id) ?? created) };
+    return { ok: true, value: await detail(store, fresh, fresh.find((m) => m.id === created.id) ?? created, actor.tenantId) };
   });
 }
 

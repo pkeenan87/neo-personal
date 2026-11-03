@@ -73,6 +73,8 @@ export interface DevicePublic {
   lastSeenAt: Date | null;
   offlineAlertedAt: Date | null;
   revokedAt: Date | null;
+  /** The policy bundle version the device last reported applying; null until it reports one. */
+  policyVersionApplied: string | null;
 }
 
 export interface EnrollmentCodePublic {
@@ -220,6 +222,7 @@ async function selectDevices(tx: Tx, tenantId: string, where?: SQL, limit?: numb
     lastSeenAt: row.lastSeenAt,
     offlineAlertedAt: row.offlineAlertedAt,
     revokedAt: row.revokedAt,
+    policyVersionApplied: row.policyVersionApplied,
   }));
 }
 
@@ -637,7 +640,7 @@ export async function revokeDevice(
  */
 export async function recordHeartbeat(
   db: Db,
-  input: { tenantId: string; deviceId: string; clientVersion?: string; now?: Date },
+  input: { tenantId: string; deviceId: string; clientVersion?: string; /** The bundle version the device reports applying (hex). */ policyVersion?: string; now?: Date },
 ): Promise<DevicePublic | undefined> {
   if (!UUID_RE.test(input.deviceId)) return undefined;
   const now = input.now ?? new Date();
@@ -645,7 +648,7 @@ export async function recordHeartbeat(
   return tenantScoped(db, input.tenantId).transaction(async (t) => {
     const [row] = await t.update(
       devices,
-      { lastSeenAt: now, offlineAlertedAt: null, ...(clientVersion ? { clientVersion } : {}) },
+      { lastSeenAt: now, offlineAlertedAt: null, ...(clientVersion ? { clientVersion } : {}), ...(input.policyVersion ? { policyVersionApplied: input.policyVersion } : {}) },
       and(eq(devices.id, input.deviceId), isNull(devices.revokedAt)),
     );
     if (!row) return undefined;

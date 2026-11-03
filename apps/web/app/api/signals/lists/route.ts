@@ -5,21 +5,13 @@
  * forms and multi-value lists handled), `Cache-Control: private, max-age=3600` either way.
  */
 import { detectionLists } from "@neo/tools";
+import { ifNoneMatchHits } from "@/lib/server/if-none-match";
 import { requireDeviceSession } from "@/lib/session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const CACHE_CONTROL = "private, max-age=3600";
-
-/** True when any entry of an `If-None-Match` header (comma-separated, weak `W/"..."` allowed) matches `version`. */
-export function ifNoneMatchHits(header: string | null, version: string): boolean {
-  if (!header) return false;
-  return header.split(",").some((raw) => {
-    const tag = raw.trim().replace(/^W\//, "");
-    return tag === `"${version}"` || tag === version;
-  });
-}
 
 export async function GET(req: Request): Promise<Response> {
   const { session, response } = await requireDeviceSession("device");

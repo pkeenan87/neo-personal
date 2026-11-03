@@ -1,5 +1,6 @@
 /** Wire types for the member console routes (_specs/v2-m1-elder.md section 8, _specs/v2-m2-child.md section 3). */
 import type { AppRef, ChildRequestTarget, DowntimeWindow, WebCategory, Weekday, YoutubeLevel } from "@neo/verdict";
+import type { DevicePolicyState } from "./household-types";
 
 export type MemberRoleName = "owner" | "adult" | "child" | "elder";
 export type MemberModeName = "standard" | "child" | "elder";
@@ -68,6 +69,23 @@ export interface MemberDetailResponse {
   child: ChildView;
   /** True when this is the household's only owner (they stay in Standard mode). */
   isLastOwner: boolean;
+  /** The member's active devices and whether each has the current policy (_specs/v2-m2-child.md section 4). */
+  devices?: MemberDeviceItem[];
+}
+
+/** One device on a member's page. */
+export interface MemberDeviceItem {
+  id: string;
+  name: string;
+  kind: "browser_extension" | "desktop_agent";
+  platform: "chrome" | "edge" | "firefox" | "windows" | "macos" | "linux";
+  status: "active" | "offline" | "never_seen";
+  lastSeenAt: string | null;
+  /**
+   * `current`: nothing to do. `pending`: the device has not applied the latest policy yet. `update_needed`:
+   * Child mode is on and this device never reported a policy version (an older Neo build). `unknown`: the version could not be computed.
+   */
+  policy: DevicePolicyState;
 }
 
 /** POST /api/household/protected-members { displayName, role, birthYear?, contact? } → 201 MemberDetailResponse */

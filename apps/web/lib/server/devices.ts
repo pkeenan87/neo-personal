@@ -10,6 +10,7 @@ import {
   createEnrollmentCode as dbCreateEnrollmentCode,
   enrollSelfDevice as dbEnrollSelfDevice,
   getDevice as dbGetDevice,
+  getPolicyBundle as dbGetPolicyBundle,
   listDevices as dbListDevices,
   listPendingEnrollmentCodes as dbListPendingEnrollmentCodes,
   listStaleDevices as dbListStaleDevices,
@@ -22,12 +23,14 @@ import {
   renameDevice as dbRenameDevice,
   revokeDevice as dbRevokeDevice,
   revokeEnrollmentCode as dbRevokeEnrollmentCode,
+  upsertPolicyBundle as dbUpsertPolicyBundle,
   type DeviceInput,
   type DevicePublic,
   type EnrollSelfDeviceResult,
   type EnrollmentCodePreview,
   type EnrollmentCodePublic,
   type MembershipRole,
+  type PolicyBundleRow,
   type RedeemEnrollmentCodeResult,
 } from "@neo/db";
 import type { DeviceItem, EnrollmentCodeItem, ExpectedToolItem } from "@/lib/household-types";
@@ -36,6 +39,7 @@ import {
   memoryCreateEnrollmentCode,
   memoryEnrollSelfDevice,
   memoryGetDevice,
+  memoryGetPolicyBundle,
   memoryListDevices,
   memoryListPendingEnrollmentCodes,
   memoryListStaleDevices,
@@ -48,6 +52,7 @@ import {
   memoryRenameDevice,
   memoryRevokeDevice,
   memoryRevokeEnrollmentCode,
+  memoryUpsertPolicyBundle,
 } from "./memory-devices";
 
 export type { DeviceInput, DevicePublic, EnrollmentCodePreview, EnrollmentCodePublic, RedeemEnrollmentCodeResult };
@@ -173,10 +178,24 @@ export async function recordHeartbeat(input: {
   tenantId: string;
   deviceId: string;
   clientVersion?: string;
+  policyVersion?: string;
   now?: Date;
 }): Promise<DevicePublic | undefined> {
   const db = getDb();
   return db ? dbRecordHeartbeat(db, input) : memoryRecordHeartbeat(input);
+}
+
+// ─── Signed policy bundles ─────────────────────────────────────────
+
+export async function getPolicyBundle(tenantId: string, deviceId: string): Promise<PolicyBundleRow | undefined> {
+  const db = getDb();
+  return db ? dbGetPolicyBundle(db, tenantId, deviceId) : memoryGetPolicyBundle(tenantId, deviceId);
+}
+
+export async function upsertPolicyBundle(tenantId: string, row: PolicyBundleRow): Promise<void> {
+  const db = getDb();
+  if (db) await dbUpsertPolicyBundle(db, tenantId, row);
+  else memoryUpsertPolicyBundle(tenantId, row);
 }
 
 // ─── Jobs ──────────────────────────────────────────────────────────
