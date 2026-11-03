@@ -33,6 +33,11 @@ const nextConfig: NextConfig = {
         source: "/invite/:path*",
         headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
       },
+      {
+        // The child-request email links carry a single-use token in the query string (_specs/v2-m2-child.md section 8).
+        source: "/requests/:path*",
+        headers: [{ key: "Referrer-Policy", value: "no-referrer" }],
+      },
     ];
   },
 };

@@ -8,6 +8,11 @@
 import { ArtifactDecryptError, effectivePolicy, logger } from "@neo/core";
 import {
   claimOutboxRows,
+  openDecisionToken,
+  sealDecisionToken,
+  getChildRequest,
+  getChildRequestByAlert,
+  isRequestAlertKind,
   createAlert,
   createAlertWithOutbox,
   enqueueOutboxForAlert,
@@ -26,6 +31,7 @@ import {
   tenantScoped,
   type AlertEnqueuePlan,
   type AlertRow,
+  type ChildRequestRow,
   type CreateAlertInput,
   type HouseholdMember,
   type OutboxRow,
@@ -37,6 +43,7 @@ import { incidentChatApplies, incidentChatPath } from "@/lib/alert-types";
 import { eveChatEnabled, inboundEnv } from "@/lib/env";
 import { getDb } from "../db";
 import { renderAlertCapEmail, renderAlertEmail } from "../email/alert-email";
+import { renderChildRequestEmail } from "../email/child-request-email";
 import { getMailer, MailerHttpError, type Mailer } from "../email/resend";
 import {
   memoryAlertOwners,
@@ -59,6 +66,7 @@ import {
   recipientKeyPart,
   resendKeyFor,
   resolveAlertRecipients,
+  resolveRequestRecipients,
   type AlertRecipient,
   type RecipientMember,
 } from "./recipients";
@@ -72,7 +80,16 @@ function errText(err: unknown): string {
 
 // ─── Planning ──────────────────────────────────────────────────────
 
+/** The child request an alert is about; `token` is the raw email-link token (only known when the request was just opened). */
+export interface AlertRequestRef {
+  id: string;
+  token?: string;
+}
+
 interface PlanSubject {
+  /** `child_request` and `app_approval` alerts go to the request's recipients, not the owners' thresholds. */
+  kind?: string;
+  request?: AlertRequestRef;
   severity: AlertRow["severity"];
   memberId: string | null | undefined;
   subjectUserId: string | null;
@@ -121,6 +138,7 @@ async function loadRecipientContext(tenantId: string, q: PlanSubject): Promise<R
   const subject = (q.memberId ? members.find((m) => m.id === q.memberId) : undefined) ?? (q.subjectUserId ? members.find((m) => m.userId === q.subjectUserId) : undefined) ?? null;
 
   let helpersNotifyAt: Severity | undefined;
+  let childRequestsTo: "owners" | "helpers" = "owners";
   if (subject && protectedMode(subject.mode)) {
     if (db) {
       const tdb = tenantScoped(db, tenantId);
@@ -129,7 +147,9 @@ async function loadRecipientContext(tenantId: string, q: PlanSubject): Promise<R
         : subject.id
           ? await getProtectionLayers(tdb, { memberId: subject.id })
           : { mode: subject.mode as ProtectionMode };
-      helpersNotifyAt = effectivePolicy(layers as Parameters<typeof effectivePolicy>[0]).notify?.helpersNotifyAt;
+      const effective = effectivePolicy(layers as Parameters<typeof effectivePolicy>[0]);
+      helpersNotifyAt = effective.notify?.helpersNotifyAt;
+      childRequestsTo = effective.notify?.childRequestsTo ?? "owners";
       // Decrypt the contact only for helpers who need it.
       for (const id of subject.helperMemberIds) {
         const h = members.find((m) => m.id === id);
@@ -141,7 +161,9 @@ async function loadRecipientContext(tenantId: string, q: PlanSubject): Promise<R
         }
       }
     } else {
-      helpersNotifyAt = effectivePolicy({ mode: subject.mode }).notify?.helpersNotifyAt;
+      const effective = effectivePolicy({ mode: subject.mode });
+      helpersNotifyAt = effective.notify?.helpersNotifyAt;
+      childRequestsTo = effective.notify?.childRequestsTo ?? "owners";
     }
   }
 
@@ -155,8 +177,11 @@ async function loadRecipientContext(tenantId: string, q: PlanSubject): Promise<R
     }
   }
 
+  const recipients = isRequestAlertKind(q.kind)
+    ? resolveRequestRecipients({ owners, members, subject, target: childRequestsTo })
+    : resolveAlertRecipients({ severity: q.severity, owners, members, subject, helpersNotifyAt });
   return {
-    recipients: resolveAlertRecipients({ severity: q.severity, owners, members, subject, helpersNotifyAt }),
+    recipients,
     subjectName: subject?.displayName ?? null,
     deviceName,
   };
@@ -178,6 +203,12 @@ async function planFor(tenantId: string, q: PlanSubject): Promise<AlertEnqueuePl
       resendKey: resendKeyFor(alertId, r),
       subjectName: ctx.subjectName,
       deviceName: ctx.deviceName,
+      ...(q.request ? { requestId: q.request.id } : {}),
+      // Only an owner with an account can follow Approve/Deny links. The raw token is sealed with the
+      // same envelope as the destination (bound to this row's key), never stored in the clear.
+      ...(q.request?.token && r.kind === "owner" && r.userId
+        ? { decisionTokenSealed: sealDecisionToken(tenantId, `alert:${alertId}:${recipientKeyPart(r)}`, q.request.token) }
+        : {}),
     },
   });
   return {
@@ -202,11 +233,18 @@ async function planFor(tenantId: string, q: PlanSubject): Promise<AlertEnqueuePl
  * many rows need draining. If the recipient lookup fails the alert is still created, `pending`
  * with no rows, and the `alert-created` function enqueues it later.
  */
-export async function createAlertAndEnqueue(input: CreateAlertInput): Promise<{ alert: AlertRow; enqueued: number } | null> {
+export async function createAlertAndEnqueue(input: CreateAlertInput, request?: AlertRequestRef): Promise<{ alert: AlertRow; enqueued: number } | null> {
   const db = getDb();
   let plan: AlertEnqueuePlan | null = null;
   try {
-    plan = await planFor(input.tenantId, { severity: input.severity, memberId: input.memberId, subjectUserId: input.subjectUserId, deviceId: input.deviceId });
+    plan = await planFor(input.tenantId, {
+      kind: input.kind,
+      ...(request ? { request } : {}),
+      severity: input.severity,
+      memberId: input.memberId,
+      subjectUserId: input.subjectUserId,
+      deviceId: input.deviceId,
+    });
   } catch (err) {
     logger.error("Alert recipient lookup failed; enqueue deferred", "alerts", { tenantId: input.tenantId, errorMessage: errText(err) });
   }
@@ -223,7 +261,20 @@ export async function enqueueIfLegacy(tenantId: string, alertId: string): Promis
   const db = getDb();
   const alert = db ? await getAlert(db, tenantId, alertId) : memoryGetAlert(tenantId, alertId);
   if (!alert || alert.emailStatus !== "pending") return 0;
-  const plan = await planFor(tenantId, { severity: alert.severity, memberId: alert.memberId, subjectUserId: alert.subjectUserId, deviceId: alert.deviceId });
+  // A request alert enqueued late has lost its raw token (only the hash is stored): its email links to the console instead.
+  let request: AlertRequestRef | undefined;
+  if (db && isRequestAlertKind(alert.kind)) {
+    const row = await getChildRequestByAlert(tenantScoped(db, tenantId), alert.id);
+    if (row) request = { id: row.id };
+  }
+  const plan = await planFor(tenantId, {
+    kind: alert.kind,
+    ...(request ? { request } : {}),
+    severity: alert.severity,
+    memberId: alert.memberId,
+    subjectUserId: alert.subjectUserId,
+    deviceId: alert.deviceId,
+  });
   const r = db ? await enqueueOutboxForAlert(db, tenantId, alertId, plan) : memoryEnqueueOutboxForAlert(tenantId, alertId, plan);
   return r.enqueued;
 }
@@ -236,6 +287,8 @@ export interface OutboxDrainDeps {
   markFailed(tenantId: string, id: string, error: string, permanent: boolean): Promise<void>;
   settle(tenantId: string, alertId: string, now: Date): Promise<void>;
   getAlert(tenantId: string, id: string): Promise<AlertRow | undefined>;
+  /** A child request, for the request emails (the child's reason is quoted from here, never copied into the outbox). */
+  getChildRequest?(tenantId: string, id: string): Promise<ChildRequestRow | undefined>;
   pendingTenants(): Promise<string[]>;
   mailer: Mailer | null;
   appUrl: string;
@@ -252,6 +305,7 @@ export function createOutboxDrainDeps(): OutboxDrainDeps {
       else memorySettleAlertEmail(t, alertId, now);
     },
     getAlert: async (t, id) => (db ? getAlert(db, t, id) : memoryGetAlert(t, id)),
+    getChildRequest: async (t, id) => (db ? getChildRequest(tenantScoped(db, t), id) : undefined),
     pendingTenants: async () => (db ? listPendingOutboxTenants(db) : memoryPendingOutboxTenants()),
     mailer: getMailer(),
     appUrl: inboundEnv().APP_URL,
@@ -291,7 +345,32 @@ async function renderRow(row: OutboxRow, deps: OutboxDrainDeps) {
   if (row.template !== "alert" || !row.alertId) throw new PermanentSendError(`unknown outbox template ${row.template}`);
   const alert = await deps.getAlert(row.tenantId, row.alertId);
   if (!alert) throw new PermanentSendError("alert no longer exists");
-  const p = row.payload as { recipientKind?: string; hasAccount?: boolean; subjectName?: string | null; deviceName?: string | null };
+  const p = row.payload as { recipientKind?: string; hasAccount?: boolean; subjectName?: string | null; deviceName?: string | null; requestId?: string; decisionTokenSealed?: string };
+  if (isRequestAlertKind(alert.kind) && p.requestId && deps.getChildRequest) {
+    const request = await deps.getChildRequest(row.tenantId, p.requestId);
+    if (request) {
+      let token: string | undefined;
+      if (p.decisionTokenSealed) {
+        try {
+          token = openDecisionToken(row.tenantId, row.idempotencyKey, p.decisionTokenSealed);
+        } catch {
+          token = undefined; // an unreadable token means no links, not a failed email
+        }
+      }
+      return renderChildRequestEmail({
+        appUrl: deps.appUrl,
+        request,
+        title: alert.title,
+        body: alert.body,
+        memberName: p.subjectName || "Your child",
+        deviceName: p.deviceName ?? null,
+        recipient: p.recipientKind === "helper" ? "helper" : "owner",
+        hasAccount: p.hasAccount === true,
+        ...(token ? { token } : {}),
+        ...(eveChatEnabled() && incidentChatApplies(alert.kind) ? { askUrl: `${deps.appUrl}${incidentChatPath(alert.id)}` } : {}),
+      });
+    }
+  }
   if (p.recipientKind === "helper") {
     return renderAlertEmail({
       severity: alert.severity,

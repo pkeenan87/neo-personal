@@ -5,7 +5,9 @@ export type HouseholdDigestSlot = { alertCounts: Array<{ severity: Severity; cou
 /** Optional slots reserved for later roadmap steps; no source or renderer is implemented. */
 export type BreachStatusSlot = { status: "clean" | "breached" | "not_checked"; href: string };
 export type HardeningScoreSlot = { scorePercent: number | null; href: string };
-export interface DigestRendererSlots { personal?: PersonalDigestSlot; household?: HouseholdDigestSlot; breachStatus?: BreachStatusSlot; hardeningScore?: HardeningScoreSlot }
+/** The week's child requests, as counts by kind and outcome (owners only; no names, domains or reasons). */
+export type ChildRequestsDigestSlot = { total: number; byKind: Array<{ kind: "more_time" | "unblock_site" | "install_app"; approved: number; denied: number; expired: number; waiting: number }> };
+export interface DigestRendererSlots { personal?: PersonalDigestSlot; household?: HouseholdDigestSlot; breachStatus?: BreachStatusSlot; hardeningScore?: HardeningScoreSlot; childRequests?: ChildRequestsDigestSlot }
 export type DigestContent = DigestRendererSlots;
 export type DigestContentInput = { tenantId: string; userId: string; role: "owner" | "member"; periodStart: Date; periodEnd: Date };
 export interface DigestContentStore { loadDigestContent(input: DigestContentInput): Promise<DigestContent> }
@@ -14,7 +16,17 @@ export type DigestFacts = {
   verdicts: Array<{ id: string; userId: string; label: VerdictLabel; headline: string; createdAt: Date }>;
   alerts: Array<{ id: string; subjectUserId: string | null; kind: string; severity: Severity; createdAt: Date }>;
   devices: Array<{ userId: string | null; lastSeenAt: Date | null; createdAt: Date; revokedAt: Date | null }>;
+  /** The week's child requests, counted by kind and status (owners only). */
+  requests?: Array<{ kind: "more_time" | "unblock_site" | "install_app"; status: "pending" | "approved" | "denied" | "expired"; count: number }>;
 };
+const REQUEST_KINDS = ["more_time", "unblock_site", "install_app"] as const;
+export function childRequestsSlot(requests: NonNullable<DigestFacts["requests"]>): ChildRequestsDigestSlot | undefined {
+  const sum = (kind: string, status: string) => requests.filter(r => r.kind === kind && r.status === status).reduce((n, r) => n + r.count, 0);
+  const byKind = REQUEST_KINDS.map(kind => ({ kind, approved: sum(kind, "approved"), denied: sum(kind, "denied"), expired: sum(kind, "expired"), waiting: sum(kind, "pending") }))
+    .filter(k => k.approved + k.denied + k.expired + k.waiting > 0);
+  const total = byKind.reduce((n, k) => n + k.approved + k.denied + k.expired + k.waiting, 0);
+  return total > 0 ? { total, byKind } : undefined;
+}
 const labels: VerdictLabel[] = ["malicious", "suspicious", "likely_safe", "insufficient_evidence"];
 const safeAlertLabels: Record<string, string> = {
   member_verdict: "Security check alert", member_left: "Household membership changed", device_removed: "Device removed or uninstalled",
@@ -50,6 +62,10 @@ export function selectDigestContent(input: DigestContentInput, facts: DigestFact
         .map(a => ({ label: safeAlertLabels[a.kind]!, severity: a.severity, createdAt: a.createdAt.toISOString(), href: "/settings/household" })),
       devices: { offline, removedOrUninstalled: eligible.filter(a => a.kind === "device_removed").length },
     };
+  }
+  if (member.role === "owner" && facts.requests) {
+    const slot = childRequestsSlot(facts.requests);
+    if (slot) content.childRequests = slot;
   }
   return content;
 }

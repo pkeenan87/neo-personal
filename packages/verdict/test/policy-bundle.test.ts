@@ -67,6 +67,19 @@ describe("PolicyBundleSchema", () => {
   });
 });
 
+describe("web.allowOnce (child requests)", () => {
+  it("is optional: a bundle without it is valid, and one with it needs a domain and an ISO time", () => {
+    const b = bundle();
+    expect(b.web).not.toHaveProperty("allowOnce");
+    const withOnce = { ...b, web: { ...b.web, allowOnce: [{ domain: "example.com", until: "2026-11-02T16:00:00.000Z" }] } };
+    expect(PolicyBundleSchema.safeParse(withOnce).success).toBe(true);
+    expect(PolicyBundleSchema.safeParse({ ...b, web: { ...b.web, allowOnce: [{ domain: "example.com", until: "soon" }] } }).success).toBe(false);
+    expect(PolicyBundleSchema.safeParse({ ...b, web: { ...b.web, allowOnce: [{ until: "2026-11-02T16:00:00.000Z" }] } }).success).toBe(false);
+    // It is part of the signed body: adding one changes it.
+    expect(policyVersionBody(withOnce)).not.toBe(policyVersionBody(b));
+  });
+});
+
 describe("policyVersionBody", () => {
   it("excludes the timestamps and the version itself", () => {
     const a = policyVersionBody(bundle());

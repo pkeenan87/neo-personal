@@ -4,7 +4,7 @@
  * query runs in a tenant transaction. Destinations are encrypted with the member-contact
  * envelope, bound to the outbox idempotency key.
  */
-import { and, asc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import type { Db, Tx } from "./client.js";
 import { insertAlertTx, type AlertRow, type CreateAlertInput } from "./alerts.js";
 import { decryptContact, encryptContact } from "./members.js";
@@ -43,6 +43,15 @@ export interface EnqueueDecision {
   capped: boolean;
 }
 
+/**
+ * A child's request must reach a parent, so these alerts are exempt from the daily cap and are not
+ * counted by it (a child asking repeatedly cannot crowd out a real security alert).
+ */
+export const REQUEST_ALERT_KINDS = ["child_request", "app_approval"] as const;
+export function isRequestAlertKind(kind: string | undefined): boolean {
+  return kind !== undefined && (REQUEST_ALERT_KINDS as readonly string[]).includes(kind);
+}
+
 export function utcDayStart(at: Date): Date {
   return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
 }
@@ -52,11 +61,11 @@ export function utcDayStart(at: Date): Date {
  * alerts of the household's UTC day that were admitted to email (`email_status` `pending` or
  * `sent`): the cap counts alerts, not individual emails, and counting at enqueue (rather than
  * at send) keeps a burst from slipping past it before the first drain. Critical alerts are
- * exempt from the cap.
+ * exempt from the cap, and so are request alerts (see `REQUEST_ALERT_KINDS`).
  */
-export function decideEnqueue(alert: Pick<AlertRow, "severity">, plan: Pick<AlertEnqueuePlan, "cap">, rows: OutboxRowInput[], capRows: () => OutboxRowInput[], admittedToday: number): EnqueueDecision {
+export function decideEnqueue(alert: Pick<AlertRow, "severity"> & { kind?: string }, plan: Pick<AlertEnqueuePlan, "cap">, rows: OutboxRowInput[], capRows: () => OutboxRowInput[], admittedToday: number): EnqueueDecision {
   if (rows.length === 0) return { status: "skipped", rows: [], capped: false };
-  if (alert.severity !== "critical" && admittedToday >= plan.cap) return { status: "skipped", rows: capRows(), capped: true };
+  if (alert.severity !== "critical" && !isRequestAlertKind(alert.kind) && admittedToday >= plan.cap) return { status: "skipped", rows: capRows(), capped: true };
   return { status: "pending", rows, capped: false };
 }
 
@@ -89,7 +98,7 @@ async function enqueueTx(tx: Tx, tenantId: string, alert: AlertRow, plan: AlertE
   const [counted] = await tx
     .select({ n: sql<number>`count(*)::int` })
     .from(alerts)
-    .where(and(eq(alerts.tenantId, tenantId), ne(alerts.id, alert.id), sql`${alerts.createdAt} >= ${dayStart}`, inArray(alerts.emailStatus, ["pending", "sent"])));
+    .where(and(eq(alerts.tenantId, tenantId), ne(alerts.id, alert.id), notInArray(alerts.kind, [...REQUEST_ALERT_KINDS]), sql`${alerts.createdAt} >= ${dayStart}`, inArray(alerts.emailStatus, ["pending", "sent"])));
   const decision = decideEnqueue(alert, plan, plan.rows(alert), () => plan.capRows(alert, dayStart), counted?.n ?? 0);
   let out = alert;
   if (decision.status === "skipped") {

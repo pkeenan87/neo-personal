@@ -19,6 +19,8 @@ import { VERDICT_LABELS } from "@/lib/verdict-fence";
 import type { AlertListResponse } from "@/lib/alert-types";
 import type { AccountHardeningScore } from "@neo/core";
 import type { HardeningItemView, HardeningMemberPercent } from "@/lib/hardening-types";
+import type { ChildRequestItem } from "@/lib/child-request-types";
+import { ChildRequestsPanel } from "@/components/household/ChildRequestsPanel";
 import { AlertsPanel } from "./AlertsPanel";
 import { HardeningCard } from "./HardeningCard";
 import { BarList, LABEL_BG, PerDayChart } from "./charts";
@@ -34,6 +36,8 @@ export interface DashboardProps {
   hardening?: { score: AccountHardeningScore; items: HardeningItemView[]; members?: HardeningMemberPercent[] };
   /** NEO_EVE_CHAT: alerts link to the eve incident chat ("Ask Neo about this"). */
   incidentChat?: boolean;
+  /** What children are asking for (owners only; loaded by the page, omitted when there is none or it could not be loaded). */
+  childRequests?: ChildRequestItem[];
   initialRange?: SinceDays;
 }
 
@@ -71,7 +75,7 @@ interface Loaded {
   recent: VerdictListResponse;
 }
 
-export function Dashboard({ household, forwardingUsed, alerts, hardening, incidentChat = false, initialRange = 30 }: DashboardProps) {
+export function Dashboard({ household, forwardingUsed, alerts, hardening, incidentChat = false, childRequests, initialRange = 30 }: DashboardProps) {
   const [range, setRange] = useState<SinceDays>(initialRange);
   const [member, setMember] = useState<string>("");
   const [data, setData] = useState<Loaded | null>(null);
@@ -185,6 +189,7 @@ export function Dashboard({ household, forwardingUsed, alerts, hardening, incide
         </div>
       </div>
 
+      {isOwner && childRequests && <ChildRequestsPanel initial={childRequests} />}
       {alerts && <AlertsPanel initial={alerts} isOwner={isOwner} incidentChat={incidentChat} />}
       {hardening && <HardeningCard {...hardening} />}
 
