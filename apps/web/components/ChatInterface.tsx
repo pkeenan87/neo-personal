@@ -86,6 +86,7 @@ export function ChatInterface({
 
   const activeIdRef = useRef<string | null>(conversationId);
   const abortRef = useRef<AbortController | null>(null);
+  const announceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const sidebarTriggerRef = useRef<HTMLButtonElement | null>(null);
   const chatHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -118,8 +119,11 @@ export function ChatInterface({
     return () => mediaQuery.removeEventListener("change", dismissOnDesktop);
   }, []);
 
-  // Abort any in-flight stream when leaving the page.
-  useEffect(() => () => abortRef.current?.abort(), []);
+  // Abort any in-flight stream and drop the announcement timer when leaving the page.
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    if (announceTimer.current) clearTimeout(announceTimer.current);
+  }, []);
 
   // Follow the stream if the user is already at the bottom.
   useEffect(() => {
@@ -137,7 +141,11 @@ export function ChatInterface({
 
   const announce = useCallback((text: string) => {
     setAnnouncement(text);
-    setTimeout(() => setAnnouncement(""), 1500);
+    if (announceTimer.current) clearTimeout(announceTimer.current);
+    announceTimer.current = setTimeout(() => {
+      announceTimer.current = null;
+      setAnnouncement("");
+    }, 1500);
   }, []);
 
   const adoptConversationId = useCallback((id: string) => {

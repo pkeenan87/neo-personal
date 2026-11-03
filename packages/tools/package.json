@@ -29,17 +29,17 @@
   "dependencies": {
     "@neo/core": "workspace:*",
     "@neo/verdict": "workspace:*",
-    "postal-mime": "3.0.0",
+    "postal-mime": "4.2.0",
     "tldts": "7.4.19",
     "undici": "8.12.3",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@types/node": "^26.6.5",
-    "eslint": "^10.13.0",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.14.0",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.72.0",
+    "typescript-eslint": "^8.72.1",
     "vitest": "^5.0.5"
   }
 }
