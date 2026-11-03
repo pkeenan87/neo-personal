@@ -279,11 +279,10 @@ function isPermanent(err: unknown): boolean {
 /** Where an alert email sends the reader. With NEO_EVE_CHAT, incidents open the eve incident chat. */
 export function alertLink(alert: AlertRow, appUrl: string, eveChat = eveChatEnabled()): { url: string; label: string } {
   if (eveChat && incidentChatApplies(alert.kind)) return { url: `${appUrl}${incidentChatPath(alert.id)}`, label: "Ask Neo about this" };
-  return alert.kind === "breach_detected"
-    ? { url: `${appUrl}/settings/breaches`, label: "Review breach status" }
-    : alert.verdictId
-      ? { url: `${appUrl}/verdicts/${alert.verdictId}`, label: "See the check" }
-      : { url: `${appUrl}/settings/household`, label: "Open household settings" };
+  if (alert.kind === "breach_detected") return { url: `${appUrl}/settings/breaches`, label: "Review breach status" };
+  if (alert.kind === "mailbox_forwarding") return { url: `${appUrl}/dashboard`, label: "Open the dashboard" };
+  if (alert.verdictId) return { url: `${appUrl}/verdicts/${alert.verdictId}`, label: "See the check" };
+  return { url: `${appUrl}/settings/household`, label: "Open household settings" };
 }
 
 async function renderRow(row: OutboxRow, deps: OutboxDrainDeps) {

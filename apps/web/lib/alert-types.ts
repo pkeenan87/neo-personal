@@ -19,7 +19,8 @@ export type AlertKindName =
   | "protection_disabled"
   | "self_harm_attempts"
   | "app_approval"
-  | "child_request";
+  | "child_request"
+  | "mailbox_forwarding";
 /** Alerts that are household notices, not incidents to ask Neo about (no chat link). */
 const NON_INCIDENT_KINDS: readonly AlertKindName[] = ["member_joined", "member_left", "breach_detected"];
 

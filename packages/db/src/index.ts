@@ -238,6 +238,19 @@ export {
 } from "./account-hardening.js";
 export type { SigninEvent, SigninEventInput, SigninEventSource, TenantSigninEvents } from "./signin-events.js";
 export {
+  outlookScheduler,
+  type OutlookConnector,
+  type OutlookConnectorSummary,
+  type OutlookFindingInput,
+  type OutlookOAuthState,
+  type OutlookRuleFinding,
+  type TenantOutlookConnectors,
+  type TenantOutlookOAuthStates,
+  type TenantOutlookRuleFindings,
+  type TenantOutlookSeenMessages,
+} from "./outlook.js";
+export type { OutlookConnectorStatus, OutlookFindingAction, OutlookFindingState } from "./schema/outlook.js";
+export {
   OUTBOX_LEASE_MS,
   OUTBOX_MAX_ATTEMPTS,
   claimOutboxRows,

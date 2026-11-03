@@ -49,6 +49,7 @@ import {
   hourBucket,
   joinedAlertText,
   leftAlertText,
+  mailboxForwardingAlertText,
   verdictAlertText,
 } from "./templates";
 import { createAlertAndEnqueue, createOutboxDrainDeps, drainOutbox, enqueueIfLegacy } from "./outbox";
@@ -184,6 +185,40 @@ export async function alertBreachDetected(input: {
     ...text,
     dedupeKey: `breach_detected:${input.addressId}:${input.breachName}`,
   });
+}
+
+export type ForwardingAlertResult = "raised" | "exists" | "skipped" | "failed";
+
+/**
+ * `mailbox_forwarding` (high): a new active forwarding finding on a member's Outlook.com mailbox. Members only (an
+ * owner's own mailbox never alerts the household). One alert per finding activation; the text names the domain only.
+ * Never throws. `raised` and `exists` (a deduplicated repeat) and `skipped` (policy: nobody to alert) are final;
+ * `failed` is transient and the caller retries it.
+ */
+export async function alertMailboxForwarding(input: {
+  tenantId: string;
+  userId: string;
+  findingId: string;
+  observedAt: Date;
+  destinationDomain: string | null;
+}): Promise<ForwardingAlertResult> {
+  try {
+    const member = (await members(input.tenantId)).find((m) => m.userId === input.userId);
+    if (!member || member.role !== "member") return "skipped";
+    const created = await createAlertAndEnqueue({
+      tenantId: input.tenantId,
+      subjectUserId: input.userId,
+      kind: "mailbox_forwarding",
+      ...mailboxForwardingAlertText(displayName(member.name, member.email), input.destinationDomain),
+      dedupeKey: `mailbox_forwarding:${input.findingId}:${input.observedAt.getTime()}`,
+    });
+    if (!created) return "exists";
+    if (created.enqueued > 0) await queueDelivery({ alertId: created.alert.id, tenantId: created.alert.tenantId });
+    return "raised";
+  } catch (err) {
+    logger.error("Mailbox forwarding alert failed", "alerts", { tenantId: input.tenantId, userIdHash: hashPii(input.userId), errorMessage: errText(err) });
+    return "failed";
+  }
 }
 
 // ─── Devices (_specs/device-enrollment.md) ─────────────────────────

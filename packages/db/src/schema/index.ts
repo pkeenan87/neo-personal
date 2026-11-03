@@ -16,6 +16,7 @@ export * from "./weekly-digest.js";
 export * from "./breach-monitoring.js";
 export * from "./account-hardening.js";
 export * from "./signin-alerts.js";
+export * from "./outlook.js";
 export * from "./members.js";
 export * from "./incidents.js";
 export * from "./eve-sessions.js";

@@ -2,6 +2,7 @@ import { and, count, eq, sql, type SQL } from "drizzle-orm";
 import type { PgColumn, PgTable } from "drizzle-orm/pg-core";
 import { MODEL_FAMILIES, ROUTING_PREFERENCES, type ModelFamily, type RoutingPreference } from "@neo/core";
 import type { Db, Tx } from "./client.js";
+import { createTenantOutlook, type TenantOutlookConnectors, type TenantOutlookOAuthStates, type TenantOutlookRuleFindings, type TenantOutlookSeenMessages } from "./outlook.js";
 import { createTenantSigninEvents, type TenantSigninEvents } from "./signin-events.js";
 import {
   accountHardeningAnswers,
@@ -26,6 +27,10 @@ import {
   incidentActions,
   members,
   memberships,
+  outlookConnectors,
+  outlookOAuthStates,
+  outlookRuleFindings,
+  outlookSeenMessages,
   notificationOutbox,
   policies,
   policyBundles,
@@ -58,6 +63,10 @@ export const tenantTables = {
   deviceExpectedTools,
   signinEvents,
   knownSigninDevices,
+  outlookOAuthStates,
+  outlookConnectors,
+  outlookRuleFindings,
+  outlookSeenMessages,
   members,
   policies,
   policyBundles,
@@ -128,6 +137,11 @@ export interface TenantDb extends TenantQueries {
   readonly memberships: TenantMemberships;
   /** Sign-in alert events and known devices (_specs/signin-alerts.md). */
   readonly signinEvents: TenantSigninEvents;
+  /** Outlook.com connector (_specs/outlook-connector.md). */
+  readonly outlookConnectors: TenantOutlookConnectors;
+  readonly outlookOAuthStates: TenantOutlookOAuthStates;
+  readonly outlookRuleFindings: TenantOutlookRuleFindings;
+  readonly outlookSeenMessages: TenantOutlookSeenMessages;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -251,6 +265,7 @@ export function tenantScoped(db: Db, tenantId: string): TenantDb {
     transaction,
     memberships: memberQueries,
     signinEvents: createTenantSigninEvents(transaction),
+    ...createTenantOutlook(transaction),
     select: once("select"),
     first: once("first"),
     insert: once("insert"),
