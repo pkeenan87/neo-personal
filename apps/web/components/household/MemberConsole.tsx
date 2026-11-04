@@ -6,6 +6,7 @@ import { browserTimeZone } from "@/lib/child-settings-form";
 import type { ChildRequestItem } from "@/lib/child-request-types";
 import { ChildRequestsPanel } from "./ChildRequestsPanel";
 import { ChildSettingsEditor, type ChildPolicyBody } from "./ChildSettingsEditor";
+import { PhoneConnectSection } from "./PhoneConnectSection";
 import {
   NOTIFY_SEVERITIES,
   type MemberDetailResponse,
@@ -42,7 +43,7 @@ const primary = "min-h-11 rounded-xl bg-accent px-4 text-sm font-medium text-acc
  * through the protected-members routes; the server answers with the fresh detail, which replaces
  * what is shown, so the summary always matches what is stored.
  */
-export function MemberConsole({ initial, requests }: { initial: MemberDetailResponse; /** This child's requests, loaded by the page (owners only). */ requests?: ChildRequestItem[] }) {
+export function MemberConsole({ initial, requests, smsEnabled }: { initial: MemberDetailResponse; /** This child's requests, loaded by the page (owners only). */ requests?: ChildRequestItem[]; /** The Twilio SMS channel is on (NEO_TWILIO_ENABLED): show "Connect a phone". */ smsEnabled?: boolean }) {
   const [detail, setDetail] = useState(initial);
   const m = detail.member;
   const [name, setName] = useState(m.displayName);
@@ -247,6 +248,8 @@ export function MemberConsole({ initial, requests }: { initial: MemberDetailResp
           onSave={(body: ChildPolicyBody, done) => void save("child", `${base}/policy`, "PUT", body, done)}
         />
       )}
+
+      {smsEnabled && <PhoneConnectSection key={m.id} memberId={m.id} memberName={m.displayName} />}
 
       {(detail.devices?.length ?? 0) > 0 && (
         <section className="space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-sm" aria-labelledby="devices-heading">
