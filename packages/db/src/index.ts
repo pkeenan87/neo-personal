@@ -34,6 +34,15 @@ export {
 } from "./usage.js";
 export { spend, type SpendSettings, type SpendStatus } from "./spend.js";
 export {
+  effectiveRetention,
+  getRetentionSettings,
+  previewRetention,
+  purgeOldChildRequests,
+  setRetentionSettings,
+  type RetentionPreview,
+  type StoredRetention,
+} from "./retention.js";
+export {
   createTenantForUser,
   findTenantForUser,
   getHouseholdName,

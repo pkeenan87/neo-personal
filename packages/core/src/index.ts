@@ -96,6 +96,10 @@ export {
 } from "./spend.js";
 export type { MonthWindow, SpendLevel, SpendTokens } from "./spend.js";
 
+// Per-household retention settings (_specs/v2-m4-hardening.md section 1)
+export { DEFAULT_RETENTION, RETENTION_BOUNDS, RETENTION_KINDS, isValidRetentionDays } from "./retention.js";
+export type { RetentionBound, RetentionKind, RetentionSettings } from "./retention.js";
+
 // Artifact crypto (envelope encryption at rest)
 export {
   ARTIFACT_CIPHERTEXT_OVERHEAD,

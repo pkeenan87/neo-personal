@@ -126,6 +126,23 @@ describe("retention", () => {
     expect(live.counts).toMatchObject({ artifactsPurged: 2, childRequestsExpired: 7, scheduleRunsPruned: 8, householdMemoryPurged: 9 });
   });
 
+  it("shadow reports what the per-household settings would purge, read-only", async () => {
+    const previewPurges = vi.fn(async () => ({ signals: 3, alerts: 4, childRequests: 2, householdMemory: 1 }));
+    const rec = recorder();
+    const shadow = await runRetention({ runner: "eve", deps: { mode: "shadow", read: { ...read, previewPurges }, effects: tripwire() } as never, steps: inlineSteps, record: rec.record });
+    expect(previewPurges).toHaveBeenCalledTimes(1);
+    expect(shadow.counts).toMatchObject({ artifactsExpired: 2, wouldPurgeSignals: 3, wouldPurgeAlerts: 4, wouldPurgeChildRequests: 2, wouldPurgeHouseholdMemory: 1 });
+    expect(shadow.actions).toBe(2 + 9 + 4);
+    // Live plans the same actions, so the digests stay comparable.
+    const effects = {
+      purgeOldInbound: vi.fn(async () => 0), purgeOldAlerts: vi.fn(async () => 0), purgeOldDevices: vi.fn(async () => 0), purgeOldDeviceSignals: vi.fn(async () => 0),
+      purgeExpiredReputationCache: vi.fn(async () => 0), purgeWeeklyDigestPayloads: vi.fn(async () => 0), expireChildRequests: vi.fn(async () => 0),
+      pruneScheduleRuns: vi.fn(async () => 0), purgeExpiredMemory: vi.fn(async () => 0), purgeArtifact: vi.fn(async () => undefined),
+    };
+    const live = await runRetention({ runner: "inngest", deps: { mode: "live", read: { ...read, previewPurges }, effects }, steps: inlineSteps, record: recorder().record });
+    expect(live.digest).toBe(shadow.digest);
+  });
+
   it("Inngest records in a final step, once", async () => {
     const names: string[] = [];
     const steps = { run: async <T,>(name: string, fn: () => Promise<T>) => { names.push(name); return fn(); } };
