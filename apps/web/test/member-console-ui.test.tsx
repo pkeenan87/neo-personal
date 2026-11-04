@@ -7,6 +7,7 @@ import { ProtectionMembers } from "@/components/household/ProtectionMembers";
 import { childDefaults } from "@neo/core";
 import type { ChildSettings, ChildView, MemberDetailResponse } from "@/lib/member-types";
 import { describePolicy, maskEmail } from "@/lib/policy-summary";
+import { CONSENT_TEXT_VERSION } from "@/lib/consent-text";
 import { createProtectedMember, getMemberDetail, listMemberProfiles, patchMember, putHouseholdTimeZone, putMemberPolicy } from "@/lib/server/member-console";
 import { DEV_SESSION_IDS } from "@/lib/server/session-core";
 import { setMemoryMembers } from "@/lib/server/memory-state";
@@ -52,7 +53,7 @@ describe("memory twin (no database)", () => {
     const list = await listMemberProfiles(owner);
     if (!list.ok) throw new Error("list");
     const [olive, max, gran] = list.value.members;
-    const p = await patchMember(owner, max!.id, { displayName: "Maxi", mode: "elder", helperMemberIds: [olive!.id, gran!.id] });
+    const p = await patchMember(owner, max!.id, { displayName: "Maxi", mode: "elder", consentTextVersion: CONSENT_TEXT_VERSION, elderAttestation: true, helperMemberIds: [olive!.id, gran!.id] });
     expect(p.ok && p.value.member).toMatchObject({ displayName: "Maxi", mode: "elder", helperMemberIds: [olive!.id, gran!.id] });
     expect(await patchMember(owner, olive!.id, { mode: "elder" })).toMatchObject({ ok: false, status: 409 });
     expect(await patchMember(owner, max!.id, { helperMemberIds: [max!.id] })).toMatchObject({ ok: false, status: 400 });
@@ -77,7 +78,7 @@ describe("memory twin (no database)", () => {
     expect(await patchMember(owner, id, { mode: "child" })).toMatchObject({ ok: false, code: "time_zone_required" });
     expect(await putHouseholdTimeZone(owner, { timeZone: "Nope/Nowhere" })).toMatchObject({ ok: false, code: "invalid_time_zone" });
     expect(await putHouseholdTimeZone(owner, { timeZone: "Europe/London" })).toEqual({ ok: true, value: { timeZone: "Europe/London" } });
-    const on = await patchMember(owner, id, { mode: "child" });
+    const on = await patchMember(owner, id, { mode: "child", consentTextVersion: CONSENT_TEXT_VERSION });
     expect(on.ok && on.value.member.mode).toBe("child");
     expect(on.ok && on.value.child.settings.web.youtubeRestricted).toBe("strict");
 
@@ -179,7 +180,27 @@ describe("MemberConsole", () => {
     expect(screen.getByLabelText("Email address")).toBeInTheDocument();
   });
 
-  it("asks for the birth year and time zone when Child is chosen, and saves the time zone before the mode", async () => {
+  it("shows the notice and the helper attestation before Elder mode, and sends both", async () => {
+    const fetchMock = vi.fn(async () => Response.json(detail({ mode: "elder", helperMemberIds: ["m2"] })));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<MemberConsole initial={detail({ mode: "standard", helperMemberIds: ["m2"] })} />);
+    await user.click(screen.getByRole("radio", { name: /Elder/ }));
+    expect(screen.getByRole("heading", { name: /Before you turn on Elder mode for Gran/ })).toBeInTheDocument();
+    expect(screen.getByText(/Full web addresses/)).toBeInTheDocument();
+    const save = screen.getByRole("button", { name: "Save mode" });
+    expect(save).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: /I have read this and told Gran/ }));
+    expect(save).toBeDisabled(); // the attestation is separate
+    await user.click(screen.getByRole("checkbox", { name: "I set this up with Gran in person and they agreed to these helpers: Pat." }));
+    await user.click(save);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const init = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(JSON.parse(String(init.body))).toEqual({ mode: "elder", consentTextVersion: CONSENT_TEXT_VERSION, elderAttestation: true });
+    expect(screen.getByRole("link", { name: /What Neo shares about Gran/ })).toHaveAttribute("href", "/settings/household/members/m1/shared");
+  });
+
+  it("asks for the birth year and time zone when Child is chosen,and saves the time zone before the mode", async () => {
     const fetchMock = vi.fn(async (url: string) => (url === "/api/household/time-zone" ? Response.json({ timeZone: "America/New_York" }) : Response.json(detail({ mode: "child", birthYear: 2015 }, { child: childView() }))));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -192,12 +213,15 @@ describe("MemberConsole", () => {
     const zone = screen.getByLabelText(/Household time zone/);
     await user.clear(zone);
     await user.type(zone, "America/New_York");
+    expect(save).toBeDisabled(); // the notice has to be accepted
+    expect(screen.getByRole("heading", { name: /Before you turn on Child mode for Gran/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("checkbox", { name: /I have read this and told Gran/ }));
     await user.click(save);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const [zoneUrl, zoneInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
     expect([zoneUrl, zoneInit.method, JSON.parse(String(zoneInit.body))]).toEqual(["/api/household/time-zone", "PUT", { timeZone: "America/New_York" }]);
     const [url, init] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
-    expect([url, init.method, JSON.parse(String(init.body))]).toEqual(["/api/household/protected-members/m1", "PATCH", { mode: "child", birthYear: 2015 }]);
+    expect([url, init.method, JSON.parse(String(init.body))]).toEqual(["/api/household/protected-members/m1", "PATCH", { mode: "child", consentTextVersion: CONSENT_TEXT_VERSION, birthYear: 2015 }]);
     expect(await screen.findByText("Child mode is on.")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Child settings" })).toBeInTheDocument();
   });
@@ -297,9 +321,11 @@ describe("MemberConsole", () => {
     const user = userEvent.setup();
     render(<MemberConsole initial={detail()} />);
     await user.click(screen.getByRole("checkbox", { name: "Pat" }));
+    expect(screen.getByRole("button", { name: "Save helpers" })).toBeDisabled(); // an Elder's helper change needs the attestation
+    await user.click(screen.getByRole("checkbox", { name: /I set this up with Gran in person and they agreed to these helpers: Pat/ }));
     await user.click(screen.getByRole("button", { name: "Save helpers" }));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    expect(JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toEqual({ helperMemberIds: ["m2"] });
+    expect(JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toEqual({ helperMemberIds: ["m2"], elderAttestation: true });
 
     await user.selectOptions(screen.getByLabelText("Email helpers about"), "critical");
     await user.click(screen.getByRole("button", { name: "Save limits" }));

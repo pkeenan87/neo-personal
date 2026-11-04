@@ -20,6 +20,7 @@ import { POST as signalsPOST } from "@/app/api/signals/route";
 import type { CreateEnrollmentCodeResponse, EnrollDeviceResponse } from "@/lib/household-types";
 import type { MemberDetailResponse } from "@/lib/member-types";
 import type { SignalIngestResponse } from "@/lib/signal-types";
+import { CONSENT_TEXT_VERSION } from "@/lib/consent-text";
 import { memorySentEmails } from "@/lib/server/email/resend";
 import { patchMember } from "@/lib/server/member-console";
 import { resetRateLimits } from "@/lib/server/rate-limit";
@@ -212,7 +213,7 @@ describe("enabling and disabling Child mode", () => {
     expect(await listConsents(tenantScoped(fx.db, fx.owner.tenantId), id)).toEqual([]);
 
     expect((await setZone({ timeZone: "America/New_York" })).status).toBe(200);
-    const on = await patch(id, { mode: "child", birthYear: thisYear - 11 });
+    const on = await patch(id, { mode: "child", consentTextVersion: CONSENT_TEXT_VERSION, birthYear: thisYear - 11 });
     expect(on.status).toBe(200);
     const d = await detail(on);
     expect(d.member).toMatchObject({ mode: "child", birthYear: thisYear - 11 });
@@ -230,7 +231,7 @@ describe("enabling and disabling Child mode", () => {
     expect((await auditOf("member.mode_changed")).at(-1)?.metadata).toEqual({ memberId: id, from: "standard", to: "child" });
 
     // Saving the same mode again records nothing more.
-    await patch(id, { mode: "child" });
+    await patch(id, { mode: "child", consentTextVersion: CONSENT_TEXT_VERSION });
     expect(await listConsents(tenantScoped(fx.db, fx.owner.tenantId), id)).toHaveLength(1);
   });
 
@@ -238,9 +239,9 @@ describe("enabling and disabling Child mode", () => {
     const id = await addMember({ displayName: "Old", role: "child", birthYear: thisYear - 20 });
     as(fx.owner);
     await setZone({ timeZone: "America/New_York" });
-    const d = await detail(await patch(id, { mode: "child" }));
+    const d = await detail(await patch(id, { mode: "child", consentTextVersion: CONSENT_TEXT_VERSION }));
     expect(d.child).toMatchObject({ band: "14_17", adult: true });
-    expect((await listConsents(tenantScoped(fx.db, fx.owner.tenantId), id))[0]?.evidence).toEqual({ mode: "child", band: "14_17" });
+    expect((await listConsents(tenantScoped(fx.db, fx.owner.tenantId), id))[0]?.evidence).toEqual({ mode: "child", band: "14_17", textVersion: CONSENT_TEXT_VERSION });
   });
 
   it("refuses a household member and keeps the only owner in Standard", async () => {
@@ -263,7 +264,7 @@ describe("enabling and disabling Child mode", () => {
     try {
       const id = await addMember({ displayName: "Zoe", role: "child", birthYear: thisYear - 8 });
       as(fx.owner);
-      expect((await patch(id, { mode: "child" })).status).toBe(200);
+      expect((await patch(id, { mode: "child", consentTextVersion: CONSENT_TEXT_VERSION })).status).toBe(200);
       expect(memorySentEmails()).toHaveLength(0);
 
       // A double submit racing past the "is it Child?" read is one email per owner.
@@ -280,9 +281,9 @@ describe("enabling and disabling Child mode", () => {
       await patch(id, { mode: "standard" }); // already Standard
       expect(memorySentEmails()).toHaveLength(2);
       // Child to Elder is also "Child turned off".
-      expect((await patch(id, { mode: "child" })).status).toBe(200);
+      expect((await patch(id, { mode: "child", consentTextVersion: CONSENT_TEXT_VERSION })).status).toBe(200);
       memorySentEmails().length = 0;
-      expect((await patch(id, { mode: "elder" })).status).toBe(200);
+      expect((await patch(id, { mode: "elder", consentTextVersion: CONSENT_TEXT_VERSION, elderAttestation: true })).status).toBe(200);
       expect(memorySentEmails().map((e) => e.subject)).toEqual(["Child mode was turned off for Zoe", "Child mode was turned off for Zoe"]);
     } finally {
       await t.update(memberships, { role: "member" }, eq(memberships.userId, fx.kid.userId));
@@ -292,7 +293,7 @@ describe("enabling and disabling Child mode", () => {
   it("does not send an email when Elder mode is turned off with the Elder wording (unchanged)", async () => {
     const id = await addMember({ displayName: "Ned", role: "elder" });
     as(fx.owner);
-    await patch(id, { mode: "elder" });
+    await patch(id, { mode: "elder", consentTextVersion: CONSENT_TEXT_VERSION, elderAttestation: true });
     memorySentEmails().length = 0;
     await patch(id, { mode: "standard" });
     expect(memorySentEmails().every((e) => e.subject === "Elder mode was turned off for Ned")).toBe(true);
@@ -306,7 +307,7 @@ describe("PUT .../policy for Child settings", () => {
     await setHouseholdTimeZone(fx.db, fx.owner.tenantId, "America/New_York");
     kid = await addMember({ displayName: "Pol", role: "child", birthYear: thisYear - 12 });
     as(fx.owner);
-    expect((await patch(kid, { mode: "child" })).status).toBe(200);
+    expect((await patch(kid, { mode: "child", consentTextVersion: CONSENT_TEXT_VERSION })).status).toBe(200);
   });
   const rulesOf = async () => (await tenantScoped(fx.db, fx.owner.tenantId).select(policies, eq(policies.scopeId, kid))).sort((a, b) => a.version - b.version);
 
@@ -427,7 +428,7 @@ describe("Child signals end to end", () => {
     const memberId = await addMember({ displayName: name, role: "child", birthYear });
     as(fx.owner);
     await setZone({ timeZone: "America/New_York" });
-    if (mode === "child") expect((await patch(memberId, { mode: "child" })).status).toBe(200);
+    if (mode === "child") expect((await patch(memberId, { mode: "child", consentTextVersion: CONSENT_TEXT_VERSION })).status).toBe(200);
     const code = ((await (await memberCodesPOST(post(`/api/household/protected-members/${memberId}/enrollment-codes`, {}), params(memberId))).json()) as CreateEnrollmentCodeResponse).code;
     authState.session = null;
     hdrs.current = new Headers();
