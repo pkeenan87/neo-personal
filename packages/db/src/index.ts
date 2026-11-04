@@ -32,6 +32,7 @@ export {
   type RecordCheckInput,
   type UsageCaps,
 } from "./usage.js";
+export { spend, type SpendSettings, type SpendStatus } from "./spend.js";
 export {
   createTenantForUser,
   findTenantForUser,

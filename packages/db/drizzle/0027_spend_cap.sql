@@ -1,0 +1,6 @@
+-- Per-household monthly model spend cap (_specs/v2-m3-cutover.md section 6): tenants.monthly_spend_cap_cents (null = off) and the
+-- spend_cap alert kind, added by dropping and re-adding alerts_kind_check with every existing kind kept (as 0023 does).
+ALTER TABLE "alerts" DROP CONSTRAINT "alerts_kind_check";--> statement-breakpoint
+ALTER TABLE "tenants" ADD COLUMN "monthly_spend_cap_cents" integer;--> statement-breakpoint
+ALTER TABLE "tenants" ADD CONSTRAINT "tenants_monthly_spend_cap_check" CHECK ("tenants"."monthly_spend_cap_cents" is null or ("tenants"."monthly_spend_cap_cents" >= 100 and "tenants"."monthly_spend_cap_cents" <= 1000000));--> statement-breakpoint
+ALTER TABLE "alerts" ADD CONSTRAINT "alerts_kind_check" CHECK ("alerts"."kind" in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress', 'breach_detected', 'install_during_session', 'payment_under_pressure', 'protection_disabled', 'self_harm_attempts', 'app_approval', 'child_request', 'mailbox_forwarding', 'spend_cap'));

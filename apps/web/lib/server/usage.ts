@@ -17,6 +17,7 @@ interface MemoryUsageEvent extends RecordCheckInput {
 const g = globalThis as typeof globalThis & {
   __neoMemoryUsage?: MemoryUsageEvent[];
   __neoMemoryCapHits?: Set<string>;
+  __neoMemorySpendCaps?: Map<string, number>;
 };
 
 function memoryEvents(): MemoryUsageEvent[] {
@@ -28,6 +29,12 @@ function memoryEvents(): MemoryUsageEvent[] {
 export function resetMemoryUsage(): void {
   g.__neoMemoryUsage = [];
   g.__neoMemoryCapHits = new Set();
+  g.__neoMemorySpendCaps = new Map();
+}
+
+/** The no-database usage rows, for the spend cap's month-to-date maths (spend-cap.ts). */
+export function memoryUsageEvents(): readonly MemoryUsageEvent[] {
+  return memoryEvents();
 }
 
 function memoryCheckCaps(tenantId: string, now = new Date()): CapCheckResult {
@@ -71,6 +78,18 @@ export async function recordUsage(input: RecordCheckInput): Promise<void> {
       model: input.model,
       inputTokens: input.inputTokens,
       outputTokens: input.outputTokens,
+      errorMessage: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
+    });
+    return;
+  }
+  // Raise the 80% / 100% spend-cap alerts as soon as the spend crosses them, not only at the next turn's gate.
+  // Dynamic import: spend-cap.ts reads the memory rows above. Never throws; the cap never blocks recording.
+  try {
+    const { evaluateSpendCap } = await import("./spend-cap");
+    await evaluateSpendCap(input.tenantId);
+  } catch (err) {
+    logger.error("Spend cap evaluation failed", "usage", {
+      tenantId: input.tenantId,
       errorMessage: err instanceof Error ? err.message.slice(0, 300) : String(err).slice(0, 300),
     });
   }
