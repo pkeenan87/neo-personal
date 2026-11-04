@@ -14,8 +14,13 @@ import { inlineSteps } from "./email-received-job";
 export const ARTIFACT_BATCH = 200;
 export const INBOUND_ROW_RETENTION_DAYS = 90;
 
+/** What the purge needs of the artifact store (the scheduled job lists first, to plan, and hands the list back). */
+export type ExpiredArtifactStore = Pick<ArtifactStore, "purge"> & {
+  listExpired(limit: number): Promise<Array<{ id: string; tenantId: string }>>;
+};
+
 export interface ExpireDeps {
-  artifacts: ArtifactStore | null;
+  artifacts: ExpiredArtifactStore | null;
   /** Delete rejected/failed inbound rows older than this many days, across tenants. */
   purgeOldInbound(olderThanDays: number): Promise<number>;
   /** Delete old owner alerts across tenants; returns the count. */
@@ -30,6 +35,8 @@ export interface ExpireDeps {
   purgeWeeklyDigestPayloads(): Promise<number>;
   /** Mark pending child requests past their expiry `expired` and resolve their alerts, across households; returns the count. */
   expireChildRequests?(): Promise<number>;
+  /** Delete `schedule_runs` rows older than 90 days (the job log of the Inngest to eve cutover); returns the count. */
+  pruneScheduleRuns?(): Promise<number>;
 }
 
 export async function runArtifactsExpire(
@@ -46,6 +53,8 @@ export async function runArtifactsExpire(
   digestPayloadsDeleted: number;
   /** Present when the run expires child requests. */
   childRequestsExpired?: number;
+  /** Present when the run prunes the job log. */
+  scheduleRunsPruned?: number;
 }> {
   const artifacts = await step.run("purge-artifacts", async () => {
     if (!deps.artifacts) return { purged: 0, errors: 0 };
@@ -75,6 +84,7 @@ export async function runArtifactsExpire(
   const reputationCacheDeleted = await step.run("purge-reputation-cache", () => deps.purgeExpiredReputationCache());
   const digestPayloadsDeleted = await step.run("purge-digest-payloads", () => deps.purgeWeeklyDigestPayloads());
   const childRequestsExpired = deps.expireChildRequests ? await step.run("expire-child-requests", () => deps.expireChildRequests!()) : undefined;
+  const scheduleRunsPruned = deps.pruneScheduleRuns ? await step.run("prune-schedule-runs", () => deps.pruneScheduleRuns!()) : undefined;
   const result = {
     artifactsPurged: artifacts.purged,
     artifactErrors: artifacts.errors,
@@ -85,6 +95,7 @@ export async function runArtifactsExpire(
     reputationCacheDeleted,
     digestPayloadsDeleted,
     ...(childRequestsExpired !== undefined ? { childRequestsExpired } : {}),
+    ...(scheduleRunsPruned !== undefined ? { scheduleRunsPruned } : {}),
   };
   logger.info("Retention run finished", "retention", result);
   return result;

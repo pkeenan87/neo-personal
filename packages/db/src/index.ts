@@ -195,6 +195,7 @@ export {
 } from "./alerts.js";
 export { listIncidentActions, recordIncidentAction, type IncidentActionRow, type RecordIncidentActionInput } from "./incident-actions.js";
 export { getEveSessionOwner, isEveSessionId, recordEveSession } from "./eve-sessions.js";
+export { insertScheduleRun, listScheduleRuns, pruneScheduleRuns, SCHEDULE_RUN_ERROR_MAX, SCHEDULE_RUN_RETENTION_DAYS, type ScheduleRunInput, type ScheduleRunRow } from "./schedule-runs.js";
 export {
   PostgresReputationCache,
   SIGNAL_OUTCOMES,

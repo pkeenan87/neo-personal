@@ -24,6 +24,10 @@ Tenant isolation has two layers:
    domains and hashes (shared across households to save lookups), never who asked, so there is
    no `tenant_id` to filter on.
 
+   `schedule_runs` (migration `0025`) is also **tenant-less with no RLS**: one row per background job
+   run (job, runner, mode, outcome, counts and a digest of the planned actions). It holds no
+   household data, so there is nothing to filter on. `app_user` has `SELECT, INSERT, DELETE`.
+
 Extra policies:
 
 - `memberships.membership_self_read` (SELECT): rows where `user_id = app.user_id`, so
