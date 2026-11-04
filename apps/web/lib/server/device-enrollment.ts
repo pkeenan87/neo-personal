@@ -17,7 +17,8 @@ import type {
   EnrollmentPreviewResponse,
   HeartbeatResponse,
 } from "@/lib/household-types";
-import { deviceAuditActor, type DeviceSession, type NeoSession } from "@/lib/session";
+// session-core, not @/lib/session: the eve schedules load this module and must not reach next/headers.
+import { deviceAuditActor, type DeviceSession, type NeoSession } from "./session-core";
 import { alertDeviceOffline, alertDeviceRemoved, tenantMembers } from "./alerts";
 import { recordAudit } from "./audit";
 import {
@@ -45,6 +46,7 @@ import type { Outcome } from "./household";
 import { takeRateSlot } from "./rate-limit";
 import { expectedToolsByDevice, expectedToolsForDevice } from "./signals/expected-tools";
 import { recordServerSignal } from "./signals/server-signals";
+import { combinedListsVersion } from "./category-lists";
 import { uninstallUrl, verifyDeviceSignature } from "./uninstall";
 import { householdName as loadHouseholdName } from "./verdict-data";
 
@@ -294,7 +296,7 @@ export async function heartbeat(
       householdName: await loadHouseholdName(session.tenantId),
       memberName: device.memberName,
       heartbeatSeconds: HEARTBEAT_SECONDS,
-      listsVersion: detectionLists().version,
+      listsVersion: combinedListsVersion(detectionLists().version),
       policyVersion,
       ...(url ? { uninstallUrl: url } : {}),
     },
@@ -367,6 +369,15 @@ export async function runOfflineDeviceSweep(
   now = new Date(),
 ): Promise<{ stale: number; marked: number; alerted: number; errors: number }> {
   const stale = await deps.listStale(new Date(now.getTime() - DEVICE_OFFLINE_AFTER_MS));
+  return applyOfflineSweep(stale, deps, now);
+}
+
+/** The sweep's write side, for devices already listed (the scheduled job lists first to plan, then applies). */
+export async function applyOfflineSweep(
+  stale: { id: string; tenantId: string }[],
+  deps: Omit<OfflineSweepDeps, "listStale">,
+  now = new Date(),
+): Promise<{ stale: number; marked: number; alerted: number; errors: number }> {
   let marked = 0;
   let alerted = 0;
   let errors = 0;

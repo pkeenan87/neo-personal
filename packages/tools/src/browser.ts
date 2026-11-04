@@ -17,4 +17,4 @@ export { extractPhoneNumbers, parsePhone, type ParsedPhone } from "./phone.js";
 export { normalizeForMatch } from "./text.js";
 export { brandId } from "./brands.js";
 export type { Brand, Lookalike } from "./types.js";
-export type { ListBrand, DetectionListsPayload } from "./listsTypes.js";
+export type { ListBrand, DetectionListsPayload, CategoryListsInfo } from "./listsTypes.js";
