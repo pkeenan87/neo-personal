@@ -144,6 +144,10 @@ With neither `NEO_POLICY_KMS_ISSUER` nor `NEO_POLICY_SIGNING_KEY` set, a product
 - Production deploys on merge to `main` after **All checks passed** is green.
 - Roll back with Vercel **Instant Rollback** to the previous production deployment. Database migrations must be backward compatible for one release so a rollback does not break the schema.
 
+### Eve schedules beside Inngest (M3)
+
+The five background jobs (`weekly-digest`, `devices-offline`, `breach-monitoring`, `retention`, `outbox-sweep`) also exist as eve schedules (`apps/web/agent/schedules/`, no model call), which Vercel turns into Cron Jobs at build time (UTC; check Settings → Cron Jobs). By default they run in **shadow**: read-only, recording what they would do in `schedule_runs` (migration `0025`) next to Inngest's own run of the same job. Set `NEO_EVE_SCHEDULES` to a comma-separated list to hand a job to eve: it then runs live there and its Inngest function becomes a no-op. Compare with `compareScheduleRuns(job, since)` (`apps/web/lib/server/schedules/compare.ts`) before listing a job; unset the variable to hand it back. Spec `_specs/v2-m3-cutover.md`.
+
 ### Inngest sync after deploys
 
 Inngest only runs functions of an app it has synced. The Vercel integration is supposed to sync on every deploy; if the Inngest dashboard (Apps) shows no functions or a stale "Last synced at", trigger a sync by hand. The serve route registers itself with Inngest Cloud on a `PUT`:

@@ -294,6 +294,12 @@ export interface OutboxDrainDeps {
   appUrl: string;
 }
 
+/** The read-only side of the drain: which households have rows due. Never claims or leases a row (the shadow sweep uses only this). */
+export function createOutboxReadPorts(): Pick<OutboxDrainDeps, "pendingTenants"> {
+  const db = getDb();
+  return { pendingTenants: async () => (db ? listPendingOutboxTenants(db) : memoryPendingOutboxTenants()) };
+}
+
 export function createOutboxDrainDeps(): OutboxDrainDeps {
   const db = getDb();
   return {
@@ -306,7 +312,7 @@ export function createOutboxDrainDeps(): OutboxDrainDeps {
     },
     getAlert: async (t, id) => (db ? getAlert(db, t, id) : memoryGetAlert(t, id)),
     getChildRequest: async (t, id) => (db ? getChildRequest(tenantScoped(db, t), id) : undefined),
-    pendingTenants: async () => (db ? listPendingOutboxTenants(db) : memoryPendingOutboxTenants()),
+    ...createOutboxReadPorts(),
     mailer: getMailer(),
     appUrl: inboundEnv().APP_URL,
   };

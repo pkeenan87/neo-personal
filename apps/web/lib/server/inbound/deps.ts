@@ -1,6 +1,6 @@
 /** Production wiring for the inbound jobs (tests build their own deps). */
-import { runTriage } from "@neo/core";
-import { purgeOldAlerts, weeklyDigest } from "@neo/db";
+import { logger, runTriage } from "@neo/core";
+import { SCHEDULE_RUN_RETENTION_DAYS, pruneScheduleRuns, purgeOldAlerts, weeklyDigest } from "@neo/db";
 import { analyzeEmail, EMAIL_ANALYSIS_GUIDANCE } from "@neo/tools";
 import { inboundEnv } from "@/lib/env";
 import { sharedUrlCache } from "../agent-run";
@@ -52,5 +52,23 @@ export function createExpireDeps(): ExpireDeps {
     purgeExpiredReputationCache,
     purgeWeeklyDigestPayloads: async () => db ? weeklyDigest.purgeStalePayloads(db) : 0,
     expireChildRequests: () => expireDueChildRequests(),
+    // The job log is new (migration 0025): a database that has not run it yet must not break retention.
+    pruneScheduleRuns: async () => {
+      if (!db) return 0;
+      try {
+        return await pruneScheduleRuns(db, SCHEDULE_RUN_RETENTION_DAYS);
+      } catch (err) {
+        logger.warn("Schedule run pruning failed", "retention", { errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
+        return 0;
+      }
+    },
+  };
+}
+
+/** The read-only side of the retention job: what it would purge. Never deletes (the shadow run uses only this). */
+export function createExpireReadPorts(): { listExpiredArtifacts(limit: number): Promise<Array<{ id: string; tenantId: string }>> } {
+  const repo = inboundRepo();
+  return {
+    listExpiredArtifacts: async (limit) => (repo.artifacts ? (await repo.artifacts.listExpired(limit)).map((a) => ({ id: a.id, tenantId: a.tenantId })) : []),
   };
 }
