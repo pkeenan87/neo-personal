@@ -55,6 +55,28 @@ export function eveChatEnabled(source: EnvSource = process.env): boolean {
   return source.NEO_EVE_CHAT?.trim() === "true";
 }
 
+/**
+ * The Twilio SMS channel (agent/channels/twilio.ts) is mounted only when `NEO_TWILIO_ENABLED` is exactly
+ * `true`; otherwise it has no routes (every path 404s). Mock-only until A2P registration: nothing here
+ * reaches the Twilio API (_specs/v2-m3-cutover.md section 5).
+ */
+export function twilioEnabled(source: EnvSource = process.env): boolean {
+  return source.NEO_TWILIO_ENABLED?.trim() === "true";
+}
+
+/** Signing token for the mock-mode Twilio webhook; never accepted on a production or preview deployment. */
+export const TWILIO_MOCK_AUTH_TOKEN = "neo-mock-twilio-auth-token";
+
+/**
+ * Token that verifies `X-Twilio-Signature`: `TWILIO_AUTH_TOKEN`, else the fixed test token in MOCK_MODE on a
+ * non-deployed environment, else undefined (the channel then rejects every webhook).
+ */
+export function twilioAuthToken(source: EnvSource = process.env): string | undefined {
+  const token = nonEmpty(source.TWILIO_AUTH_TOKEN);
+  if (token) return token;
+  return bool(source.MOCK_MODE) && !isDeployedEnvironment(source) ? TWILIO_MOCK_AUTH_TOKEN : undefined;
+}
+
 export interface WebEnv {
   /** `true` → every external API (Claude, analyzers, email) uses deterministic fixtures. */
   MOCK_MODE: boolean;

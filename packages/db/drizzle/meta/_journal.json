@@ -176,6 +176,13 @@
       "when": 1793633046799,
       "tag": "0025_schedule_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793633106799,
+      "tag": "0026_member_channels",
+      "breakpoints": true
     }
   ]
 }
