@@ -675,7 +675,7 @@ impl Agent {
         }
         // Child mode runs on what the scan just read; with nothing due it only polls requests.
         self.child_pass(now, &scanned, fast, slow);
-        self.commands_pass(now);
+        self.commands_pass(now, &scanned, fast);
         self.flush(now);
     }
 
@@ -872,9 +872,17 @@ impl Agent {
         {
             let mut g = self.lock();
             let events = detect::detect(&lists, &mut g.seen, &snap, now, discovery);
-            // A remote session is open: poll the policy every minute for a while, so a request to end it arrives in time.
-            if events.iter().any(|e| matches!(e.body, EventBody::RemoteAccessSession { .. })) {
-                g.commands.note_session(now.unix_timestamp());
+            // A remote session was reported: poll the policy every minute while it lasts (watched through the tool's
+            // programs) and for ten minutes after, so a request to end it arrives in time.
+            for e in &events {
+                if let EventBody::RemoteAccessSession { tool_id, .. } = &e.body {
+                    let observable = lists
+                        .tools
+                        .iter()
+                        .find(|t| &t.id == tool_id)
+                        .is_some_and(|t| !t.process_names.is_empty() || !t.process_evidence.is_empty() || !t.bundle_ids.is_empty());
+                    g.commands.note_session(tool_id, now.unix_timestamp(), observable);
+                }
             }
             for e in &events {
                 log::info!("event: {}", describe(e));

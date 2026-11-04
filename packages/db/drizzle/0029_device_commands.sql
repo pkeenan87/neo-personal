@@ -37,3 +37,33 @@ DO $$ BEGIN
     GRANT SELECT, INSERT, UPDATE, DELETE ON public.device_commands TO app_user;
   END IF;
 END $$;
+--> statement-breakpoint
+-- The 5-minute sweep expires commands nobody answered, across households (SECURITY DEFINER, like expire_child_requests).
+-- list_expired_device_commands only reads (the shadow run); expire_device_commands marks them expired and returns them
+-- so the caller can settle each incident. A device answering at the same moment wins or loses atomically on the status.
+CREATE FUNCTION public.list_expired_device_commands(p_now timestamptz)
+RETURNS TABLE(id uuid, tenant_id uuid)
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT c.id, c.tenant_id FROM public.device_commands c
+  WHERE c.status IN ('pending', 'delivered') AND c.expires_at <= p_now
+$$;
+--> statement-breakpoint
+CREATE FUNCTION public.expire_device_commands(p_now timestamptz)
+RETURNS TABLE(id uuid, tenant_id uuid, alert_id uuid)
+LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  UPDATE public.device_commands c
+  SET status = 'expired', completed_at = p_now, result = jsonb_build_object('outcome', 'expired', 'reason', 'no_response')
+  WHERE c.status IN ('pending', 'delivered') AND c.expires_at <= p_now
+  RETURNING c.id, c.tenant_id, c.alert_id
+$$;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION public.list_expired_device_commands(timestamptz) FROM PUBLIC;
+--> statement-breakpoint
+REVOKE ALL ON FUNCTION public.expire_device_commands(timestamptz) FROM PUBLIC;
+--> statement-breakpoint
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
+    GRANT EXECUTE ON FUNCTION public.list_expired_device_commands(timestamptz) TO app_user;
+    GRANT EXECUTE ON FUNCTION public.expire_device_commands(timestamptz) TO app_user;
+  END IF;
+END $$;

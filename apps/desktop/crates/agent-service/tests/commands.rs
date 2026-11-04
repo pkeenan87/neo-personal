@@ -325,7 +325,7 @@ fn the_policy_is_not_polled_every_minute_without_a_reason() {
 }
 
 #[test]
-fn a_seen_remote_session_arms_the_minute_poll_for_half_an_hour() {
+fn a_reported_session_whose_tool_is_not_running_arms_the_minute_poll_for_ten_minutes() {
     let (h, _rx) = device(&[], vec![]);
     h.probe.write_file(SESSION_LOG, "Incoming 2020-01-01 00:00:00 Accepted 111111111\n");
     h.agent.tick();
@@ -338,11 +338,39 @@ fn a_seen_remote_session_arms_the_minute_poll_for_half_an_hour() {
     h.run(180);
     let during = policy_gets(&h);
     assert!(during >= before + 3, "polled about once a minute: {before} -> {during}");
-    // 30 minutes on it stops.
-    h.run(30 * 60);
+    // Ten minutes after the report it stops (nothing of the tool is running).
+    h.run(11 * 60);
     let after_window = policy_gets(&h);
     h.run(300);
     assert_eq!(policy_gets(&h), after_window);
+}
+
+#[test]
+fn while_the_tool_keeps_running_the_poll_stays_on_for_hours_and_stops_ten_minutes_after_it_ends() {
+    let (h, _rx) = device(&[], vec![]);
+    h.probe.write_file(SESSION_LOG, "Incoming 2020-01-01 00:00:00 Accepted 111111111\n");
+    h.agent.tick();
+    h.run(40);
+    h.probe.set_processes(vec![user_proc(10, "AnyDesk.exe")]);
+    h.probe
+        .append_file(SESSION_LOG, "Incoming 2026-11-03 15:00:00 Accepted 123456789\n");
+    h.run(10);
+    assert!(h.sent().contains(&"remote_access_session".to_string()));
+    // 40 minutes in, with AnyDesk still running (longer than the old fixed window): still polling every minute.
+    h.run(40 * 60);
+    let before = policy_gets(&h);
+    h.run(180);
+    assert!(policy_gets(&h) >= before + 3, "{before} -> {}", policy_gets(&h));
+    // The person closes AnyDesk: ten more minutes of polling, then it stops.
+    h.probe.set_processes(vec![]);
+    h.run(5 * 60);
+    let mid = policy_gets(&h);
+    h.run(120);
+    assert!(policy_gets(&h) > mid, "still within ten minutes of the end");
+    h.run(10 * 60);
+    let after = policy_gets(&h);
+    h.run(300);
+    assert_eq!(policy_gets(&h), after, "ten minutes after the session ended it stops");
 }
 
 #[test]

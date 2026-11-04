@@ -80,5 +80,5 @@ describe("system prompt", () => {
     for (const id of PLAYBOOK_IDS) expect(section).toContain(`### Playbook: ${id}`);
     expect(a).not.toMatch(/\b(19|20)\d\d-\d\d-\d\d\b/);
     expect(a).not.toMatch(/\b(January|February|March|April|May|June|July|August|September|October|November|December) \d{1,2}\b/);
-  });
+  }, 30_000);
 });

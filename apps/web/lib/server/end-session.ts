@@ -25,8 +25,12 @@ import { requireHouseholdAdmin } from "./household-admin";
 import { isUuid, type IncidentCaller } from "./incident-data";
 import { takeRateSlot } from "./rate-limit";
 
-/** The device must have been in contact (a heartbeat or a policy fetch) within this long. */
-export const END_SESSION_LIVE_WITHIN_MS = 10 * 60 * 1000;
+/**
+ * The device must have been in contact (a policy fetch or a heartbeat) within this long. An agent that sees a remote
+ * session polls its policy every 60 seconds, so a device that can take the request has been seen within about a minute;
+ * one that has not is only polled hourly and would let the 10-minute request run out unseen.
+ */
+export const END_SESSION_LIVE_WITHIN_MS = 2 * 60 * 1000;
 /** Requests per device and hour. */
 export const END_SESSION_LIMIT = { limit: 6, windowMs: 60 * 60 * 1000 } as const;
 
@@ -91,7 +95,7 @@ export async function requestEndSession(caller: IncidentCaller, incidentId: stri
     }
     const lastContact = device.lastSeenAt ?? device.createdAt;
     if (now.getTime() - lastContact.getTime() > END_SESSION_LIVE_WITHIN_MS) {
-      return refuse("device_offline", `That computer last checked in ${minutesAgo(lastContact, now)} minutes ago, so Neo can't reach it right now. Nothing was sent.`);
+      return refuse("device_offline", `Neo can't reach that device right now (it last checked in ${minutesAgo(lastContact, now)} minutes ago). Nothing was sent.`);
     }
     const slot = takeRateSlot("end-session", device.id, END_SESSION_LIMIT.limit, END_SESSION_LIMIT.windowMs, now.getTime());
     if (!slot.ok) return refuse("rate_limited", "Neo has already tried to end sessions on that computer several times this hour. Try again later.");
@@ -114,10 +118,10 @@ export async function requestEndSession(caller: IncidentCaller, incidentId: stri
     const who = device.memberName ?? "the person at that computer";
     const deviceName = device.name;
     const message = existing
-      ? `Already requested: ${tool.name} on ${deviceName} is waiting for ${command.requiresConfirmation ? `${who} to confirm on screen` : "the computer to pick up the request"}. Nothing has ended yet.`
+      ? `Already requested: ${tool.name} on ${deviceName} is waiting for ${command.requiresConfirmation ? `${who} to confirm on screen` : "the computer to pick up the request"}. Nothing has ended yet. It expires in 10 minutes if the computer does not answer.`
       : requiresConfirmation
-        ? `Requested. Neo asked ${who} to confirm on screen that ${tool.name} should be closed on ${deviceName}. Waiting for ${who} to confirm; nothing has ended yet. The request runs out in 10 minutes.`
-        : `Requested. ${deviceName} will close ${tool.name} within about a minute. Nothing has ended yet; Neo will update this alert when the computer answers.`;
+        ? `Requested. Neo asked ${who} to confirm on screen that ${tool.name} should be closed on ${deviceName}. Waiting for ${who} to confirm; nothing has ended yet. This is a request: it expires in 10 minutes if the computer does not answer.`
+        : `Requested. ${deviceName} will close ${tool.name} within about a minute. Nothing has ended yet. This is a request: it expires in 10 minutes if the computer does not answer, and Neo will update this alert either way.`;
     return { ok: true, action: "end_session", incidentId: alert.id, commandId: command.id, status: "requested", requiresConfirmation: command.requiresConfirmation, message };
   } catch (err) {
     logger.error("End session failed", "incidents", { tenantId: caller.tenantId, errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300) });

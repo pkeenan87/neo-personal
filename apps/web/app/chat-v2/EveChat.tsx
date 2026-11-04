@@ -17,7 +17,7 @@ function linkSession(incidentId: string, sessionId: string): void {
   }).catch(() => {});
 }
 
-const ACTION_TOOLS = new Set(["mark_expected", "allow_once", "confirm_signin", "end_session"]);
+const ACTION_TOOLS = new Set(["mark_expected", "allow_once", "confirm_signin", "remember", "end_session"]);
 
 /** What became of an acting tool call, in words. Null while it waits or for any other tool. */
 function actionStatus(part: EveMessagePart): string | null {

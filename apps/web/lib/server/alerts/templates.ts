@@ -95,6 +95,34 @@ export function mailboxForwardingAlertText(memberName: string, domain: string | 
   };
 }
 
+/** Whole dollars when exact, else dollars and cents (`$25`, `$24.80`). */
+export function formatDollars(cents: number): string {
+  const c = Math.max(0, Math.round(cents));
+  return c % 100 === 0 ? `$${c / 100}` : `$${(c / 100).toFixed(2)}`;
+}
+
+/**
+ * `spend_cap` (medium at 80%, high at 100%): the household's estimated model spend this month reached a threshold of its
+ * monthly cap (_specs/v2-m3-cutover.md section 6). Numbers only, never model text. At 100% chat pauses until the month
+ * rolls over or an owner raises the cap; security checks of forwarded mail and device signals keep running.
+ */
+export function spendCapAlertText(percent: 80 | 100, spentCents: number, capCents: number): AlertText {
+  const spent = formatDollars(spentCents);
+  const cap = formatDollars(capCents);
+  if (percent === 80) {
+    return {
+      severity: "medium",
+      title: "AI spend is at 80% of your monthly limit",
+      body: `Neo's estimated AI spend this month is ${spent} of your ${cap} limit. At the limit, chat pauses until next month or until an owner raises it in household settings. Forwarded-email checks and device alerts keep working.`,
+    };
+  }
+  return {
+    severity: "high",
+    title: "Your monthly AI spend limit was reached",
+    body: `Neo's estimated AI spend this month reached your ${cap} limit (${spent}). Chat is paused until next month or until an owner raises the limit in household settings. Forwarded-email checks and device alerts keep working.`,
+  };
+}
+
 /** UTC hour bucket for membership dedupe keys. */
 export function hourBucket(now = new Date()): string {
   return now.toISOString().slice(0, 13);

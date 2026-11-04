@@ -200,6 +200,77 @@ fn report(id: String, outcome: CommandOutcome, detail: Option<&'static str>) -> 
     Step::Report { id, outcome, detail }
 }
 
+// ---- How long to keep listening for a command -------------------------------------------------------------
+
+/// After the last sign of an active session, the policy is still polled for this long (the owner may ask
+/// just after the person closed the window, and the request needs a device that answers).
+pub const AFTER_SESSION_SECS: i64 = 10 * 60;
+/// A tool whose programs the lists do not name cannot be seen ending, so a report of its session keeps the
+/// poll on for this long instead.
+pub const UNWATCHABLE_WINDOW_SECS: i64 = 30 * 60;
+/// A watched tool whose programs are not running is dropped after this long.
+pub const MISSING_GRACE_SECS: i64 = 60;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Watched {
+    last_event: i64,
+    last_running: i64,
+}
+
+/// Whether a remote session is (or just was) under way on this computer, which is when a request to end
+/// it can arrive: the agent then fetches its policy every minute. A session is reported once (by its log
+/// line or event) and has no "ended" signal, so it is **watched through the tool's programs**: while any of
+/// them runs the session counts as active, and [`AFTER_SESSION_SECS`] after the last sign it stops counting.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionWatch {
+    tools: BTreeMap<String, Watched>,
+    poll_until: i64,
+}
+
+impl SessionWatch {
+    /// An incoming session of `tool_id` was reported at `ts`. `observable`: the detection lists name programs
+    /// of the tool, so it can be seen running (and ending); otherwise a fixed window is all there is.
+    pub fn reported(&mut self, tool_id: &str, ts: i64, observable: bool) {
+        if observable {
+            self.tools.insert(
+                tool_id.to_string(),
+                Watched {
+                    last_event: ts,
+                    last_running: ts,
+                },
+            );
+            self.poll_until = self.poll_until.max(ts + AFTER_SESSION_SECS);
+        } else {
+            self.poll_until = self.poll_until.max(ts + UNWATCHABLE_WINDOW_SECS);
+        }
+    }
+
+    /// One look at the running programs (the 5-second scan). `running(tool_id)` says whether any program of
+    /// the tool is running now. A running tool keeps the poll on until [`AFTER_SESSION_SECS`] after it stops.
+    pub fn observe(&mut self, ts: i64, running: impl Fn(&str) -> bool) {
+        let mut until = self.poll_until;
+        for (id, w) in self.tools.iter_mut() {
+            if running(id) {
+                w.last_running = ts;
+                until = until.max(ts + AFTER_SESSION_SECS);
+            }
+        }
+        self.poll_until = until;
+        self.tools
+            .retain(|_, w| ts - w.last_running.max(w.last_event) <= MISSING_GRACE_SECS);
+    }
+
+    /// Whether the policy should be polled every minute at `ts` because of a session.
+    pub fn active(&self, ts: i64) -> bool {
+        ts < self.poll_until
+    }
+
+    /// Whether a watched tool is still thought to be running (a session may be open right now).
+    pub fn watching(&self) -> bool {
+        !self.tools.is_empty()
+    }
+}
+
 // ---- Which programs to close ------------------------------------------------------------------------
 
 /// Whether the running `p` belongs to `tool`: its image name is one the detection list gives for the
@@ -591,6 +662,51 @@ mod tests {
         assert_eq!(result_for(2, 0, 0), (CommandOutcome::Failed, "protected"));
         assert_eq!(result_for(2, 1, 0), (CommandOutcome::Failed, "close_failed"));
         assert_eq!(result_for(2, 2, 1), (CommandOutcome::Done, "closed"));
+    }
+
+    #[test]
+    fn a_session_keeps_the_poll_on_while_the_tool_runs_and_ten_minutes_after() {
+        let mut w = SessionWatch::default();
+        assert!(!w.active(NOW));
+        w.reported("anydesk", NOW, true);
+        assert!(w.active(NOW) && w.watching());
+        // The tool keeps running for two hours: still active, not just for 30 minutes.
+        for step in 1..=(2 * 3600 / 5) {
+            w.observe(NOW + step * 5, |id| id == "anydesk");
+        }
+        let last_seen = NOW + 2 * 3600;
+        assert!(w.active(last_seen + 5) && w.watching());
+        // It stops: active for ten more minutes, and the watch is dropped after a minute.
+        w.observe(last_seen + 5, |_| false);
+        assert!(w.watching(), "a minute of grace");
+        w.observe(last_seen + 70, |_| false);
+        assert!(!w.watching());
+        assert!(w.active(last_seen + AFTER_SESSION_SECS - 1));
+        assert!(!w.active(last_seen + AFTER_SESSION_SECS + 1));
+    }
+
+    #[test]
+    fn a_session_that_was_never_seen_running_ends_ten_minutes_after_it_was_reported() {
+        let mut w = SessionWatch::default();
+        w.reported("anydesk", NOW, true);
+        w.observe(NOW + 5, |_| false);
+        w.observe(NOW + 100, |_| false);
+        assert!(!w.watching());
+        assert!(w.active(NOW + 599) && !w.active(NOW + 601));
+    }
+
+    #[test]
+    fn a_tool_that_cannot_be_watched_gets_a_fixed_window_and_other_tools_are_independent() {
+        let mut w = SessionWatch::default();
+        w.reported("splashtop", NOW, false);
+        assert!(!w.watching(), "nothing to watch");
+        assert!(w.active(NOW + 1799) && !w.active(NOW + 1801));
+        w.reported("anydesk", NOW + 100, true);
+        w.reported("teamviewer", NOW + 100, true);
+        w.observe(NOW + 110, |id| id == "teamviewer");
+        w.observe(NOW + 200, |id| id == "teamviewer");
+        assert!(w.watching(), "teamviewer is still running; anydesk was dropped");
+        assert_eq!(w.tools.len(), 1);
     }
 
     #[test]

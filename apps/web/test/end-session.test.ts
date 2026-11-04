@@ -54,8 +54,11 @@ beforeAll(async () => {
 afterAll(async () => {
   await fx.close();
 });
-beforeEach(() => {
+beforeEach(async () => {
   holder.db = fx.db;
+  // The devices must look in contact: the request needs a device seen within two minutes.
+  await setLastSeen(fx.kid, new Date());
+  await setLastSeen(fx.owner, new Date());
   stubBaseEnv(vi);
   setPolicySigningServiceForTests(undefined);
   resetRateLimits();
@@ -191,16 +194,16 @@ describe("the request", () => {
   it("refuses a computer that has not been in contact for more than ten minutes, and sends nothing", async () => {
     await clearCommands(fx.kid);
     const id = await addRemoteIncident(fx.db, fx.kid);
-    await setLastSeen(fx.kid, new Date(Date.now() - 11 * 60_000));
+    await setLastSeen(fx.kid, new Date(Date.now() - 3 * 60_000));
     const r = await run(fx.owner, { incidentId: id });
     expect(r).toMatchObject({ ok: false, error: "device_offline" });
-    expect(String(r.message)).toMatch(/last checked in 11 minutes ago/);
+    expect(String(r.message)).toMatch(/last checked in 3 minutes ago/);
     expect(String(r.message)).toMatch(/Nothing was sent/);
     expect(await commandsOf(fx.kid)).toHaveLength(0);
     // A computer seen a minute ago is reachable.
     await setLastSeen(fx.kid, new Date(Date.now() - 60_000));
     expect(await run(fx.owner, { incidentId: id })).toMatchObject({ ok: true });
-    await setLastSeen(fx.kid, null);
+    await setLastSeen(fx.kid, new Date());
   });
 
   it("refuses a revoked device and a browser extension", async () => {
@@ -259,7 +262,7 @@ describe("the policy bundle", () => {
 
   it("is signed with the command, marks it delivered on a 200 only, and counts as contact", async () => {
     await clearCommands(fx.kid);
-    await setLastSeen(fx.kid, null);
+    await setLastSeen(fx.kid, new Date());
     const id = await addRemoteIncident(fx.db, fx.kid);
     const r = await run(fx.owner, { incidentId: id });
     const svc = getPolicySigningService()!;

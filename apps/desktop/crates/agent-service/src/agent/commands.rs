@@ -13,28 +13,25 @@
 use serde_json::{Value, json};
 use time::OffsetDateTime;
 
-use neo_agent_core::commands::{self as core, Book, Prompt, Step};
+use neo_agent_core::commands::{self as core, Book, Prompt, SessionWatch, Step};
 use neo_agent_core::events::{CommandOutcome, SignalEvent};
 use neo_agent_core::policy::SessionRef;
 
-use super::Agent;
 use super::child::platform_of;
+use super::{Agent, ScanOut};
 use crate::actuator::Target;
 use crate::persist::{COMMANDS_FILE, DataDir, QUEUE_FILE};
 use crate::protocol::ok_response;
 
-/// After a remote session was seen, the policy is polled this often for this long, so a command to end
-/// it reaches the computer within about a minute (the heartbeat alone is hourly).
-pub const SESSION_POLL_WINDOW_SECS: i64 = 30 * 60;
-/// The same, after the heartbeat said a command is waiting.
+/// How long the heartbeat's `pendingCommand` keeps the one-minute policy poll on.
 pub const HINT_POLL_WINDOW_SECS: i64 = 10 * 60;
 
 /// What the service keeps about commands.
 #[derive(Default)]
 pub(super) struct State {
     book: Book,
-    /// Unix seconds until which a seen remote session keeps the fast poll on.
-    session_until: i64,
+    /// Whether a remote session is (or just was) under way: the fast poll stays on while it is, and ten minutes after.
+    watch: SessionWatch,
     /// Unix seconds until which the heartbeat's `pendingCommand` keeps it on.
     hint_until: i64,
     dirty: bool,
@@ -48,9 +45,10 @@ impl State {
         }
     }
 
-    /// A remote-access session was reported on this computer.
-    pub fn note_session(&mut self, ts: i64) {
-        self.session_until = ts + SESSION_POLL_WINDOW_SECS;
+    /// A remote-access session of `tool_id` was reported on this computer. `observable`: the lists name programs of
+    /// the tool, so its session can be watched until the tool stops.
+    pub fn note_session(&mut self, tool_id: &str, ts: i64, observable: bool) {
+        self.watch.reported(tool_id, ts, observable);
     }
 
     /// The heartbeat said a command is waiting for this device.
@@ -58,20 +56,31 @@ impl State {
         self.hint_until = ts + HINT_POLL_WINDOW_SECS;
     }
 
-    /// Whether the policy should be polled every minute for a command: a session was seen lately, the
-    /// server said one is waiting, or a prompt is open.
+    /// Whether the policy should be polled every minute for a command: a session is active (or ended less
+    /// than ten minutes ago), the server said one is waiting, or a prompt is open.
     pub fn wants_poll(&self, ts: i64) -> bool {
-        ts < self.session_until || ts < self.hint_until || !self.book.open_prompts().is_empty()
+        self.watch.active(ts) || ts < self.hint_until || !self.book.open_prompts().is_empty()
     }
 }
 
 impl Agent {
     /// One pass: read the commands of the bundle in force, expire unanswered prompts, and act on what
     /// that gives. Cheap when there is nothing: called on every tick.
-    pub(super) fn commands_pass(&self, now: OffsetDateTime) {
+    pub(super) fn commands_pass(&self, now: OffsetDateTime, scan: &ScanOut, fast: bool) {
         let ts = now.unix_timestamp();
         let steps = {
             let mut g = self.lock();
+            // The programs of a tool with a reported session decide whether the session is still on.
+            if fast {
+                let lists = g.lists.clone();
+                g.commands.watch.observe(ts, |tool_id| {
+                    lists
+                        .tools
+                        .iter()
+                        .find(|t| t.id == tool_id)
+                        .is_some_and(|t| scan.processes.iter().any(|p| core::belongs_to(t, p)))
+                });
+            }
             let commands = g.child.applied.as_ref().map(|a| a.bundle.commands.clone()).unwrap_or_default();
             let mut steps = g.commands.book.intake(&commands, ts);
             steps.extend(g.commands.book.tick(ts));

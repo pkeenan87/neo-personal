@@ -6,7 +6,7 @@
  */
 import { and, eq, inArray, lte, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
-import { alerts, deviceCommands, devices, type DeviceCommandKind, type DeviceCommandPayload, type DeviceCommandStatus } from "./schema/index.js";
+import { alerts, deviceCommands, devices, incidentActions, type DeviceCommandKind, type DeviceCommandPayload, type DeviceCommandStatus } from "./schema/index.js";
 import { assertTenantId, tenantScoped } from "./tenant.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -107,4 +107,41 @@ export async function completeDeviceCommand(
     and(eq(deviceCommands.id, input.id), eq(deviceCommands.deviceId, input.deviceId), inArray(deviceCommands.status, OPEN)),
   );
   return row;
+}
+
+// ---- The sweep ----------------------------------------------------------------------------------
+
+type SqlRows<T> = { rows: T[] };
+
+/** Open commands past their expiry, across households (`list_expired_device_commands`). Read only. */
+export async function listExpiredDeviceCommands(db: Db, now = new Date()): Promise<{ id: string; tenantId: string }[]> {
+  const res = await db.execute(sql`select id, tenant_id from public.list_expired_device_commands(${now.toISOString()}::timestamptz)`);
+  return (res as unknown as SqlRows<{ id: string; tenant_id: string }>).rows.map((r) => ({ id: r.id, tenantId: r.tenant_id }));
+}
+
+/** Marks every open command past its expiry `expired` and returns them (`expire_device_commands`), across households. */
+export async function expireDeviceCommands(db: Db, now = new Date()): Promise<{ id: string; tenantId: string; alertId: string | null }[]> {
+  const res = await db.execute(sql`select id, tenant_id, alert_id from public.expire_device_commands(${now.toISOString()}::timestamptz)`);
+  return (res as unknown as SqlRows<{ id: string; tenant_id: string; alert_id: string | null }>).rows.map((r) => ({ id: r.id, tenantId: r.tenant_id, alertId: r.alert_id }));
+}
+
+/**
+ * Settles the `pending` `end_session` action of an expired command: `failed`, with `reason: "expired"` added to its
+ * result. The one row written when the request was made is updated (the request has no other outcome to append).
+ * Returns whether a row was changed.
+ */
+export async function failExpiredCommandAction(db: Db, tenantId: string, input: { alertId: string; commandId: string; now?: Date }): Promise<boolean> {
+  assertTenantId(tenantId);
+  if (!UUID_RE.test(input.alertId) || !UUID_RE.test(input.commandId)) return false;
+  const now = input.now ?? new Date();
+  const rows = await tenantScoped(db, tenantId).update(
+    incidentActions,
+    {
+      status: "failed",
+      result: sql`coalesce(${incidentActions.result}, '{}'::jsonb) || ${JSON.stringify({ reason: "expired" })}::jsonb`,
+      updatedAt: now,
+    },
+    and(eq(incidentActions.alertId, input.alertId), eq(incidentActions.kind, "end_session"), eq(incidentActions.status, "pending"), sql`${incidentActions.result}->>'commandId' = ${input.commandId}`),
+  );
+  return rows.length > 0;
 }

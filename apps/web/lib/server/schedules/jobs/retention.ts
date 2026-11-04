@@ -1,7 +1,7 @@
 /**
  * `retention` (daily 04:00 UTC; the Inngest `artifacts-expire` function): purge expired artifacts and the
  * other retention sweeps (rejected inbound rows, old alerts and devices, signals, reputation cache,
- * digest payloads, expired child requests, the job log).
+ * digest payloads, expired child requests, the job log, expired household memory).
  *
  * Plan = the expired artifacts (listed read-only) plus one action per SQL purge. Those purges are
  * security-definer functions that delete and return a count, so a shadow run cannot preview their rows;
@@ -26,6 +26,7 @@ export const RETENTION_PURGES = [
   "digest_payloads",
   "child_requests",
   "schedule_runs",
+  "household_memory",
 ] as const;
 
 export function retentionDeps(mode: RunMode): RetentionDeps {

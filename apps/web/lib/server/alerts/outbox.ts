@@ -177,7 +177,8 @@ async function loadRecipientContext(tenantId: string, q: PlanSubject): Promise<R
     }
   }
 
-  const recipients = isRequestAlertKind(q.kind)
+  // Request alerts and spend cap alerts reach every owner whatever their alert threshold.
+  const recipients = isRequestAlertKind(q.kind) || q.kind === "spend_cap"
     ? resolveRequestRecipients({ owners, members, subject, target: childRequestsTo })
     : resolveAlertRecipients({ severity: q.severity, owners, members, subject, helpersNotifyAt });
   return {

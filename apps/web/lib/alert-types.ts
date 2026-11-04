@@ -20,9 +20,10 @@ export type AlertKindName =
   | "self_harm_attempts"
   | "app_approval"
   | "child_request"
-  | "mailbox_forwarding";
+  | "mailbox_forwarding"
+  | "spend_cap";
 /** Alerts that are household notices, not incidents to ask Neo about (no chat link). */
-const NON_INCIDENT_KINDS: readonly AlertKindName[] = ["member_joined", "member_left", "breach_detected"];
+const NON_INCIDENT_KINDS: readonly AlertKindName[] = ["member_joined", "member_left", "breach_detected", "spend_cap"];
 
 /** Whether "Ask Neo about this" applies to an alert of this kind (when the eve chat is on). */
 export function incidentChatApplies(kind: AlertKindName): boolean {

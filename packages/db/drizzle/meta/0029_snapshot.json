@@ -1,6 +1,6 @@
 {
-  "id": "e9b568c1-5f07-4663-a3e1-058f02c36e25",
-  "prevId": "2caf1f88-5e91-45cc-8a6b-09bed8d64bf1",
+  "id": "d6d8a20e-cada-4868-9acf-ae52513d8e37",
+  "prevId": "89fd86a0-9aa9-4662-81da-1d1b43b3908b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -495,6 +495,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "monthly_spend_cap_cents": {
+          "name": "monthly_spend_cap_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -508,7 +514,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "tenants_monthly_spend_cap_check": {
+          "name": "tenants_monthly_spend_cap_check",
+          "value": "\"tenants\".\"monthly_spend_cap_cents\" is null or (\"tenants\".\"monthly_spend_cap_cents\" >= 100 and \"tenants\".\"monthly_spend_cap_cents\" <= 1000000)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.conversations": {
@@ -3157,7 +3168,7 @@
       "checkConstraints": {
         "alerts_kind_check": {
           "name": "alerts_kind_check",
-          "value": "\"alerts\".\"kind\" in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress', 'breach_detected', 'install_during_session', 'payment_under_pressure', 'protection_disabled', 'self_harm_attempts', 'app_approval', 'child_request', 'mailbox_forwarding')"
+          "value": "\"alerts\".\"kind\" in ('member_verdict', 'member_joined', 'member_left', 'device_enrolled', 'device_offline', 'device_removed', 'scam_page', 'dangerous_site', 'remote_access', 'unwanted_software', 'permission_grant', 'scam_in_progress', 'breach_detected', 'install_during_session', 'payment_under_pressure', 'protection_disabled', 'self_harm_attempts', 'app_approval', 'child_request', 'mailbox_forwarding', 'spend_cap')"
         },
         "alerts_status_check": {
           "name": "alerts_status_check",
@@ -6518,6 +6529,155 @@
         "schedule_runs_error_length_check": {
           "name": "schedule_runs_error_length_check",
           "value": "\"schedule_runs\".\"error\" is null or char_length(\"schedule_runs\".\"error\") <= 300"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.household_memory": {
+      "name": "household_memory",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "subject_member_id": {
+          "name": "subject_member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "household_memory_tenant_created_idx": {
+          "name": "household_memory_tenant_created_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "household_memory_expires_idx": {
+          "name": "household_memory_expires_idx",
+          "columns": [
+            {
+              "expression": "expires_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "household_memory_tenant_id_tenants_id_fk": {
+          "name": "household_memory_tenant_id_tenants_id_fk",
+          "tableFrom": "household_memory",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "household_memory_subject_member_id_members_id_fk": {
+          "name": "household_memory_subject_member_id_members_id_fk",
+          "tableFrom": "household_memory",
+          "tableTo": "members",
+          "columnsFrom": [
+            "subject_member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "household_memory_created_by_users_id_fk": {
+          "name": "household_memory_created_by_users_id_fk",
+          "tableFrom": "household_memory",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "household_memory_source_check": {
+          "name": "household_memory_source_check",
+          "value": "\"household_memory\".\"source\" in ('console', 'chat')"
+        },
+        "household_memory_text_length_check": {
+          "name": "household_memory_text_length_check",
+          "value": "char_length(\"household_memory\".\"text\") between 1 and 280"
         }
       },
       "isRLSEnabled": false

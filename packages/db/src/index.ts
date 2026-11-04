@@ -32,6 +32,7 @@ export {
   type RecordCheckInput,
   type UsageCaps,
 } from "./usage.js";
+export { spend, type SpendSettings, type SpendStatus } from "./spend.js";
 export {
   createTenantForUser,
   findTenantForUser,
@@ -280,6 +281,7 @@ export {
   markOutboxFailed,
   markOutboxSent,
   isRequestAlertKind,
+  isCapExemptAlertKind,
   outboxDestination,
   REQUEST_ALERT_KINDS,
   settleAlertEmail,
@@ -311,12 +313,25 @@ export {
   type DecideChildRequestInput,
   type ListChildRequestsOptions,
 } from "./child-requests.js";
+export {
+  HOUSEHOLD_MEMORY_MAX,
+  HOUSEHOLD_MEMORY_RETENTION_DAYS,
+  addHouseholdMemory,
+  forgetHouseholdMemory,
+  listHouseholdMemory,
+  purgeExpiredHouseholdMemory,
+  type AddMemoryResult,
+  type HouseholdMemoryRow,
+} from "./household-memory.js";
 export { getPolicyBundle, upsertPolicyBundle, type PolicyBundleRow } from "./policy-bundles.js";
 export {
   DEVICE_COMMAND_TTL_MS,
   completeDeviceCommand,
   createDeviceCommand,
+  expireDeviceCommands,
+  failExpiredCommandAction,
   getDeviceCommand,
+  listExpiredDeviceCommands,
   listOpenDeviceCommands,
   markDeviceCommandsDelivered,
   type CreateDeviceCommandInput,

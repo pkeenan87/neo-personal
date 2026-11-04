@@ -71,6 +71,17 @@ Everything below works with `MOCK_MODE=true DEV_AUTH_BYPASS=true` and no other v
 | `pnpm --filter @neo/core test -- --watch` | Watch one package's tests |
 | `pnpm db:generate` / `pnpm db:migrate` | Drizzle migrations (`@neo/db`) |
 
+## Evals (eve agent)
+
+Two layers, described in `_specs/v2-m4-hardening.md` section 5.
+
+- **Offline evals (run in CI, part of `pnpm test`):** `apps/web/agent/evals/`. A scripted, adversarial model drives the real eve tools against an in-memory Postgres and asserts the approval gate, the `wrapToolResult` envelope, tenant isolation and prompt-injection containment, plus a guard that the Elder tone rules stay in `agent/instructions.md`. No network and no model; about 3 seconds. Run just these with `pnpm --filter @neo/web test:evals`. When you add an eve tool, list it as acting or read-only in `safety.test.ts`; the classification test fails until you do.
+- **Live evals (optional, never in CI):** `apps/web/evals/*.eval.ts` talk to a real model through `eve eval` for what a script cannot show: the Elder reply starts with stop / hang up with no shaming, and the model declines to call an acting tool because pasted text said so. They are skipped unless `NEO_LIVE_EVALS=1`. Budget: about five model turns, a few cents. They need a model key (`AI_GATEWAY_API_KEY` or `vercel env pull`) and are not part of `pnpm test`:
+
+  ```bash
+  NEO_LIVE_EVALS=1 pnpm --filter @neo/web test:evals:live   # eve eval --strict
+  ```
+
 ## Local database
 
 ```bash

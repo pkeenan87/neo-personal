@@ -13,7 +13,10 @@
 import { logger } from "@neo/core";
 import {
   completeDeviceCommand,
+  expireDeviceCommands as dbExpireDeviceCommands,
+  failExpiredCommandAction,
   getDeviceCommand,
+  listExpiredDeviceCommands as dbListExpiredDeviceCommands,
   listOpenDeviceCommands,
   markDeviceCommandsDelivered,
   recordIncidentAction,
@@ -100,4 +103,49 @@ export async function applyCommandResult(input: { tenantId: string; deviceId: st
   }
   await recordAudit(input.tenantId, closed.requestedBy, "device.command_result", { commandId: closed.id, deviceId: input.deviceId, kind: closed.kind, outcome: input.outcome, ...(detail ? { detail } : {}) });
   return "applied";
+}
+
+// ---- Expiry (the 5-minute `outbox-sweep`) -------------------------------------------------------
+
+/** Open commands past their expiry, across households (the shadow plan). Empty without a database. */
+export async function listExpiredCommands(now: Date): Promise<{ id: string; tenantId: string }[]> {
+  const db = getDb();
+  return db ? dbListExpiredDeviceCommands(db, now) : [];
+}
+
+/**
+ * Marks every open command past its expiry `expired`, settles the pending `end_session` action of each as
+ * `failed` with `reason: "expired"` (so `get_incident` says the device did not respond) and audits it.
+ * One command failing to settle never stops the others. Returns how many commands were expired.
+ */
+export async function expireStaleCommands(now: Date): Promise<number> {
+  const db = getDb();
+  if (!db) return 0;
+  const expired = await dbExpireDeviceCommands(db, now);
+  for (const c of expired) {
+    try {
+      if (c.alertId) await failExpiredCommandAction(db, c.tenantId, { alertId: c.alertId, commandId: c.id, now });
+      await recordAudit(c.tenantId, null, "device.command_expired", { commandId: c.id, ...(c.alertId ? { alertId: c.alertId } : {}) });
+    } catch (err) {
+      logger.error("Settling an expired command failed", "devices", { tenantId: c.tenantId, errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300) });
+    }
+  }
+  return expired.length;
+}
+
+/** A stored `end_session` action in plain words, from fixed wording keyed by its status and result codes (never stored text). */
+export function describeEndSessionAction(status: string, result: unknown): string {
+  const r = (result && typeof result === "object" ? result : {}) as { outcome?: unknown; reason?: unknown; detail?: unknown };
+  if (status === "pending") return "A request to end the remote session was sent. Waiting for the device to answer.";
+  if (r.reason === "expired" || r.outcome === "expired") return "The request to end the session expired — the device didn't respond.";
+  if (status === "done") return r.detail === "not_running" ? "The remote program was no longer running on the device." : "The device ended the remote session.";
+  if (status === "rejected") return "The request to end the session was not carried out: the person at the device chose to keep it, or did not answer.";
+  const refusals: Record<string, string> = {
+    device_offline: "The request to end the session was not sent: Neo couldn't reach the device.",
+    no_session: "The request to end the session was not sent: the alert shows no open remote session.",
+    not_supported: "The request to end the session was not sent: the device can't be asked.",
+    rate_limited: "The request to end the session was not sent: too many requests for that device.",
+  };
+  if (typeof r.reason === "string" && r.reason in refusals) return refusals[r.reason]!;
+  return r.outcome === "failed" ? "The device could not end the remote session." : "The request to end the session did not go through.";
 }

@@ -69,7 +69,7 @@ mode, Elder and Standard included (the Child-mode gate does not apply).
 
 ```
  chat: end_session ─► device_commands row ─► signed bundle  commands: [{ id, kind, sessionRef, requiresConfirmation, expiresAt }]
- agent (poll every 60 s while a session was seen / pendingCommand / a prompt is open) ─► verify ─► new id, unexpired?
+ agent (poll every 60 s while a session is active or ended < 10 min ago / pendingCommand / a prompt is open) ─► verify ─► new id, unexpired?
      requiresConfirmation ─► push "confirm" ─► tray window: [End the session] [Keep it] ─► IPC command_answer
                               no answer in 2 minutes ─► declined          no tray subscribed ─► failed (tray_unavailable)
      End (or no confirmation needed) ─► close the tool's processes (same guards as app blocking) ─► POST /api/signals command_result
@@ -82,6 +82,7 @@ mode, Elder and Standard included (the Child-mode gate does not apply).
   On Windows AnyDesk and TeamViewer often run a SYSTEM service in session 0: it is never closed, so ending a session closes the
   person's client process; a computer where only the service is running answers `protected`. **Verify on real hardware** that
   closing the client drops the session and that the service does not bring it back.
+- **Watching a session.** A session is reported once and has no end signal, so `SessionWatch` follows the tool's programs: the one-minute policy poll stays on while any of them runs (no fixed cap) and for 10 minutes after the last sign (a tool the lists give no programs for: 30 minutes from the report). The server only accepts a request for a device seen within 2 minutes; the 5-minute `outbox-sweep` expires unanswered commands and marks the incident (`get_incident` `endSessionRequests`).
 - **Once only.** Handled command ids are kept in `commands.json` (200 ids, 24 hours), so a restart or a replayed old bundle does
   nothing. `unenroll` and a 401 delete it.
 - **Results** (`command_result` signal `detail`): `closed`, `not_running` (done), `protected`, `close_failed`, `not_supported`,
