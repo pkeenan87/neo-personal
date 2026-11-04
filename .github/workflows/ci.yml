@@ -48,6 +48,11 @@ jobs:
       - name: Typecheck, lint, test, build
         run: pnpm turbo run typecheck lint test build
 
+      # The eve agent bundle (apps/web/agent) is built by its own bundler, which catches imports
+      # `next build` doesn't (_specs/v2-followups.md slice A). Runs after turbo built the packages' dist.
+      - name: eve build
+        run: pnpm --filter @neo/web exec eve build
+
   codeql:
     name: CodeQL (security-extended)
     runs-on: ubuntu-latest
