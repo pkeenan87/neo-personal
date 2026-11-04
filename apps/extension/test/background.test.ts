@@ -300,5 +300,10 @@ function emptyState() {
     warnings: [],
     uninstallUrl: null,
     signIn: null,
+    policy: null,
+    policyApplied: null,
+    categoryData: null,
+    rulesRebuildAt: null,
+    trackedRequests: [],
   };
 }

@@ -47,6 +47,68 @@ Unset, the code still works — it falls back to the production default. A self-
 non-default server) can also set the server from the options page's "Advanced: server" field, shown only before
 enrollment; that choice is then stored with the device and used for every later call.
 
+### Child mode: policy keys
+
+In Child mode the extension enforces a signed policy bundle from the server (`GET /api/devices/policy`). It trusts only the
+public keys built into it:
+
+- `NEO_POLICY_PUBKEYS`: a JSON array of P-256 JWKs, each with its `kid` (what `GET /api/devices/policy/keys` returns, minus
+  the wrapper). Unset, the build uses the production key in `apps/extension/lib/policy/default-keys.json`. A self-hoster
+  sets their own (see [self-hosting.md](self-hosting.md#policy-signing)); a value that is not a valid array fails the
+  build rather than shipping the production key by accident.
+- To rotate, add the new key to the array, release, then switch the server's signing key.
+
+```bash
+NEO_POLICY_PUBKEYS='[{"kty":"EC","crv":"P-256","x":"...","y":"...","kid":"..."}]' pnpm --filter @neo/extension build
+```
+
+## Child mode enforcement
+
+Only a bundle whose `mode` is `child` makes the extension block anything; Standard and Elder devices get no rules and
+their pages send no extra message. Spec: `_specs/v2-m2-child.md` sections 5 and 6 ("Slice 4: what was built").
+
+- **Policy fetch.** On a heartbeat whose `policyVersion` differs from the stored bundle's, every minute while a request from
+  this browser is pending, and when the stored bundle expires within a day. The envelope is verified (`verifyPolicyEnvelope`)
+  before anything changes; a bad signature or unknown key keeps the last valid bundle and reports
+  `tamper_detected { bad_policy_signature }`. A bundle past `expiresAt` keeps being enforced.
+- **Blocking.** `web.allow` and a running `web.allowOnce` first, then the parent's `web.block`, then the blocked categories.
+  Declarative Net Request rules block the parent's list and a short list of well-known sites before any request is made;
+  the content script (`document_start`) asks the background about every other page in a blocked category and the
+  background redirects the tab to the block page (`blocked.html`). Category data is downloaded from
+  `categoryLists.baseUrl` (see below), verified against its SHA-256, and kept in IndexedDB.
+- **SafeSearch.** Redirect rules add `safe=active` (Google), `adlt=strict` (Bing) and `kp=1` (DuckDuckGo); a header rule
+  sets `YouTube-Restrict`.
+- **Block page.** "Blocked in Child mode", the category, an optional note of at most 140 characters, and **Ask to
+  unblock**. After a parent approves, the browser fetches the new bundle (within about a minute) and the page reloads
+  the site.
+- **Not removable from the options page.** In Child mode the "Stop protecting this browser" button is hidden; a parent
+  removes the device in Neo. Removing the extension itself is detected through the uninstall beacon.
+
+### Category lists and attribution
+
+The category data is built outside the app build and committed:
+
+```bash
+node scripts/category-lists/fetch.mjs   # downloads the pinned sources into scripts/category-lists/.cache/ (git-ignored)
+node scripts/category-lists/build.mjs    # writes apps/web/public/category-lists/<version>/ and apps/web/lib/data/category-lists.json
+```
+
+Sources and commit pins are in `scripts/category-lists/sources.json`: The Block List Project (Unlicense) for adult,
+gambling, drugs and social; UT1 (CC BY-SA 4.0) for proxy_vpn, games, dating, streaming, weapons and more social;
+`self-harm.txt` (ours, empty). Each category is a sorted array of the first 4 bytes of SHA-256(domain), about 5.4 MB in
+all. A hostname that is not on a list matches by chance with probability about n / 2^32 per lookup (roughly 1 in 1,100
+to 1 in 1,600 distinct hostnames with every category on), so `web.allow` overrides every category, and the child can ask
+to unblock. `THIRD_PARTY_NOTICES.md` and the options page ("About and credits") carry the attribution the licences
+require; `ut1-*` files ship with `LICENSE-UT1.txt`. To update a list, change the pin, run `fetch.mjs --print-checksums`,
+paste the checksums into `sources.json`, and rebuild.
+
+### Chromebooks
+
+The extension can only be relied on for a child if it cannot be removed. On a Chromebook that means a managed or
+supervised account that force-installs it; with Google Workspace or a managed Chrome policy, add the extension id to
+`ExtensionInstallForcelist`. Whether Family Link (a supervised consumer account) can force-install a Web Store extension
+is **unverified**; without it, removal is only detected through the uninstall beacon.
+
 ## Building and loading unpacked
 
 ```bash
@@ -109,12 +171,15 @@ purpose):
 | `downloads` | Reads completed downloads' filename and referring page to notice a remote-access-tool installer downloaded from an unexpected site; Neo never opens, cancels or modifies a download. |
 | `contextMenus` | Adds "Check this link/page with Neo" to the right-click menu, for the on-demand check. |
 | `notifications` | Shows a local warning when a remote-access-tool installer download is detected. |
+| `declarativeNetRequestWithHostAccess` | Child mode only (a parent turned it on): redirects blocked sites to Neo's block page and forces SafeSearch, using the host access above. Rules are applied by the browser; Neo does not see requests. Chrome shows no separate install warning for this permission (not re-verified; check the dashboard). |
 
 **Privacy practices tab (data disclosure):** the extension collects and transmits, to Neo's own servers only:
 
 - **Website content**: the registrable domain of a page that matched a scam-page or fake-login pattern (never the
   full URL, page text, or form contents); a remote-access tool's name and installer filename when downloaded from
   an unexpected site; a link the person explicitly pastes or right-clicks to check.
+- In **Child mode** (turned on by a parent for that browser) it also sends the domain and category of a blocked site
+  (never the URL), and the domain on a payment-style page (gift card, crypto, wire transfer; domain and kind only, in every mode).
 - **Personally identifiable information**: none beyond what identifies the household's own device (a random device
   id and a bearer token minted at enrollment). No browsing history, no page content, no passwords are ever
   collected.
@@ -169,7 +234,8 @@ For review before either store listing goes live:
 >
 > Neo never reads your browsing history, page content, form contents or passwords. It only ever sends the domain of
 > a page that looked like a scam, the name of a remote-access tool if one is installed from an unexpected site, and
-> a link you explicitly ask it to check.
+> a link you explicitly ask it to check. If a parent turns on Child mode for a browser, Neo also blocks some kinds of
+> sites there, turns on safe search, and tells the parent the domain and kind of a site it blocked (never the full address).
 >
 > Free and open source. Learn more at neoshield.dev.
 

@@ -44,6 +44,7 @@ export type AuditEventType =
   | "household.time_zone_changed"
   | "incident.action"
   | "child_request.decided"
+  | "signin.answered"
   | "signals.flood";
 
 export interface MemoryAuditEvent {

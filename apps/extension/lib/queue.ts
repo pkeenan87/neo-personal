@@ -14,20 +14,31 @@ export const DEDUPE_MS = 60 * 60 * 1000;
 const BACKOFF_BASE_MS = 30_000;
 const BACKOFF_MAX_MS = 30 * 60 * 1000;
 
-function eventDomain(event: SignalEvent): string | undefined {
-  return "domain" in event ? event.domain : undefined;
+/** `web_blocked` repeats (same domain and category) are one event for this long (`_specs/v2-m2-child.md` section 6)... */
+export const WEB_BLOCKED_COALESCE_MS = 10 * 60 * 1000;
+/** ...except `self_harm`, which the server counts (3 blocks in an hour raise an incident), so it coalesces for a minute only. */
+export const SELF_HARM_COALESCE_MS = 60 * 1000;
+
+/**
+ * What an event is deduped on, and for how long. Most detectors: `(detector, domain)` for an hour.
+ * `web_blocked`: `(domain, category)`. `tamper_detected` has no domain: one per `reason` per hour, so a
+ * bad bundle on every tick is one event, not a flood. Events with neither are never deduped here.
+ */
+function dedupe(event: SignalEvent): { key: string; windowMs: number } | undefined {
+  if (event.detector === "web_blocked") {
+    return { key: `web_blocked:${event.domain}:${event.category}`, windowMs: event.category === "self_harm" ? SELF_HARM_COALESCE_MS : WEB_BLOCKED_COALESCE_MS };
+  }
+  if (event.detector === "tamper_detected") return { key: `tamper_detected:${event.reason}`, windowMs: DEDUPE_MS };
+  if ("domain" in event && event.domain) return { key: `${event.detector}:${event.domain}`, windowMs: DEDUPE_MS };
+  return undefined;
 }
 
-function dedupeKey(detector: string, domain: string): string {
-  return `${detector}:${domain}`;
-}
-
-/** True when an event for this `(detector, domain)` was queued or sent within the last hour. */
+/** True when an equivalent event was queued or sent within its window. */
 export function isDeduped(state: ExtensionState, event: SignalEvent, now: number): boolean {
-  const domain = eventDomain(event);
-  if (!domain) return false;
-  const last = state.dedupe[dedupeKey(event.detector, domain)];
-  return last !== undefined && now - last < DEDUPE_MS;
+  const d = dedupe(event);
+  if (!d) return false;
+  const last = state.dedupe[d.key];
+  return last !== undefined && now - last < d.windowMs;
 }
 
 /**
@@ -42,10 +53,12 @@ export function enqueueEvent(state: ExtensionState, event: SignalEvent, now: num
   let queue = [...state.queue, item];
   if (queue.length > MAX_QUEUE) queue = queue.slice(queue.length - MAX_QUEUE);
 
-  const domain = eventDomain(event);
-  const dedupe = domain ? { ...state.dedupe, [dedupeKey(event.detector, domain)]: now } : state.dedupe;
+  const d = dedupe(event);
+  // Entries older than the longest window can never dedupe anything again: drop them so the record stays small.
+  const kept = Object.fromEntries(Object.entries(state.dedupe).filter(([, at]) => now - at < DEDUPE_MS));
+  const nextDedupe = d ? { ...kept, [d.key]: now } : kept;
 
-  return { state: { ...state, queue, dedupe }, enqueued: true };
+  return { state: { ...state, queue, dedupe: nextDedupe }, enqueued: true };
 }
 
 /** Drops events queued more than 23h ago (the server would reject them as `stale` at 24h). */

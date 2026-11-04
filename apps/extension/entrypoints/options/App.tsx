@@ -5,6 +5,7 @@ import type { ApiResult, DeviceAuthStartResponse, EnrollDeviceResponse, Enrollme
 import type { SignInPollResult } from "@/lib/sync.js";
 import type { ExtensionState } from "@/lib/types.js";
 import { defaultDeviceName, detectPlatform } from "@/lib/platform.js";
+import { BLP_NOTICE, UT1_NOTICE } from "@/lib/attribution.js";
 
 type Screen = "choice" | "code-entry" | "code-consent" | "sign-in" | "enrolled" | "disconnected";
 
@@ -125,6 +126,8 @@ export function App() {
 
   if (!state) return <main style={{ padding: 24 }}>Loading…</main>;
 
+  const childMode = state.policy?.envelope.bundle.mode === "child";
+
   const screen: Screen =
     state.connection === "enrolled"
       ? "enrolled"
@@ -162,6 +165,12 @@ export function App() {
             <strong>{state.household?.householdName}</strong>.
           </p>
           <p style={{ color: "#4a5361" }}>Last check-in: {formatLastSeen(state.lastHeartbeatAt)}.</p>
+          {childMode && (
+            <p style={{ background: "#eef6ff", padding: 10, borderRadius: 6 }}>
+              <strong>Child mode is on.</strong> Neo blocks some kinds of websites and turns on safe search on this browser, and your family set this up. If a
+              site is blocked, you can ask a parent to unblock it from the block page.
+            </p>
+          )}
           <h2 style={{ fontSize: 15 }}>What Neo watches for</h2>
           <ul>
             <li>Fake tech-support pages (phone-scam warning signs)</li>
@@ -173,9 +182,13 @@ export function App() {
           <p style={{ background: "#eef6ff", padding: 10, borderRadius: 6 }}>
             Pin Neo&apos;s icon in your toolbar so you can always see it&apos;s watching.
           </p>
-          <button type="button" onClick={stopProtecting} style={{ color: "#c0392b" }}>
-            Stop protecting this browser
-          </button>
+          {childMode ? (
+            <p style={{ color: "#4a5361" }}>To stop protecting this browser, ask a parent to remove it in Neo.</p>
+          ) : (
+            <button type="button" onClick={stopProtecting} style={{ color: "#c0392b" }}>
+              Stop protecting this browser
+            </button>
+          )}
         </section>
       )}
 
@@ -255,6 +268,14 @@ export function App() {
           )}
         </section>
       )}
+
+      <section aria-labelledby="about-heading" style={{ marginTop: 32, borderTop: "1px solid #e5e7eb", paddingTop: 12, color: "#4a5361", fontSize: 13 }}>
+        <h2 id="about-heading" style={{ fontSize: 15 }}>
+          About and credits
+        </h2>
+        <p>{UT1_NOTICE}</p>
+        <p>{BLP_NOTICE}</p>
+      </section>
     </main>
   );
 }

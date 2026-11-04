@@ -19,7 +19,13 @@ export type BackgroundRequest =
   | { type: "stop-protecting" }
   | { type: "set-server-url"; url: string }
   | { type: "request-host-permission" }
-  | { type: "check-url"; url: string };
+  | { type: "check-url"; url: string }
+  // Child mode (`_specs/v2-m2-child.md` section 6)
+  | { type: "check-host"; hostname: string; url: string }
+  | { type: "block-page-shown"; domain: string }
+  | { type: "request-unblock"; domain: string; reason?: string }
+  | { type: "request-status"; id: string; domain: string }
+  | { type: "payment-page-hit"; domain: string; category: "gift_card" | "crypto" | "wire" | "other" };
 
 export function sendToBackground<T = unknown>(message: BackgroundRequest): Promise<T> {
   return browser.runtime.sendMessage(message) as Promise<T>;

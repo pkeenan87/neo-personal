@@ -9,8 +9,7 @@ import { assessSigninAlert, type EmailAnalysis } from "@neo/tools";
 import type { SigninCheck, Verdict } from "@neo/verdict";
 import { VerdictSchema } from "@neo/verdict";
 import type { SigninEventSource } from "@neo/db";
-import type { NeoSession } from "@/lib/session";
-import { getVisibleVerdict, verdictBody } from "../verdict-data";
+import { getVisibleVerdict, verdictBody, type VerdictViewer } from "../verdict-data";
 import { mockGeoLocator, type GeoLocator } from "./geo";
 import { applyAmbiguousSigninCap, applySigninAlertOverride } from "./override";
 import { getSigninStore, type SigninStore } from "./store";
@@ -135,7 +134,7 @@ export type SigninAnswer = { status: "ok"; playbook?: "account_takeover" } | { s
  * yes remembers the provider/device pair, no forgets it and points at the account_takeover playbook.
  */
 export async function answerSigninCheck(
-  session: NeoSession,
+  session: VerdictViewer,
   verdictId: string,
   response: "yes" | "no",
   deps: SigninDeps = {},
