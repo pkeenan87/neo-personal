@@ -18,7 +18,7 @@ describe("instructions.md keeps the Elder tone and approval rules", () => {
     ["never ask to install, download or open", /Never ask anyone to install, download or open anything/],
     ["never ask for a password, code or card number", /Never ask for a password, a code or a card number/],
     ["never claim an action unless the tool said ok", /unless a tool returned `ok: true`/],
-    ["cannot block, end a session or contact anyone", /cannot block a site, end a session, change other settings or contact anyone/],
+    ["cannot block, end a session or contact anyone", /you cannot end one yourself\. You cannot block a site, change other settings or contact anyone/],
     ["still leads with stop and hang up before offering to close", /still lead with "stop, hang up and do not pay or share any codes" first/],
     ["no pressure, no is fine", /"no" is a fine answer/],
     ["owner only", /These are for the household owner/],

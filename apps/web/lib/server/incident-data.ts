@@ -15,6 +15,7 @@ import {
   alerts,
   deviceSignals,
   devices,
+  incidentActions,
   listAlerts,
   listMemberRecords,
   members,
@@ -24,6 +25,7 @@ import {
   type Member,
 } from "@neo/db";
 import { and, asc, desc, eq, gte, inArray, isNull } from "drizzle-orm";
+import { describeEndSessionAction } from "./device-commands";
 import { getDb } from "./db";
 import { callerOwnsSession } from "./eve-session-owner";
 import type { MembershipRole } from "./session-core";
@@ -65,6 +67,8 @@ export interface IncidentView {
   member: string | null;
   device: string | null;
   signals: SignalSummary[];
+  /** What became of requests to end the remote session, oldest first. Present only when there were any. */
+  endSessionRequests?: { status: string; note: string; at: string }[];
 }
 
 export interface LoadedIncident {
@@ -94,7 +98,7 @@ export async function loadIncident(caller: IncidentCaller, id: string): Promise<
   if (!alert) return null;
   if (caller.role !== "owner" && !canSee(caller, alert, await callerMemberId(t, caller))) return null;
 
-  const [member, device, signals] = await Promise.all([
+  const [member, device, signals, actionRows] = await Promise.all([
     alert.memberId
       ? t.first(members, eq(members.id, alert.memberId))
       : alert.subjectUserId
@@ -104,7 +108,14 @@ export async function loadIncident(caller: IncidentCaller, id: string): Promise<
     alert.signalIds.length > 0
       ? t.select(deviceSignals, inArray(deviceSignals.id, alert.signalIds), { orderBy: [asc(deviceSignals.observedAt)], limit: SIGNALS_PER_INCIDENT })
       : [],
+    t.select(incidentActions, and(eq(incidentActions.alertId, alert.id), eq(incidentActions.kind, "end_session")), { orderBy: [asc(incidentActions.createdAt)], limit: 10 }),
   ]);
+  // A request's pending row is replaced by whatever became of it, so the owner reads one line per request.
+  const commandIdOf = (r: unknown): string | undefined => (r && typeof r === "object" && typeof (r as { commandId?: unknown }).commandId === "string" ? (r as { commandId: string }).commandId : undefined);
+  const settled = new Set(actionRows.filter((a) => a.status !== "pending").map((a) => commandIdOf(a.result)).filter((c): c is string => c !== undefined));
+  const endSessionRequests = actionRows
+    .filter((a) => a.status !== "pending" || !settled.has(commandIdOf(a.result) ?? ""))
+    .map((a) => ({ status: a.status, note: describeEndSessionAction(a.status, a.result), at: a.updatedAt.toISOString() }));
   return {
     eveSessionId: alert.eveSessionId,
     incident: {
@@ -120,6 +131,7 @@ export async function loadIncident(caller: IncidentCaller, id: string): Promise<
       member: member?.displayName ?? null,
       device: device?.name ?? null,
       signals: signals.map((s) => ({ detector: s.detector, subject: s.subject, severity: s.severity ?? null, observedAt: s.observedAt.toISOString() })),
+      ...(endSessionRequests.length > 0 ? { endSessionRequests } : {}),
     },
   };
 }

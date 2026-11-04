@@ -163,6 +163,29 @@ pub struct ScreenTimeRules {
     pub grants: Vec<Grant>,
 }
 
+/// The session a command is about: the remote-access tool (a `toolId` of the detection lists) and,
+/// when the server knows it, the remote ID that connected. Never a pid: the agent does not report one.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct SessionRef {
+    pub tool_id: String,
+    pub peer_id: Option<String>,
+}
+
+/// A command for this device (`_specs/v2-m3-cutover.md` section 4). Only `end_session` exists; a
+/// `kind` this build does not know is ignored.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase")]
+pub struct Command {
+    pub id: String,
+    pub kind: String,
+    pub session_ref: SessionRef,
+    /// The person at the computer must say yes on screen before anything is closed.
+    pub requires_confirmation: bool,
+    /// RFC 3339; the command is ignored from this moment.
+    pub expires_at: String,
+}
+
 /// The part of a bundle the desktop agent enforces. Web rules are the extension's. Every field has
 /// a default, so an absent section means "no rule": the safe reading for enforcement.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -180,6 +203,8 @@ pub struct PolicyBundle {
     pub mode: String,
     pub apps: AppsRules,
     pub screen_time: ScreenTimeRules,
+    /// Pending commands for this device, in every mode. Absent when there are none.
+    pub commands: Vec<Command>,
 }
 
 impl PolicyBundle {

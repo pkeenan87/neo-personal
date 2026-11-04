@@ -199,6 +199,10 @@ function evaluateEvent(policy: PolicyRules, event: SignalEvent, ctx: EvaluationC
     case "screen_time_exhausted":
       return record(["screen_time_exhausted"]);
 
+    // A device's answer to a server command: the ingest handles it before the engine; recorded only if it ever gets here.
+    case "command_result":
+      return record(["command_result"]);
+
     case "tamper_detected": {
       // Same switch as the server's protection_disabled: Child and Elder defaults set it, Standard leaves it off.
       const severity = policy.devices?.protectionDisabledSeverity;

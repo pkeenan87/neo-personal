@@ -139,6 +139,8 @@ export interface HeartbeatResponse {
    * GET /api/devices/policy when it differs from what the device applied. null when it could not be computed.
    */
   policyVersion: string | null;
+  /** Present (`true`) only while a command (`end_session`) waits for this device; the bundle then carries it (_specs/v2-m3-cutover.md section 4). */
+  pendingCommand?: true;
   /**
    * `<origin>/uninstalled?d=...&s=...` (_specs/browser-extension.md "Uninstall"), passed to
    * `runtime.setUninstallURL`. Absent only when `AUTH_SECRET` is unset on a production

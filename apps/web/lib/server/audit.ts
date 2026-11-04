@@ -44,6 +44,8 @@ export type AuditEventType =
   | "household.time_zone_changed"
   | "household.spend_cap_changed"
   | "incident.action"
+  | "device.command_result"
+  | "device.command_expired"
   | "child_request.decided"
   | "memory.added"
   | "memory.forgotten"

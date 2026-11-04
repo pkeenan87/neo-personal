@@ -25,3 +25,4 @@ export * from "./policy-bundles.js";
 export * from "./schedule-runs.js";
 export * from "./household-memory.js";
 export * from "./member-channels.js";
+export * from "./device-commands.js";

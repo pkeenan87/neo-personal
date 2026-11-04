@@ -42,6 +42,8 @@ struct Inner {
     setup_prompted: bool,
     /// The service's `policy_status` (Child mode), when enrolled and the service answered.
     policy: Option<Value>,
+    /// Open confirmations by command id (the confirm window loads its content from here).
+    confirms: HashMap<String, Value>,
 }
 
 struct TrayUi {
@@ -195,6 +197,13 @@ fn get_warning(app: AppHandle, event_id: String) -> Option<Value> {
     inner.warnings.get(&event_id).cloned()
 }
 
+#[tauri::command]
+fn get_confirm(app: AppHandle, id: String) -> Option<Value> {
+    let shared = app.state::<Shared>();
+    let inner = shared.0.lock().unwrap_or_else(|e| e.into_inner());
+    inner.confirms.get(&id).cloned()
+}
+
 // ---- windows ---------------------------------------------------------------------------------
 
 fn open_view(app: &AppHandle, label: &str, query: &str, title: &str, width: f64, height: f64) {
@@ -233,6 +242,27 @@ fn open_warning_window(app: &AppHandle, event_id: &str) {
         .build();
     if let Err(e) = built {
         eprintln!("could not open the warning window: {e}");
+    }
+}
+
+/// The question "Your helper asked to end the remote session. End it now?": topmost, with two buttons. Closing it
+/// without answering is the same as not answering (the service declines after two minutes).
+fn open_confirm_window(app: &AppHandle, id: &str) {
+    let label = logic::confirm_label(id);
+    if app.get_webview_window(&label).is_some() {
+        return;
+    }
+    let url = WebviewUrl::App(format!("index.html?view=confirm&id={id}").into());
+    let built = WebviewWindowBuilder::new(app, &label, url)
+        .title("Neo: remote session")
+        .inner_size(560.0, 320.0)
+        .resizable(false)
+        .minimizable(false)
+        .always_on_top(true)
+        .center()
+        .build();
+    if let Err(e) = built {
+        eprintln!("could not open the confirm window: {e}");
     }
 }
 
@@ -494,6 +524,27 @@ fn handle_push(app: &AppHandle, push: Value) {
                 refresh_status(app);
             }
         }
+        Some("confirm") => {
+            let Some(confirm) = logic::parse_confirm(&push) else { return };
+            let id = confirm["id"].as_str().unwrap_or_default().to_string();
+            {
+                let shared = app.state::<Shared>();
+                let mut inner = shared.0.lock().unwrap_or_else(|e| e.into_inner());
+                inner.confirms.insert(id.clone(), confirm);
+            }
+            open_confirm_window(app, &id);
+        }
+        // The service answered the command (the person answered, or time ran out): the question is over.
+        Some("confirm_done") => {
+            let id = push["id"].as_str().unwrap_or_default().to_string();
+            {
+                let shared = app.state::<Shared>();
+                shared.0.lock().unwrap_or_else(|e| e.into_inner()).confirms.remove(&id);
+            }
+            if let Some(w) = app.get_webview_window(&logic::confirm_label(&id)) {
+                let _ = w.close();
+            }
+        }
         Some("warning") => {
             let Some(warning) = logic::parse_warning(&push) else { return };
             let event_id = warning["eventId"].as_str().unwrap_or_default().to_string();
@@ -561,6 +612,7 @@ pub fn run() {
             open_url,
             close_self,
             get_warning,
+            get_confirm,
             open_full_disk_access,
             reveal_daemon,
             uninstall_mac
