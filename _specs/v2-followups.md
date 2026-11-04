@@ -1,0 +1,84 @@
+# Spec for v2-followups
+
+branch: one per slice (below)
+plan: `_plans/v2.md`; follow-ups recorded at the end of the overnight run (2026-11-04)
+status: in progress, 2026-11-04
+
+## Summary
+
+The overnight v2 run (M2 to M4, PRs #78 to #91) left six follow-ups. This spec covers the four that can be built without the owner. Claude writes each slice's exact changes here. The local model (Qwen) implements them, and Claude reviews every line and runs the full pipeline before committing.
+
+The other two:
+- **Desktop rollback check:** already in place. `apps/desktop/crates/agent-service/src/agent/child.rs` ignores a signed bundle whose `issuedAt` is older than the applied one. Test: `an_older_bundle_does_not_replace_a_newer_one`. The desktop deliberately doesn't report tamper for a stale bundle. The extension does (sync.ts); the two are allowed to differ, because a stale bundle alone isn't an attack.
+- **`self_harm` category list:** still blocked. No list exists whose licence allows redistribution.
+
+## Functional requirements
+
+### Slice A: `eve build` in CI (`claude/ci/eve-build`)
+- In `.github/workflows/ci.yml`, job `checks`, add a step after "Typecheck, lint, test, build": `pnpm --filter @neo/web exec eve build`. Turbo has already built the packages' `dist`, which the eve bundle imports. Locally, a stale `packages/db/dist` made `eve build` fail with `MISSING_EXPORT`, which is exactly the failure CI should catch.
+- No secrets; it runs with the job's `MOCK_MODE=true`.
+
+### Slice B: heartbeat `extensionEnrolled` (`claude/feature/heartbeat-extension-enrolled`)
+The desktop agent already reads `extensionEnrolled` from the heartbeat and reports `tamper_detected { reason: "browser_without_extension" }` on `false`, as `docs/contracts.md` describes. The server never sends it. This slice adds it.
+- `apps/web/lib/household-types.ts` `HeartbeatResponse`: add `extensionEnrolled?: boolean`, with a comment pointing to this spec.
+- `apps/web/lib/server/device-enrollment.ts` `heartbeat()`: after `recordHeartbeat` returns `device`:
+  - Only when `device.kind === "desktop_agent"` and `device.memberId` is set: call `listDevices(session.tenantId, { memberId: device.memberId })`. It is tenant-scoped and lists active (not revoked) devices only. `extensionEnrolled` is whether any of them has `kind === "browser_extension"`.
+  - Spread it into the response only in that case (`...(enrolled !== undefined ? { extensionEnrolled: enrolled } : {})`).
+  - If the lookup throws, omit the field and log through `logger.error`, as `currentPolicyInfo` does. A failure must not fail the check-in.
+  - The tenant comes from the device session, never from the request body.
+- Extension heartbeats never carry the field.
+- `docs/contracts.md`: change the "not sent by any server yet" note to say the server sends it for desktop agents with a member, and add a v2 changelog line.
+
+### Slice C: timed purges for the rest of the household data (`claude/feature/retention-purges`)
+New migration `0031_retention_purges`: `SECURITY DEFINER` functions in the style of `purge_old_child_requests` (0030). Each takes `p_now`, deletes and returns a count, `REVOKE ALL … FROM PUBLIC` and `GRANT EXECUTE … TO app_user`.
+
+| Data | Rule |
+|---|---|
+| `outbox` | delivered or permanently failed rows older than 30 days |
+| invitations | accepted, revoked or expired rows older than 30 days |
+| `device_commands` | acknowledged or expired rows older than 30 days |
+| `eve_sessions` | rows not used for 90 days |
+| `usage_events` | older than 400 days (the spend cap reads the current month; 13 months keeps a year-over-year view) |
+
+- Not purged, by decision:
+  - `consents`: proof that notice and consent were given; it must outlive the monitoring.
+  - `audit_log`: the record of who changed what.
+  - Both are listed under Open Questions.
+- Add each purge to `RETENTION_PURGES` (`apps/web/lib/server/schedules/jobs/retention.ts`) and to `runArtifactsExpire`'s purge list, so both runners plan it.
+- The privacy page and `SECURITY.md` list the new periods.
+- **Deployment order:** the migration must run on production before this PR merges, because the job calls the new functions. This PR stays open until the owner asks for the migration.
+
+### Slice D: eve chat attachments (`claude/feature/eve-chat-attachments`)
+`/chat-v2` gets the old chat's attachments: an `.eml` file or a screenshot.
+- The client reuses the old chat's attachment picker and limits.
+- The server stores the upload through the same artifact path as the old chat (encrypted, tenant-scoped, retention-expired). It passes only the artifact id into the eve session.
+- The tool that reads it returns the content through `wrapToolResult`.
+- Exact files are filled in when the slice starts.
+
+## Possible Edge Cases
+- **Heartbeat:**
+  - A desktop agent whose member was deleted is revoked by the `devices_member_check` constraint, so it gets a 401 first.
+  - A member with only a revoked extension gets `false`.
+- **Purges:** a session used within the 90 days survives, and the age is counted from its last use.
+
+## Acceptance Criteria
+- CI fails if the eve agent bundle doesn't build.
+- **Heartbeat:**
+  - A desktop agent whose member has an active extension gets `extensionEnrolled: true`.
+  - With no extension, or only a revoked one, it gets `false`.
+  - An extension in another household doesn't count.
+  - Extension heartbeats don't carry the field.
+- **Purges:** each new function deletes only rows past its rule and returns the count, and both runners plan it.
+
+## Open Questions
+- **Consents and audit log retention:** kept indefinitely for now, as the safer option for proving consent and accountability. If owners need deletion, add per-household settings with a floor (for example, a consent kept at least a year after monitoring ends).
+- **Purge periods:** the fixed 30 and 90 days could become settings later. They are not household content, so they are fixed for now.
+
+## Testing Guidelines
+- **Slice B:** add to `apps/web/test/device-enrollment.test.ts`:
+  - desktop agent with the member's extension enrolled → `true`;
+  - without one → `false`;
+  - after the extension is removed → `false`;
+  - an extension enrolled for another member → `false`;
+  - the extension's own heartbeat has no `extensionEnrolled`.
+- **Slice C:** database tests with the functions against Postgres in the `packages/db` test style: a row past the rule is deleted, a row inside it is kept. Add the job-plan test for the new purge names.
