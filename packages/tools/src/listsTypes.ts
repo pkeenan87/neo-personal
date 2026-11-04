@@ -63,6 +63,19 @@ export interface ScamPagePhrase {
 /** A detection-list brand entry (`_specs/browser-extension.md`): a stable id plus the brand's matching data. */
 export type ListBrand = Pick<Brand, "name" | "domains" | "keywords"> & { id: string };
 
+/**
+ * Where a client downloads the hashed category domain lists (`_specs/v2-m2-child.md` section 5). Added by
+ * `GET /api/signals/lists` (the web app knows the files); absent from `detectionLists()` and from older servers.
+ * Each `<baseUrl><file>` is a sorted array of uint32 (little-endian): the first 4 bytes of SHA-256(domain), big-endian.
+ */
+export interface CategoryListsInfo {
+  /** Hex content id of the whole set; changes when any file does. */
+  version: string;
+  /** Absolute URL of the directory holding the files, with a trailing slash. */
+  baseUrl: string;
+  categories: Record<string, { file: string; sha256: string; count: number }>;
+}
+
 /** The JSON shape of `detectionLists()`, for clients (browser extension, desktop agent). */
 export interface DetectionListsPayload {
   /** First 16 hex chars of the sha256 over the canonical (stable key order) JSON of the five lists. */
@@ -72,4 +85,6 @@ export interface DetectionListsPayload {
   scamPagePhrases: readonly ScamPagePhrase[];
   skipDomains: readonly string[];
   brands: readonly ListBrand[];
+  /** Present on `GET /api/signals/lists` when the server has category data (additive; older clients ignore it). */
+  categoryLists?: CategoryListsInfo;
 }

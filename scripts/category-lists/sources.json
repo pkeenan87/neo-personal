@@ -1,0 +1,148 @@
+{
+  "_comment": "Pinned inputs for the category lists (_specs/v2-m2-child.md section 5). Raw files are immutable at a commit, so `sha256` is checked on every fetch. To update a pin: change `commit`, run `node scripts/category-lists/fetch.mjs --print-checksums`, paste the checksums here, then run build.mjs.",
+  "sources": {
+    "blp": {
+      "name": "The Block List Project",
+      "repo": "https://github.com/blocklistproject/Lists",
+      "commit": "ee3bdbaddf49c756cf3340bb2e6a9dee5282d1c6",
+      "rawBase": "https://raw.githubusercontent.com/blocklistproject/Lists/ee3bdbaddf49c756cf3340bb2e6a9dee5282d1c6/alt-version/",
+      "licence": "Unlicense (repository licence); file headers say MIT. Upstream rights unverified."
+    },
+    "ut1": {
+      "name": "UT1 Blacklists (olbat/ut1-blacklists mirror)",
+      "repo": "https://github.com/olbat/ut1-blacklists",
+      "commit": "03501c64d230df9d84124176558d758351027be1",
+      "rawBase": "https://raw.githubusercontent.com/olbat/ut1-blacklists/03501c64d230df9d84124176558d758351027be1/blacklists/",
+      "licence": "CC BY-SA 4.0 (per the mirror's README; version unverified on the primary site)"
+    }
+  },
+  "files": {
+    "blp/porn": {
+      "source": "blp",
+      "path": "porn-nl.txt",
+      "sha256": "5e876678921406025032ac6fa9908cfce98216f6af0f7c0cd8e74a334b232dd4"
+    },
+    "blp/gambling": {
+      "source": "blp",
+      "path": "gambling-nl.txt",
+      "sha256": "25a78dfe5f68dded2f52e8c6eb711a6693750d8bc7bde750ecc6044b04c66888"
+    },
+    "blp/drugs": {
+      "source": "blp",
+      "path": "drugs-nl.txt",
+      "sha256": "5d129e455d107da1cefb899bcd6601ec96ac31fd7bdc58175f235799fb0fa462"
+    },
+    "blp/facebook": {
+      "source": "blp",
+      "path": "facebook-nl.txt",
+      "sha256": "857de7e7d9a38a25387352e8a1c85f3db0aa239ce52f5e95ac841d563f1996ac"
+    },
+    "blp/tiktok": {
+      "source": "blp",
+      "path": "tiktok-nl.txt",
+      "sha256": "534e65af8933d6605272ba395df6e44f52c4e54158f34bdbf55c3f08734105ce"
+    },
+    "blp/twitter": {
+      "source": "blp",
+      "path": "twitter-nl.txt",
+      "sha256": "50f1dd1f38d0584c0e90877220dba8d7b4dde22e11d42a88c5c674bdc73f77b4"
+    },
+    "ut1/vpn": {
+      "source": "ut1",
+      "path": "vpn/domains",
+      "sha256": "7a9417d24b69ff6e231b41a9c44b69bf4e5f79a6a054b5d190c759720e2bfe7e"
+    },
+    "ut1/residential-proxies": {
+      "source": "ut1",
+      "path": "residential-proxies/domains",
+      "sha256": "109724fe08de80f1f1995ee879b45eb47bc7b081a4928d0e5ad3985736d30709"
+    },
+    "ut1/doh": {
+      "source": "ut1",
+      "path": "doh/domains",
+      "sha256": "91d4500a912db72058896684188fdf7f202005eb6ff7784a41f65f353f40b6fd"
+    },
+    "ut1/games": {
+      "source": "ut1",
+      "path": "games/domains",
+      "sha256": "3abb09e9ab78613772c19e39b25a9c487761fbe6f9690a149ec03a02e26752a5"
+    },
+    "ut1/dating": {
+      "source": "ut1",
+      "path": "dating/domains",
+      "sha256": "6a65fe63dceffd4483306161c7c08a7e38e84ad2a4468b4cb98dd6b927fbcadd"
+    },
+    "ut1/audio-video": {
+      "source": "ut1",
+      "path": "audio-video/domains",
+      "sha256": "b6da62f92dd02818cf212eef52acfb5ea08bcf0b33386bb3fb88c80444d7e3b9"
+    },
+    "ut1/dangerous_material": {
+      "source": "ut1",
+      "path": "dangerous_material/domains",
+      "sha256": "93161e09b30fb53d72a3e853ae4c8fcce3b8a5e21837e8278d5338278b4b3958"
+    },
+    "ut1/social_networks": {
+      "source": "ut1",
+      "path": "social_networks/domains",
+      "sha256": "fb30bdb5b1c6d806ffb2b6d4fd8e5e4fd64b2b2267829202fff20144051b4f9f"
+    }
+  },
+  "categories": {
+    "adult": {
+      "inputs": [
+        "blp/porn"
+      ]
+    },
+    "gambling": {
+      "inputs": [
+        "blp/gambling"
+      ]
+    },
+    "drugs": {
+      "inputs": [
+        "blp/drugs"
+      ]
+    },
+    "social": {
+      "inputs": [
+        "blp/facebook",
+        "blp/tiktok",
+        "blp/twitter",
+        "ut1/social_networks"
+      ]
+    },
+    "proxy_vpn": {
+      "inputs": [
+        "ut1/vpn",
+        "ut1/residential-proxies",
+        "ut1/doh"
+      ]
+    },
+    "games": {
+      "inputs": [
+        "ut1/games"
+      ]
+    },
+    "dating": {
+      "inputs": [
+        "ut1/dating"
+      ]
+    },
+    "streaming": {
+      "inputs": [
+        "ut1/audio-video"
+      ]
+    },
+    "weapons": {
+      "inputs": [
+        "ut1/dangerous_material"
+      ]
+    },
+    "self_harm": {
+      "inputs": [
+        "local/self-harm"
+      ]
+    }
+  }
+}

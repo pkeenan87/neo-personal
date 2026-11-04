@@ -45,6 +45,7 @@ import type { Outcome } from "./household";
 import { takeRateSlot } from "./rate-limit";
 import { expectedToolsByDevice, expectedToolsForDevice } from "./signals/expected-tools";
 import { recordServerSignal } from "./signals/server-signals";
+import { combinedListsVersion } from "./category-lists";
 import { uninstallUrl, verifyDeviceSignature } from "./uninstall";
 import { householdName as loadHouseholdName } from "./verdict-data";
 
@@ -294,7 +295,7 @@ export async function heartbeat(
       householdName: await loadHouseholdName(session.tenantId),
       memberName: device.memberName,
       heartbeatSeconds: HEARTBEAT_SECONDS,
-      listsVersion: detectionLists().version,
+      listsVersion: combinedListsVersion(detectionLists().version),
       policyVersion,
       ...(url ? { uninstallUrl: url } : {}),
     },
