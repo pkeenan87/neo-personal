@@ -83,6 +83,19 @@ export {
 } from "./routing.js";
 export type { CatalogModel, ModelFamily, ResolveRouteInput, Route, RouteSignals, RouterKind, RoutingPreference, Tier } from "./routing.js";
 
+// Model spend cap maths (_specs/v2-m3-cutover.md section 6)
+export {
+  CACHE_READ_MULTIPLIER,
+  CACHE_WRITE_MULTIPLIER,
+  SPEND_CAP_MAX_CENTS,
+  SPEND_CAP_MIN_CENTS,
+  estimateCostCents,
+  isValidSpendCapCents,
+  monthWindow,
+  spendLevel,
+} from "./spend.js";
+export type { MonthWindow, SpendLevel, SpendTokens } from "./spend.js";
+
 // Artifact crypto (envelope encryption at rest)
 export {
   ARTIFACT_CIPHERTEXT_OVERHEAD,

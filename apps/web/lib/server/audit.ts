@@ -42,8 +42,11 @@ export type AuditEventType =
   | "member.channel_verified"
   | "member.channel_removed"
   | "household.time_zone_changed"
+  | "household.spend_cap_changed"
   | "incident.action"
   | "child_request.decided"
+  | "memory.added"
+  | "memory.forgotten"
   | "signin.answered"
   | "signals.flood";
 

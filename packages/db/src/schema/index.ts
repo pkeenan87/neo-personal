@@ -23,4 +23,5 @@ export * from "./eve-sessions.js";
 export * from "./child.js";
 export * from "./policy-bundles.js";
 export * from "./schedule-runs.js";
+export * from "./household-memory.js";
 export * from "./member-channels.js";

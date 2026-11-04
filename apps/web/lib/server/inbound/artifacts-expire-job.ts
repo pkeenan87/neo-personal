@@ -4,7 +4,8 @@
  * alerts (acknowledged > 90 days, any > 180 days; _specs/owner-alerts.md), old devices
  * and enrollment codes (revoked devices > 90 days, spent codes > 30 days; _specs/device-enrollment.md),
  * device_signals rows older than 30 days, expired reputation_cache rows, and expired encrypted weekly-digest payloads.
- * It also expires child requests past the end of the child's day and resolves their alerts (_specs/v2-m2-child.md section 8).
+ * It also expires child requests past the end of the child's day and resolves their alerts (_specs/v2-m2-child.md section 8),
+ * and deletes household memory past its 365 days (_specs/v2-m3-cutover.md section 3).
  */
 import { logger } from "@neo/core";
 import type { ArtifactStore } from "@neo/db";
@@ -37,6 +38,8 @@ export interface ExpireDeps {
   expireChildRequests?(): Promise<number>;
   /** Delete `schedule_runs` rows older than 90 days (the job log of the Inngest to eve cutover); returns the count. */
   pruneScheduleRuns?(): Promise<number>;
+  /** Delete household memory entries past their expiry, across households; returns the count. */
+  purgeExpiredMemory?(): Promise<number>;
 }
 
 export async function runArtifactsExpire(
@@ -55,6 +58,8 @@ export async function runArtifactsExpire(
   childRequestsExpired?: number;
   /** Present when the run prunes the job log. */
   scheduleRunsPruned?: number;
+  /** Present when the run purges household memory. */
+  householdMemoryPurged?: number;
 }> {
   const artifacts = await step.run("purge-artifacts", async () => {
     if (!deps.artifacts) return { purged: 0, errors: 0 };
@@ -85,6 +90,7 @@ export async function runArtifactsExpire(
   const digestPayloadsDeleted = await step.run("purge-digest-payloads", () => deps.purgeWeeklyDigestPayloads());
   const childRequestsExpired = deps.expireChildRequests ? await step.run("expire-child-requests", () => deps.expireChildRequests!()) : undefined;
   const scheduleRunsPruned = deps.pruneScheduleRuns ? await step.run("prune-schedule-runs", () => deps.pruneScheduleRuns!()) : undefined;
+  const householdMemoryPurged = deps.purgeExpiredMemory ? await step.run("purge-household-memory", () => deps.purgeExpiredMemory!()) : undefined;
   const result = {
     artifactsPurged: artifacts.purged,
     artifactErrors: artifacts.errors,
@@ -96,6 +102,7 @@ export async function runArtifactsExpire(
     digestPayloadsDeleted,
     ...(childRequestsExpired !== undefined ? { childRequestsExpired } : {}),
     ...(scheduleRunsPruned !== undefined ? { scheduleRunsPruned } : {}),
+    ...(householdMemoryPurged !== undefined ? { householdMemoryPurged } : {}),
   };
   logger.info("Retention run finished", "retention", result);
   return result;
