@@ -27,7 +27,7 @@ import { parseAttachmentNote } from "@/lib/attachments";
 import { env } from "@/lib/env";
 import { playbookMarker, type PlaybookId } from "@/lib/playbooks";
 import type { NeoSession } from "@/lib/session";
-import { getArtifactStore } from "./artifacts";
+import { loadEmailArtifact } from "./email-artifact";
 import { recordAudit } from "./audit";
 import { getConversationStore } from "./conversation-store";
 import { NDJSON_HEADERS } from "./http";
@@ -73,20 +73,12 @@ export function buildToolRegistry(opts: { mock: boolean; onEmailAnalysis?: (anal
 }
 
 // ── Phase 1: intake tools ──
-const ARTIFACT_REF_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
  * analyze_email's `loadArtifact`: the tenant comes from the ToolContext the
  * agent loop passes (the session tenant), never from the model's input.
  */
 export async function loadArtifactForTool(ref: string, ctx: ToolContext): Promise<Uint8Array | undefined> {
-  if (!ARTIFACT_REF_RE.test(ref)) return undefined;
-  const store = getArtifactStore();
-  if (!store) return undefined;
-  const meta = await store.get(ref.toLowerCase(), ctx.tenantId);
-  // Screenshots are for the model's eyes, not the email parser.
-  if (!meta || meta.kind === "image") return undefined;
-  return store.read(meta.id, ctx.tenantId);
+  return loadEmailArtifact(ref, ctx.tenantId);
 }
 
 /** Id of the first attachment note in the given messages (the turn's user message), if any. */

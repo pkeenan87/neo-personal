@@ -48,12 +48,38 @@ New migration `0031_retention_purges`: `SECURITY DEFINER` functions in the style
 - The privacy page and `SECURITY.md` list the new periods.
 - **Deployment order:** the migration must run on production before this PR merges, because the job calls the new functions. This PR stays open until the owner asks for the migration.
 
-### Slice D: eve chat attachments (`claude/feature/eve-chat-attachments`)
-`/chat-v2` gets the old chat's attachments: an `.eml` file or a screenshot.
-- The client reuses the old chat's attachment picker and limits.
-- The server stores the upload through the same artifact path as the old chat (encrypted, tenant-scoped, retention-expired). It passes only the artifact id into the eve session.
-- The tool that reads it returns the content through `wrapToolResult`.
-- Exact files are filled in when the slice starts.
+### Slice D: `.eml` attachments in the eve chat (`claude/feature/eve-chat-eml`)
+`/chat-v2` gets the old chat's `.eml` upload. Screenshots stay off. eve writes any file a tool returns into its own session storage, which is outside our artifact store, retention and per-household encryption. That is why `agent/channels/eve.ts` sets `uploadPolicy: "disabled"`. See Open Questions.
+
+- **Shared loader:** new `apps/web/lib/server/email-artifact.ts` exports `loadEmailArtifact(ref: string, tenantId: string): Promise<Uint8Array | undefined>`. The body moves from `loadArtifactForTool` in `lib/server/agent-run.ts`:
+  - uuid check;
+  - `getArtifactStore()`;
+  - `store.get(ref.toLowerCase(), tenantId)`;
+  - `undefined` for a missing, foreign, expired or `image` artifact;
+  - otherwise `store.read(meta.id, tenantId)`.
+
+  `loadArtifactForTool(ref, ctx)` becomes `loadEmailArtifact(ref, ctx.tenantId)`.
+- **Tool:** eve `agent/tools/analyze_email.ts`:
+  - `text` becomes `optionalInput(z.string().trim().min(1).max(200_000))`;
+  - new `artifact_ref: optionalInput(z.string().trim().max(200))`;
+  - `.strict().refine(exactly one of text, artifact_ref)`.
+
+  In `execute`:
+  - `const caller = requireTenantCaller(ctx)`;
+  - with `artifact_ref`, call `loadEmailArtifact(artifact_ref, caller.tenantId)`. A throw becomes `emailErrorResult(["artifact_load_failed"], base)`, `undefined` becomes `emailErrorResult(["artifact_not_found"], base)`, and bytes go to `analyzeEmail({ raw: bytes }, base)`;
+  - the tenant is never taken from input;
+  - `from` and `subject` are ignored with `artifact_ref`;
+  - `toModelOutput` stays `wrappedModelOutput("analyze_email")`.
+
+  The description adds: "or, for an uploaded .eml file, artifact_ref (the id from the [Attached file …] note) instead of text."
+- **Instructions:** `agent/instructions/checks.ts` replaces the "cannot open attachments" line with: an `[Attached file …]` note means call `analyze_email` with that `artifact_ref` and nothing else. Screenshots can't be opened in this chat, so ask for the text.
+- **Client:** `app/chat-v2/EveChat.tsx` gets an "Attach .eml" button:
+  - a hidden `<input type="file" accept=".eml,message/rfc822">`, one file at a time, shown as a removable chip with the file name;
+  - on send: `uploadArtifacts([file])` (the existing `/api/artifacts`, tenant-scoped, with the old chat's limits);
+  - the message text becomes `(typed text, or "Please check this email.")` + `"\n\n"` + `attachmentNote(uploaded)`;
+  - an upload error is shown inline and the file stays attached;
+  - an uploaded artifact whose `kind` isn't `eml` is not sent, and an inline error explains only `.eml` files work here.
+- The id in the message is user-controlled. The tool only resolves ids in the caller's own household, so a foreign or made-up id gets `artifact_not_found`.
 
 ## Possible Edge Cases
 - **Heartbeat:**
@@ -71,6 +97,7 @@ New migration `0031_retention_purges`: `SECURITY DEFINER` functions in the style
 - **Purges:** each new function deletes only rows past its rule and returns the count, and both runners plan it.
 
 ## Open Questions
+- **Screenshots in the eve chat (slice D):** off. Showing one to the model means returning it as a file, which eve stores in its own session storage, outside our retention and per-household encryption. Revisit if eve can take a file by URL from our store (`toolOutputPart.fileUrl` with a short-lived signed URL keeps only the URL), once the URL lifetime problem is solved.
 - **Consents and audit log retention:** kept indefinitely for now, as the safer option for proving consent and accountability. If owners need deletion, add per-household settings with a floor (for example, a consent kept at least a year after monitoring ends).
 - **Purge periods:** the fixed 30 and 90 days could become settings later. They are not household content, so they are fixed for now.
 
@@ -81,4 +108,10 @@ New migration `0031_retention_purges`: `SECURITY DEFINER` functions in the style
   - after the extension is removed → `false`;
   - an extension enrolled for another member → `false`;
   - the extension's own heartbeat has no `extensionEnrolled`.
+- **Slice D:** in `apps/web/test/eve-tools.test.ts`:
+  - `analyze_email` with the `artifact_ref` of an `.eml` uploaded for the caller's household → `input_kind: "raw"`;
+  - the same id from another household's caller → `errors` contains `artifact_not_found`;
+  - an image artifact → `artifact_not_found`;
+  - a malformed id → `artifact_not_found`;
+  - schema: neither `text` nor `artifact_ref` → rejected; both → rejected.
 - **Slice C:** database tests with the functions against Postgres in the `packages/db` test style: a row past the rule is deleted, a row inside it is kept. Add the job-plan test for the new purge names.

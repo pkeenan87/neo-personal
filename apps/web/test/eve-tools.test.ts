@@ -15,6 +15,7 @@ import deviceTimeline from "../agent/tools/device_timeline";
 import getIncident from "../agent/tools/get_incident";
 import listIncidents from "../agent/tools/list_incidents";
 import listMembers from "../agent/tools/list_members";
+import { getArtifactStore } from "@/lib/server/artifacts";
 import { recordSessionOwner } from "@/lib/server/eve-session-owner";
 import { linkIncidentSession } from "@/lib/server/incident-data";
 import { createEveFixture, alertRow, type EveFixture, type Person } from "./helpers/eve-db";
@@ -280,5 +281,53 @@ describe("incident chat context and session link", () => {
     expect(await linkIncidentSession(owner, fx.ownerAlertId, "sess_never_created", { ownerWaitMs: 0 })).toBe(false);
     expect(await linkIncidentSession(owner, fx.ownerAlertId, "bad id", { ownerWaitMs: 0 })).toBe(false);
     expect((await alertRow(fx.db, fx.owner.tenantId, fx.ownerAlertId))?.eveSessionId).toBeNull();
+  });
+});
+
+describe("analyze_email with an uploaded .eml (_specs/v2-followups.md slice D)", () => {
+  async function upload(p: Person, kind: "eml" | "image", bytes: Uint8Array): Promise<string> {
+    const meta = await getArtifactStore()!.put({
+      tenantId: p.tenantId,
+      userId: p.userId,
+      kind,
+      filename: kind === "eml" ? "invoice.eml" : "shot.png",
+      mimeType: kind === "eml" ? "message/rfc822" : "image/png",
+      bytes,
+      source: "upload",
+    });
+    return meta.id;
+  }
+
+  const EML = new TextEncoder().encode(
+    "From: PayPal <service@paypa1.example>\r\nTo: kid@example.test\r\nSubject: Account suspended\r\nMessage-ID: <1@paypa1.example>\r\nDate: Tue, 03 Nov 2026 10:00:00 +0000\r\nContent-Type: text/plain\r\n\r\nVerify at https://example.com/login\r\n",
+  );
+
+  it("resolves the caller's own .eml artifact", async () => {
+    const id = await upload(fx.kid, "eml", EML);
+    expect(await run(analyzeEmail, fx.kid, { artifact_ref: id })).toMatchObject({ input_kind: "raw" });
+  });
+
+  it("returns artifact_not_found for another household's caller", async () => {
+    const id = await upload(fx.kid, "eml", EML);
+    const result = await run(analyzeEmail, fx.other, { artifact_ref: id });
+    expect((result as { errors: string[] }).errors).toContain("artifact_not_found");
+  });
+
+  it("returns artifact_not_found for an image artifact", async () => {
+    const id = await upload(fx.kid, "image", new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]));
+    const result = await run(analyzeEmail, fx.kid, { artifact_ref: id });
+    expect((result as { errors: string[] }).errors).toContain("artifact_not_found");
+  });
+
+  it("returns artifact_not_found for a malformed id", async () => {
+    const result = await run(analyzeEmail, fx.kid, { artifact_ref: "not-a-uuid" });
+    expect((result as { errors: string[] }).errors).toContain("artifact_not_found");
+  });
+
+  it("rejects input with neither text nor artifact_ref, and rejects both", () => {
+    const schema = tool(analyzeEmail).inputSchema;
+    expect(schema.safeParse({}).success).toBe(false);
+    expect(schema.safeParse({ text: "hi", artifact_ref: "x" }).success).toBe(false);
+    expect(schema.safeParse({ artifact_ref: "x" }).success).toBe(true);
   });
 });
