@@ -26,6 +26,17 @@ pub struct ProcessInfo {
     /// Translocation), when it runs from one.
     #[serde(default)]
     pub bundle_id: Option<String>,
+    /// Windows: the session the process runs in (0 is where services run). `None` = unknown.
+    #[serde(default)]
+    pub session_id: Option<u32>,
+    /// Windows: the process runs as SYSTEM, LocalService or NetworkService. macOS: it runs as root.
+    /// `None` = could not be read, which is treated as "yes" wherever it matters.
+    #[serde(default)]
+    pub system_owned: Option<bool>,
+    /// macOS: the executable's signature validates against `anchor apple` (Apple's own software).
+    /// `None` = not checked or not macOS, which is treated as "yes" wherever it matters.
+    #[serde(default)]
+    pub apple_signed: Option<bool>,
 }
 
 /// One uninstall registry entry (`DisplayName`, `Publisher`, ...).

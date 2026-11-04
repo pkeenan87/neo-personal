@@ -37,3 +37,14 @@ pub fn pid_path(pid: i32) -> Option<String> {
     }
     Some(String::from_utf8_lossy(&buf[..n as usize]).to_string())
 }
+
+/// The user id `pid` runs as (`proc_pidinfo` with `PROC_PIDTBSDINFO`), `None` when it cannot be read.
+pub fn pid_uid(pid: i32) -> Option<u32> {
+    // SAFETY: `info` is a zeroed `proc_bsdinfo` and the size passed is its size.
+    unsafe {
+        let mut info: libc::proc_bsdinfo = std::mem::zeroed();
+        let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
+        let n = libc::proc_pidinfo(pid, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut c_void, size);
+        (n == size).then_some(info.pbi_uid)
+    }
+}

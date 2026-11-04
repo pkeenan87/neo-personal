@@ -13,8 +13,10 @@ rust-version = "1.90"
 # Exact pins; member crates inherit with `dep.workspace = true`.
 [workspace.dependencies]
 base64 = "=0.23.1"
+jiff = { version = "=0.2.39", default-features = false, features = ["std", "tzdb-bundle-always"] }
 log = "=0.4.34"
 minisign-verify = "=0.3.0"
+p256 = { version = "=0.14.0", default-features = false, features = ["ecdsa"] }
 regex = "=1.13.1"
 serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"

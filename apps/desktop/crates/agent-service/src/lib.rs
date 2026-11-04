@@ -6,10 +6,12 @@
 //! [`windows`] behind `cfg(windows)` and the macOS code in [`macos`]; both only turn the OS into
 //! the traits in [`probe`], [`secrets`] and [`update`].
 
+pub mod actuator;
 pub mod agent;
 #[cfg(feature = "http")]
 pub mod bootstrap;
 pub mod cli;
+pub mod clocks;
 pub mod config;
 pub mod hub;
 pub mod inspect;

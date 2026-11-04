@@ -10,17 +10,22 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use neo_agent_core::detect::ExeHint;
+use neo_agent_core::enforce::Exclusions;
+use neo_agent_core::ledger::Console;
 use neo_agent_core::lists::PathEnv;
 use neo_agent_core::snapshot::{
     AppBundle, EventLogRecord, ExeFacts, ProcessInfo, ServiceInfo, TccSnapshot, UnifiedLogRecord, UninstallEntry,
 };
 use time::OffsetDateTime;
 
+use crate::clocks::Clocks;
+use crate::config;
 use crate::inspect;
 use crate::probe::{FileStat, SystemProbe};
 
 use super::bundles::{self, IdentCache, LocalUser};
 use super::codesign::{self, CodeInfo};
+use super::{console, notify};
 use super::{exec, procs, tcc, unifiedlog};
 
 const USERS: &str = "/Users";
@@ -36,6 +41,8 @@ const MAX_FACTS: usize = 50;
 struct ProcIdent {
     bundle_id: Option<String>,
     team_id: Option<String>,
+    /// The signature validates against `anchor apple`: Apple's own software.
+    apple: bool,
 }
 
 pub struct MacProbe {
@@ -74,9 +81,13 @@ impl MacProbe {
         let target = bundle.clone().unwrap_or_else(|| path.to_path_buf());
         let key = target.to_string_lossy().to_string();
         let mut cache = self.procs.lock().unwrap_or_else(|e| e.into_inner());
-        cache.get_or_compute(&key, size, mtime, || ProcIdent {
-            bundle_id: bundle.as_deref().and_then(bundles::read_bundle_info).and_then(|i| i.bundle_id),
-            team_id: codesign::inspect(&target).team_id,
+        cache.get_or_compute(&key, size, mtime, || {
+            let code = codesign::inspect(&target);
+            ProcIdent {
+                bundle_id: bundle.as_deref().and_then(bundles::read_bundle_info).and_then(|i| i.bundle_id),
+                team_id: code.team_id,
+                apple: code.apple,
+            }
         })
     }
 
@@ -129,11 +140,8 @@ impl SystemProbe for MacProbe {
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_default();
-            let ident = if bundles::is_system_path(&path) {
-                ProcIdent::default()
-            } else {
-                self.proc_ident(&path)
-            };
+            let system = bundles::is_system_path(&path);
+            let ident = if system { ProcIdent::default() } else { self.proc_ident(&path) };
             out.push(ProcessInfo {
                 pid: pid as u32,
                 image_name,
@@ -141,6 +149,11 @@ impl SystemProbe for MacProbe {
                 signer: None,
                 team_id: ident.team_id,
                 bundle_id: ident.bundle_id,
+                session_id: None,
+                // Filled in by `process_facts` for the few processes the policy might close.
+                system_owned: None,
+                // A system path was not inspected: unknown protects it.
+                apple_signed: (!system).then_some(ident.apple),
             });
         }
         out
@@ -231,6 +244,35 @@ impl SystemProbe for MacProbe {
 
     fn full_disk_access(&self) -> Option<bool> {
         tcc::can_read(Path::new(tcc::SYSTEM_DB))
+    }
+
+    fn clocks(&self) -> Clocks {
+        crate::clocks::read()
+    }
+
+    fn console(&self) -> Console {
+        console::read(notify::dev_console_owner())
+    }
+
+    fn exclusions(&self) -> Exclusions {
+        Exclusions {
+            own_pids: crate::probe::own_pids(),
+            windir: String::new(),
+            own_dirs: vec![
+                config::MACOS_TRAY_APP.to_string(),
+                // Everything the installer put under /Library/Application Support/Neo (the daemon bundle).
+                Path::new(config::MACOS_DAEMON_BUNDLE)
+                    .parent()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .unwrap_or_else(|| config::MACOS_DAEMON_BUNDLE.to_string()),
+            ],
+        }
+    }
+
+    fn process_facts(&self, procs: &mut [ProcessInfo]) {
+        for p in procs {
+            p.system_owned = procs::pid_uid(p.pid as i32).map(|uid| uid == 0);
+        }
     }
 
     fn tcc(&self) -> Option<TccSnapshot> {

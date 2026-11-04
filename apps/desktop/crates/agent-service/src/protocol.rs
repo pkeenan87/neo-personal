@@ -41,8 +41,17 @@ pub enum Request {
     Unenroll,
     /// macOS: re-check Full Disk Access now.
     ProbePermissions,
+    /// Child mode: whether it is on, the time left, the next downtime, and open requests.
+    PolicyStatus,
+    /// Child mode: ask a parent for more screen time today (`minutes` is 5 to 120).
+    RequestMoreTime {
+        minutes: u32,
+    },
     Subscribe,
 }
+
+/// The server's range for `more_time` requests.
+pub const MORE_TIME_MINUTES: std::ops::RangeInclusive<u32> = 5..=120;
 
 /// Why a request line was refused. `code()` is the wire error code.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -183,6 +192,20 @@ pub fn parse_request(line: &[u8]) -> Result<Request, ProtocolError> {
         "subscribe" => Ok(Request::Subscribe),
         "unenroll" => Ok(Request::Unenroll),
         "probe_permissions" => Ok(Request::ProbePermissions),
+        "policy_status" => Ok(Request::PolicyStatus),
+        "request" => {
+            // Only `more_time` exists; the number is a whole number of minutes, never text.
+            if obj.get("kind").and_then(Value::as_str) != Some("more_time") {
+                return Err(ProtocolError::Invalid("kind must be more_time"));
+            }
+            let minutes = obj
+                .get("minutes")
+                .and_then(Value::as_u64)
+                .and_then(|m| u32::try_from(m).ok())
+                .filter(|m| MORE_TIME_MINUTES.contains(m))
+                .ok_or(ProtocolError::Invalid("minutes must be a whole number from 5 to 120"))?;
+            Ok(Request::RequestMoreTime { minutes })
+        }
         "self_enroll_poll" => Ok(Request::SelfEnrollPoll),
         "enroll_preview" => Ok(Request::EnrollPreview {
             code: req_string(&obj, "code", MAX_CODE_LEN)?,
@@ -225,6 +248,35 @@ mod tests {
         assert_eq!(parse(r#"{"op":"unenroll"}"#), Ok(Request::Unenroll));
         assert_eq!(parse(r#"{"op":"probe_permissions"}"#), Ok(Request::ProbePermissions));
         assert_eq!(parse(r#"{"op":"self_enroll_poll"}"#), Ok(Request::SelfEnrollPoll));
+    }
+
+    #[test]
+    fn child_mode_ops() {
+        assert_eq!(parse(r#"{"op":"policy_status"}"#), Ok(Request::PolicyStatus));
+        assert_eq!(
+            parse(r#"{"op":"request","kind":"more_time","minutes":30}"#),
+            Ok(Request::RequestMoreTime { minutes: 30 })
+        );
+        assert_eq!(
+            parse(r#"{"op":"request","kind":"more_time","minutes":5}"#),
+            Ok(Request::RequestMoreTime { minutes: 5 })
+        );
+        for bad in [
+            r#"{"op":"request"}"#,
+            r#"{"op":"request","kind":"more_time"}"#,
+            r#"{"op":"request","kind":"unblock_site","minutes":30}"#,
+            r#"{"op":"request","kind":"install_app","minutes":30}"#,
+            r#"{"op":"request","kind":"more_time","minutes":4}"#,
+            r#"{"op":"request","kind":"more_time","minutes":121}"#,
+            r#"{"op":"request","kind":"more_time","minutes":0}"#,
+            r#"{"op":"request","kind":"more_time","minutes":-5}"#,
+            r#"{"op":"request","kind":"more_time","minutes":30.5}"#,
+            r#"{"op":"request","kind":"more_time","minutes":"30"}"#,
+            r#"{"op":"request","kind":"more_time","minutes":4294967326}"#,
+            r#"{"op":"request","kind":"more_time","minutes":null}"#,
+        ] {
+            assert!(matches!(parse(bad), Err(ProtocolError::Invalid(_))), "{bad}");
+        }
     }
 
     #[test]

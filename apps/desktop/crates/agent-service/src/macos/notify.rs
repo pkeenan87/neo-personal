@@ -17,7 +17,7 @@ pub fn console_uid(owner_of_console: Option<u32>) -> Option<u32> {
     owner_of_console.filter(|uid| *uid != 0)
 }
 
-fn dev_console_owner() -> Option<u32> {
+pub fn dev_console_owner() -> Option<u32> {
     std::fs::metadata("/dev/console").ok().map(|m| m.uid())
 }
 

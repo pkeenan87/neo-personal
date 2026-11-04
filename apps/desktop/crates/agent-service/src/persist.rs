@@ -13,6 +13,12 @@ pub const QUEUE_FILE: &str = "queue.json";
 pub const CURSORS_FILE: &str = "cursors.json";
 pub const LISTS_FILE: &str = "lists.json";
 pub const META_FILE: &str = "agent.json";
+/// The last verified policy envelope (re-verified when read).
+pub const POLICY_FILE: &str = "policy.json";
+/// Child-mode working state: the screen-time ledger, the app inventory, apps waiting for approval.
+pub const CHILD_FILE: &str = "child.json";
+/// The service's own journal, for `agent_service_stopped`.
+pub const ALIVE_FILE: &str = "alive.json";
 
 #[derive(Debug, Clone)]
 pub struct DataDir {
