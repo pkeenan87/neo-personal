@@ -176,6 +176,13 @@
       "when": 1793633046799,
       "tag": "0025_schedule_runs",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793633226799,
+      "tag": "0028_household_memory",
+      "breakpoints": true
     }
   ]
 }

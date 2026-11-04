@@ -294,6 +294,16 @@ export {
   type DecideChildRequestInput,
   type ListChildRequestsOptions,
 } from "./child-requests.js";
+export {
+  HOUSEHOLD_MEMORY_MAX,
+  HOUSEHOLD_MEMORY_RETENTION_DAYS,
+  addHouseholdMemory,
+  forgetHouseholdMemory,
+  listHouseholdMemory,
+  purgeExpiredHouseholdMemory,
+  type AddMemoryResult,
+  type HouseholdMemoryRow,
+} from "./household-memory.js";
 export { getPolicyBundle, upsertPolicyBundle, type PolicyBundleRow } from "./policy-bundles.js";
 export {
   MAX_HELPERS_PER_MEMBER,

@@ -3,10 +3,12 @@ import type { Metadata } from "next";
 import { AppShell } from "@/components/AppShell";
 import { DevBypassBanner } from "@/components/DevBypassBanner";
 import { HouseholdSettingsView } from "@/components/HouseholdSettings";
+import { MemoryPanel } from "@/components/household/MemoryPanel";
 import { ProtectionMembers } from "@/components/household/ProtectionMembers";
 import { env } from "@/lib/env";
 import { getThreshold } from "@/lib/server/alerts";
 import { householdDevices } from "@/lib/server/device-enrollment";
+import { listMemoryForConsole } from "@/lib/server/household-memory";
 import { listInvites } from "@/lib/server/household";
 import { listMemberProfiles } from "@/lib/server/member-console";
 import { household } from "@/lib/server/verdict-data";
@@ -17,13 +19,15 @@ export const dynamic = "force-dynamic";
 
 export default async function HouseholdSettingsPage() {
   const session = await requireSession("/settings/household");
-  const [summary, invites, devices, threshold, protection] = await Promise.all([
+  const [summary, invites, devices, threshold, protection, memory] = await Promise.all([
     household(session),
     listInvites(session),
     householdDevices(session),
     session.role === "owner" ? getThreshold(session).catch(() => "high" as const) : Promise.resolve("high" as const),
     // The owner check re-reads the database; a member (or a storage error) simply gets no Protection section.
     session.role === "owner" ? listMemberProfiles(session).catch(() => null) : Promise.resolve(null),
+    // Same for "What Neo remembers": owners only, and the page still renders when it cannot be loaded.
+    session.role === "owner" ? listMemoryForConsole(session).catch(() => null) : Promise.resolve(null),
   ]);
   return (
     <>
@@ -37,6 +41,9 @@ export default async function HouseholdSettingsPage() {
           remoteAccessTools={REMOTE_ACCESS_TOOLS.map((t) => ({ id: t.id, name: t.name }))}
         />
         {protection?.ok ? <ProtectionMembers members={protection.value.members} /> : null}
+        {memory?.ok ? (
+          <MemoryPanel initial={memory.value.memories} max={memory.value.max} people={protection?.ok ? protection.value.members.map((m) => ({ id: m.id, name: m.displayName })) : []} />
+        ) : null}
       </AppShell>
     </>
   );

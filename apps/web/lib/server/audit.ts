@@ -40,6 +40,8 @@ export type AuditEventType =
   | "household.time_zone_changed"
   | "incident.action"
   | "child_request.decided"
+  | "memory.added"
+  | "memory.forgotten"
   | "signin.answered"
   | "signals.flood";
 

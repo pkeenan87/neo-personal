@@ -93,19 +93,20 @@ describe("retention", () => {
       purgeWeeklyDigestPayloads: vi.fn(async () => 6),
       expireChildRequests: vi.fn(async () => 7),
       pruneScheduleRuns: vi.fn(async () => 8),
+      purgeExpiredMemory: vi.fn(async () => 9),
       purgeArtifact: vi.fn(async () => undefined),
     };
     const live = await runRetention({ runner: "inngest", deps: { mode: "live", read, effects }, steps: inlineSteps, record: recorder().record });
 
     expect(shadow.digest).toBe(live.digest);
-    expect(shadow.actions).toBe(2 + 8);
+    expect(shadow.actions).toBe(2 + 9);
     expect(effects.purgeArtifact).toHaveBeenCalledWith("a1", T1);
     expect(effects.purgeArtifact).toHaveBeenCalledWith("a2", T2);
     expect(effects.purgeOldInbound).toHaveBeenCalledWith(90);
-    for (const fn of [effects.purgeOldAlerts, effects.purgeOldDevices, effects.purgeOldDeviceSignals, effects.purgeExpiredReputationCache, effects.purgeWeeklyDigestPayloads, effects.expireChildRequests, effects.pruneScheduleRuns]) {
+    for (const fn of [effects.purgeOldAlerts, effects.purgeOldDevices, effects.purgeOldDeviceSignals, effects.purgeExpiredReputationCache, effects.purgeWeeklyDigestPayloads, effects.expireChildRequests, effects.pruneScheduleRuns, effects.purgeExpiredMemory]) {
       expect(fn).toHaveBeenCalledTimes(1);
     }
-    expect(live.counts).toMatchObject({ artifactsPurged: 2, childRequestsExpired: 7, scheduleRunsPruned: 8 });
+    expect(live.counts).toMatchObject({ artifactsPurged: 2, childRequestsExpired: 7, scheduleRunsPruned: 8, householdMemoryPurged: 9 });
   });
 
   it("Inngest records in a final step, once", async () => {

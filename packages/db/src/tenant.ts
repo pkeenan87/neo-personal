@@ -21,6 +21,7 @@ import {
   devices,
   eveSessions,
   householdInvites,
+  householdMemory,
   inboundAddresses,
   inboundMessages,
   knownSigninDevices,
@@ -75,6 +76,7 @@ export const tenantTables = {
   eveSessions,
   consents,
   childRequests,
+  householdMemory,
 } as const;
 
 /** Any table with a `tenantId` column. */
