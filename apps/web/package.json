@@ -12,6 +12,8 @@
     "typecheck": "next typegen && tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:evals": "vitest run agent/evals",
+    "test:evals:live": "NEO_LIVE_EVALS=1 eve eval --strict",
     "playbooks:generate": "node scripts/generate-playbooks.mjs"
   },
   "dependencies": {

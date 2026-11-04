@@ -11,7 +11,7 @@ export default defineConfig({
     alias: { "@": here },
   },
   test: {
-    include: ["test/**/*.test.{ts,tsx}"],
+    include: ["test/**/*.test.{ts,tsx}", "agent/evals/**/*.test.ts"],
     environment: "jsdom",
     globals: true,
     setupFiles: ["./test/setup.ts"],
