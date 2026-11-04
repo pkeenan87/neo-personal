@@ -6,7 +6,7 @@
  */
 import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm";
 import type { Db } from "./client.js";
-import { householdMemory, members, type HouseholdMemorySource } from "./schema/index.js";
+import { householdMemory, members, tenants, type HouseholdMemorySource } from "./schema/index.js";
 import type { TenantDb } from "./tenant.js";
 
 export type HouseholdMemoryRow = typeof householdMemory.$inferSelect;
@@ -45,7 +45,9 @@ export async function addHouseholdMemory(
     const dup = live.find((r) => same(r.text, input.text) && (r.subjectMemberId ?? null) === (input.subjectMemberId ?? null));
     if (dup) return { outcome: "duplicate", row: dup };
     if (live.length >= HOUSEHOLD_MEMORY_MAX) return { outcome: "limit" };
-    const expiresAt = new Date(now.getTime() + HOUSEHOLD_MEMORY_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+    // The household's retention setting (migration 0030); null = the default 365 days.
+    const [setting] = await t.tx.select({ days: tenants.retentionMemoryDays }).from(tenants).where(eq(tenants.id, t.tenantId)).limit(1);
+    const expiresAt = new Date(now.getTime() + (setting?.days ?? HOUSEHOLD_MEMORY_RETENTION_DAYS) * 24 * 60 * 60 * 1000);
     const [row] = await t.insert(householdMemory, {
       text: input.text,
       subjectMemberId: input.subjectMemberId,

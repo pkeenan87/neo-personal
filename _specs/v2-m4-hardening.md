@@ -16,6 +16,17 @@ M4 hardens the v2 architecture for release. It introduces configurable data rete
 - **UI:** A household settings page (`/settings/retention`) displays the current retention policy and allows the owner to adjust values within safe bounds (e.g., signals min 7 days, max 365 days). Changes are logged in `audit_log`.
 - **Edge case:** If a household has no `retention_settings` row, use defaults. If a value is out of bounds, clamp to min/max and log a warning.
 
+#### Slice 1: what was built
+
+- **Columns on `tenants`, not a `retention_settings` table.** Like the spend cap: four nullable integers with CHECK bounds (migration `0030_retention_settings`), null = default. One row per household already exists, RLS is the existing tenant policy, the settings route reuses the spend-cap shape, and the definer purges join `tenants` they already need. A table would add a second RLS policy and a lookup per purge for no gain.
+- **Settings and defaults.** `signals_days` 30 (7-365), `incidents_days` 180 (30-1095), `child_requests_days` 90 (7-365), `memory_days` 365 (30-1095). Deviation from the draft: the alert default is **180, not 365**, because that is the existing rule (acknowledged alerts also go after 90 days) and defaults must reproduce today's behaviour. An acknowledged alert goes after the lesser of 90 days and the setting. `eve_sessions_days` and `schedule_runs_days` are not settings: `schedule_runs` is a fixed 90 days (the job log is not household data), eve sessions are eve's own.
+- **Child requests** were never deleted before; decided or expired ones now go after the setting (default 90 days by `updated_at`; pending ones stay until `expire_child_requests` closes them).
+- **Memory.** A purge removes entries past `expires_at` or older than the setting; `expires_at` is set from the setting when a fact is added, so a longer setting applies to new facts only.
+- **Out of range is rejected** with 400 and the fields, not clamped (the draft said clamp): the form shows the bounds, and a silent change of a privacy setting is worse than an error. Non-owners see no section (the open question: hidden).
+- **Settings are read by each purge statement**, so a change takes effect on the next run.
+- **Shadow** records read-only counts per kind (`retention_preview`) with the household settings applied. See `docs/contracts.md`.
+- **Not built:** a separate `/settings/retention` page (the section lives on Household settings), per-tenant planned actions in the shadow digest.
+
 ### 2. Consent and notice flow (Slice 2)
 - **Parent-facing consent screen:** before enabling Child or Elder mode, the owner reads and accepts a plain-language screen in the console. Recorded in the existing `consents` table (M2) as `monitoring_notice` with `evidence { mode, textVersion }` (no new kind).
 - **Elder self-consent:** For Elder mode, the elder must confirm their helpers on screen of their own device (via a deep link or QR code) or the owner must attest in person. This is recorded as `elder_self_consent` in `consents` (`type: 'elder_self_consent'`, `method: 'device' | 'owner_attestation'`, `attested_by`, `attested_at`).
