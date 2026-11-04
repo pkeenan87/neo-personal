@@ -290,6 +290,16 @@ export async function heartbeat(
     return null;
   });
   const policyVersion = info?.policyVersion ?? null;
+  // Whether the member has an active browser extension enrolled (_specs/v2-followups.md Slice B).
+  let extensionEnrolled: boolean | undefined;
+  if (device.kind === "desktop_agent" && device.memberId) {
+    try {
+      const devices = await listDevices(session.tenantId, { memberId: device.memberId });
+      extensionEnrolled = devices.some((d) => d.kind === "browser_extension");
+    } catch (err: unknown) {
+      logger.error("Extension enrollment unavailable for heartbeat", "devices", { tenantId: session.tenantId, errorMessage: errText(err) });
+    }
+  }
   return {
     ok: true,
     value: {
@@ -301,6 +311,7 @@ export async function heartbeat(
       policyVersion,
       // Present only while a command waits for this device (additive): the agent polls its policy every minute.
       ...(info?.pendingCommand ? { pendingCommand: true } : {}),
+      ...(extensionEnrolled !== undefined ? { extensionEnrolled } : {}),
       ...(url ? { uninstallUrl: url } : {}),
     },
   };
