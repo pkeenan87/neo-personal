@@ -1,12 +1,14 @@
 import { NonRetriableError } from "inngest";
 import { breachMonitoringEnv } from "@/lib/env";
 import { getBreachCheckService, getBreachRecipientStore } from "@/lib/server/breach-monitoring/check-services";
-import { breachCheckExecutionConfig, BREACH_MAX_LOOKUP_ATTEMPTS, buildBreachCheckEvents, buildBreachCheckRetryEvent, BREACH_CHECK_EVENT, BREACH_MONITORING_WEEKLY_CRON, BREACH_TOKEN_CLEANUP_CRON, parseBreachCheckEvent } from "@/lib/server/breach-monitoring/orchestration";
+import { breachCheckExecutionConfig, BREACH_MAX_LOOKUP_ATTEMPTS, buildBreachCheckRetryEvent, BREACH_CHECK_EVENT, BREACH_MONITORING_WEEKLY_CRON, BREACH_TOKEN_CLEANUP_CRON, parseBreachCheckEvent } from "@/lib/server/breach-monitoring/orchestration";
 import type { BreachCheckResult } from "@/lib/server/breach-monitoring/check-service";
+import { scheduleRoute } from "@/lib/server/schedules/config";
+import { inlineSteps, skippedForEve } from "@/lib/server/schedules/core";
+import { breachMonitoringDeps, runBreachMonitoring } from "@/lib/server/schedules/jobs/breach-monitoring";
 import { inngest } from "../client";
 
 const MAX_LOOKUP_ATTEMPTS = BREACH_MAX_LOOKUP_ATTEMPTS;
-const MAX_BATCH_SIZE = 500;
 const MAX_RETRY_AFTER_SECONDS = 60 * 60;
 const MAX_CLEANUP_BATCHES = 100;
 const PURGE_BATCH_SIZE = 1000;
@@ -16,6 +18,11 @@ function retryDelay(results: BreachCheckResult[], attempt: number): number {
   return Math.min(MAX_RETRY_AFTER_SECONDS, explicit.length ? Math.max(...explicit) : 30 * 2 ** attempt);
 }
 
+/**
+ * The discovery stage. The logic is lib/server/schedules/jobs/breach-monitoring.ts, shared with the eve schedule of
+ * the same name: this function is a no-op while NEO_EVE_SCHEDULES lists `breach-monitoring` (the eve schedule then
+ * sends the same events, and `breachCheck` below still runs the HIBP lookups).
+ */
 export const breachMonitoringCron = inngest.createFunction(
   {
     id: "breach-monitoring-weekly",
@@ -25,22 +32,15 @@ export const breachMonitoringCron = inngest.createFunction(
     concurrency: 1,
   },
   async ({ step }) => {
-    const store = getBreachRecipientStore();
-    if (!store) return { queued: 0 };
+    if (scheduleRoute("breach-monitoring", "inngest") === "skip") return skippedForEve("breach-monitoring");
+    const deps = breachMonitoringDeps("live");
+    if (!deps) return { queued: 0 };
     // One step: discovery decrypts every address, so it must not rerun on each replay, and the step
     // output (memoized in Inngest) must carry no addresses or digests. Events are sent from inside the
     // step and only the count is returned; event IDs are stable per run date, so a retry de-duplicates.
     return step.run("discover-and-queue", async () => {
-      const events = await buildBreachCheckEvents({
-        listEligibleAddressIds: store.listEligibleAddressIds,
-        getAddressForCheck: store.getAddressForCheck,
-        updateCheck: store.updateCheck,
-        source: process.env,
-      });
-      for (let offset = 0; offset < events.length; offset += MAX_BATCH_SIZE) {
-        await inngest.send(events.slice(offset, offset + MAX_BATCH_SIZE));
-      }
-      return { queued: events.length };
+      const { queued } = await runBreachMonitoring({ runner: "inngest", deps, steps: inlineSteps });
+      return { queued };
     });
   },
 );

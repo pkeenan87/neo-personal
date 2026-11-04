@@ -92,6 +92,12 @@ export function App() {
         </p>
       )}
 
+      {state.policy?.envelope.bundle.mode === "child" && (
+        <p style={{ background: "#eef6ff", color: "#1d4a7a", padding: 8, borderRadius: 6, marginBottom: 8 }}>
+          <strong>Child mode is on.</strong> Some sites are blocked on this browser.
+        </p>
+      )}
+
       <button type="button" onClick={checkThisPage} style={{ width: "100%", padding: "8px 12px", marginBottom: 8 }}>
         Check this page
       </button>

@@ -1,0 +1,90 @@
+{
+  "version": "c046a9ad3d9c5",
+  "categories": {
+    "adult": {
+      "file": "adult.bin",
+      "count": 953082,
+      "sha256": "2d3daa005703c9234de59807e7eb1c596b7325d41baa467fbc30962336ddeb7f",
+      "source": "The Block List Project @ ee3bdbaddf49c756cf3340bb2e6a9dee5282d1c6",
+      "licence": "Unlicense (repository licence); file headers say MIT. Upstream rights unverified."
+    },
+    "gambling": {
+      "file": "gambling.bin",
+      "count": 278845,
+      "sha256": "866fad5eedc3646a9cda1eeadae2b5ea61c799d59a33a018620afd954c532cad",
+      "source": "The Block List Project @ ee3bdbaddf49c756cf3340bb2e6a9dee5282d1c6",
+      "licence": "Unlicense (repository licence); file headers say MIT. Upstream rights unverified."
+    },
+    "drugs": {
+      "file": "drugs.bin",
+      "count": 26023,
+      "sha256": "197f6ee7a95032904ad23f9426d77e00e9b862d63c1971bf09cb136b1bc46c85",
+      "source": "The Block List Project @ ee3bdbaddf49c756cf3340bb2e6a9dee5282d1c6",
+      "licence": "Unlicense (repository licence); file headers say MIT. Upstream rights unverified."
+    },
+    "social": {
+      "file": "ut1-social.bin",
+      "count": 27976,
+      "sha256": "42d4b19e5b7bd794660bfeeffb851bd3605d37a986d3911d029c1843ded26258",
+      "source": "The Block List Project @ ee3bdbaddf49c756cf3340bb2e6a9dee5282d1c6 + UT1 Blacklists (olbat/ut1-blacklists mirror) @ 03501c64d230df9d84124176558d758351027be1",
+      "licence": "CC BY-SA 4.0"
+    },
+    "proxy_vpn": {
+      "file": "ut1-proxy_vpn.bin",
+      "count": 9137,
+      "sha256": "857d2c0c3b319768e416267f74d49f68f7f4efeeb5ce2557f69fe609d207e0f3",
+      "source": "UT1 Blacklists (olbat/ut1-blacklists mirror) @ 03501c64d230df9d84124176558d758351027be1",
+      "licence": "CC BY-SA 4.0"
+    },
+    "games": {
+      "file": "ut1-games.bin",
+      "count": 33652,
+      "sha256": "5e76b63ed70e89a117d60bec138464bbc8ab24657593ff421fe3b6703329a668",
+      "source": "UT1 Blacklists (olbat/ut1-blacklists mirror) @ 03501c64d230df9d84124176558d758351027be1",
+      "licence": "CC BY-SA 4.0"
+    },
+    "dating": {
+      "file": "ut1-dating.bin",
+      "count": 10546,
+      "sha256": "bc8d56a85906b989d5ec617db27410203717bb05e6c50762a82db60332546769",
+      "source": "UT1 Blacklists (olbat/ut1-blacklists mirror) @ 03501c64d230df9d84124176558d758351027be1",
+      "licence": "CC BY-SA 4.0"
+    },
+    "streaming": {
+      "file": "ut1-streaming.bin",
+      "count": 3620,
+      "sha256": "7ede8abd78d674f7a651451e8a524612f8659813eec8a89a40da665840346c54",
+      "source": "UT1 Blacklists (olbat/ut1-blacklists mirror) @ 03501c64d230df9d84124176558d758351027be1",
+      "licence": "CC BY-SA 4.0"
+    },
+    "weapons": {
+      "file": "ut1-weapons.bin",
+      "count": 35,
+      "sha256": "0559af64c7462d3bde9e2e9616994a2ceb65a9edaf87be999065fcad6be49ba4",
+      "source": "UT1 Blacklists (olbat/ut1-blacklists mirror) @ 03501c64d230df9d84124176558d758351027be1",
+      "licence": "CC BY-SA 4.0"
+    },
+    "self_harm": {
+      "file": "self_harm.bin",
+      "count": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "source": "Neo hand-curated list",
+      "licence": "MIT"
+    }
+  },
+  "hash": "first 4 bytes of SHA-256(domain), big-endian, unique and ascending, stored little-endian (4 bytes per domain)",
+  "sources": {
+    "blp": {
+      "name": "The Block List Project",
+      "repo": "https://github.com/blocklistproject/Lists",
+      "commit": "ee3bdbaddf49c756cf3340bb2e6a9dee5282d1c6",
+      "licence": "Unlicense (repository licence); file headers say MIT. Upstream rights unverified."
+    },
+    "ut1": {
+      "name": "UT1 Blacklists (olbat/ut1-blacklists mirror)",
+      "repo": "https://github.com/olbat/ut1-blacklists",
+      "commit": "03501c64d230df9d84124176558d758351027be1",
+      "licence": "CC BY-SA 4.0 (per the mirror's README; version unverified on the primary site)"
+    }
+  }
+}
