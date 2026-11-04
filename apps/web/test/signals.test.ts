@@ -5,6 +5,9 @@
  * emails including owner-device signals, scam-in-progress correlation, the lists route
  * (ETag/304), the heartbeat `listsVersion`, and the expected-tools route by role.
  */
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
 import type { Session } from "next-auth";
 import { createInMemoryCache, type UrlAnalysis } from "@neo/tools";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -410,6 +413,34 @@ describe("GET /api/signals/lists", () => {
     bearer(token);
     const weak = await listsGET(new Request("http://localhost/api/signals/lists", { headers: { "If-None-Match": `W/${etag}` } }));
     expect(weak.status).toBe(304);
+  });
+
+  it("includes categoryLists, and the ETag/version/heartbeat cover them (_specs/v2-m2-child.md section 5)", async () => {
+    const { token } = await enrollDevice(GRAN.userId);
+    bearer(token);
+    const res = await listsGET(new Request("https://neo.example/api/signals/lists"));
+    const body = (await res.json()) as {
+      version: string;
+      categoryLists?: { version: string; baseUrl: string; categories: Record<string, { file: string; sha256: string; count: number }> };
+    };
+    const cl = body.categoryLists;
+    expect(cl).toBeTruthy();
+    expect(cl!.baseUrl).toBe(`https://neo.example/category-lists/${cl!.version}/`);
+    expect(Object.keys(cl!.categories).sort()).toEqual(["adult", "dating", "drugs", "gambling", "games", "proxy_vpn", "self_harm", "social", "streaming", "weapons"]);
+    for (const entry of Object.values(cl!.categories)) {
+      expect(entry.sha256).toMatch(/^[0-9a-f]{64}$/);
+      expect(entry.file).toMatch(/^(ut1-)?[a-z_]+\.bin$/);
+    }
+    // The version changes when the category set does, so an old client's ETag no longer matches.
+    expect(body.version.endsWith(`-${cl!.version}`)).toBe(true);
+    // Every ut1-derived file is credited: the notice ships next to the data.
+    const dir = path.join(process.cwd(), "public", "category-lists", cl!.version);
+    expect(existsSync(path.join(dir, "LICENSE-UT1.txt"))).toBe(true);
+    for (const entry of Object.values(cl!.categories)) {
+      const bytes = readFileSync(path.join(dir, entry.file));
+      expect(bytes.length).toBe(entry.count * 4);
+      expect(createHash("sha256").update(bytes).digest("hex")).toBe(entry.sha256);
+    }
   });
 
   it("includes brands (_specs/browser-extension.md)", async () => {

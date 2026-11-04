@@ -1,0 +1,9 @@
+Neo category lists: UT1 notice
+
+This product includes domain category data from the UT1 Blacklists, © Université Toulouse Capitole (Fabrice Prigent), http://dsi.ut-capitole.fr/blacklists/, licensed under CC BY-SA 4.0 (https://creativecommons.org/licenses/by-sa/4.0/). The data has been converted to a compact format and filtered; no endorsement by the licensor is implied. The adapted data in ut1-* files is distributed under the same licence.
+
+Each ut1-*.bin file is a sorted list of 32-bit values (the first 4 bytes of the SHA-256 of a domain name, 4 bytes each, little-endian), derived from the UT1 category lists named in manifest.json. Entries were lowercased, stripped of comments and wildcards, limited to hostname-shaped lines and deduplicated, then hashed; the original domain names are not included. The ut1-social file also folds in data from The Block List Project (Unlicense); the combined file is distributed under CC BY-SA 4.0.
+
+Source mirror: https://github.com/olbat/ut1-blacklists (pinned commit in manifest.json).
+
+Includes data from The Block List Project (https://github.com/blocklistproject/Lists), released under the Unlicense.

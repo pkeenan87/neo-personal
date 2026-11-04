@@ -1,0 +1,56 @@
+{
+  "version": "c046a9ad3d9c5",
+  "path": "/category-lists/c046a9ad3d9c5/",
+  "categories": {
+    "adult": {
+      "file": "adult.bin",
+      "sha256": "2d3daa005703c9234de59807e7eb1c596b7325d41baa467fbc30962336ddeb7f",
+      "count": 953082
+    },
+    "gambling": {
+      "file": "gambling.bin",
+      "sha256": "866fad5eedc3646a9cda1eeadae2b5ea61c799d59a33a018620afd954c532cad",
+      "count": 278845
+    },
+    "drugs": {
+      "file": "drugs.bin",
+      "sha256": "197f6ee7a95032904ad23f9426d77e00e9b862d63c1971bf09cb136b1bc46c85",
+      "count": 26023
+    },
+    "social": {
+      "file": "ut1-social.bin",
+      "sha256": "42d4b19e5b7bd794660bfeeffb851bd3605d37a986d3911d029c1843ded26258",
+      "count": 27976
+    },
+    "proxy_vpn": {
+      "file": "ut1-proxy_vpn.bin",
+      "sha256": "857d2c0c3b319768e416267f74d49f68f7f4efeeb5ce2557f69fe609d207e0f3",
+      "count": 9137
+    },
+    "games": {
+      "file": "ut1-games.bin",
+      "sha256": "5e76b63ed70e89a117d60bec138464bbc8ab24657593ff421fe3b6703329a668",
+      "count": 33652
+    },
+    "dating": {
+      "file": "ut1-dating.bin",
+      "sha256": "bc8d56a85906b989d5ec617db27410203717bb05e6c50762a82db60332546769",
+      "count": 10546
+    },
+    "streaming": {
+      "file": "ut1-streaming.bin",
+      "sha256": "7ede8abd78d674f7a651451e8a524612f8659813eec8a89a40da665840346c54",
+      "count": 3620
+    },
+    "weapons": {
+      "file": "ut1-weapons.bin",
+      "sha256": "0559af64c7462d3bde9e2e9616994a2ceb65a9edaf87be999065fcad6be49ba4",
+      "count": 35
+    },
+    "self_harm": {
+      "file": "self_harm.bin",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "count": 0
+    }
+  }
+}

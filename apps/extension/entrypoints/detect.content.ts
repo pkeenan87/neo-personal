@@ -5,6 +5,7 @@ import { evaluateLookalike, isSendableLookalikeHit } from "@/lib/detectors/looka
 import { NEO_SIGNAL_EVENT, type HookSignalDetail } from "@/lib/detectors/hookProtocol.js";
 import { getState } from "@/lib/state.js";
 import { listsSnapshot } from "@/lib/listsSnapshot.js";
+import { detectPaymentPage } from "@/lib/detectors/payment.js";
 import { sendToBackground } from "@/lib/messages.js";
 
 /** `_specs/browser-extension.md`: text scanning runs "for the first 60 seconds of the page only". */
@@ -34,6 +35,17 @@ export default defineContentScript({
     const state = await getState();
     const lists = state.lists ?? listsSnapshot;
 
+    // Child mode: the background decides (it holds the category data) and sends this tab to the block
+    // page. Standard and Elder devices never send this message.
+    const bundle = state.policy?.envelope.bundle;
+    if (bundle?.mode === "child" && (bundle.web.categories.length > 0 || bundle.web.block.length > 0)) {
+      const result = await sendToBackground<{ blocked?: boolean } | undefined>({ type: "check-host", hostname: location.hostname, url: location.href }).catch(() => undefined);
+      if (result?.blocked) {
+        window.stop();
+        return;
+      }
+    }
+
     const tracker = new BehaviorTracker();
     const pageLoadedAt = Date.now();
     let techSupportReported = false;
@@ -57,6 +69,18 @@ export default defineContentScript({
       void sendToBackground({ type: "lookalike-hit", domain: evaluation.domain, pageUrl: location.href, brand: evaluation.brand, indicators: evaluation.indicators });
     }
 
+    // Payment-page detector (all modes; the server decides what it means). Once per page, after load.
+    let paymentReported = false;
+    function evaluateAndMaybeReportPayment(): void {
+      if (paymentReported) return;
+      const category = detectPaymentPage({ domain, pathname: location.pathname, title: document.title, text: pageText() });
+      if (!category) return;
+      paymentReported = true;
+      void sendToBackground({ type: "payment-page-hit", domain, category });
+    }
+    if (document.readyState === "complete") evaluateAndMaybeReportPayment();
+    else window.addEventListener("load", evaluateAndMaybeReportPayment, { once: true });
+
     document.addEventListener(NEO_SIGNAL_EVENT, (event) => {
       // `applyHookSignal` only ever reads `.kind`: even a forged event with an extra `domain`
       // field (or any other field) cannot change what domain a later hit is reported for — that
@@ -78,7 +102,10 @@ export default defineContentScript({
     function scheduleTextScan(): void {
       if (Date.now() - pageLoadedAt > TEXT_SCAN_WINDOW_MS) return;
       if (debounceTimer) clearTimeout(debounceTimer);
-      debounceTimer = setTimeout(evaluateAndMaybeReportTechSupport, TEXT_SCAN_DEBOUNCE_MS);
+      debounceTimer = setTimeout(() => {
+        evaluateAndMaybeReportTechSupport();
+        evaluateAndMaybeReportPayment();
+      }, TEXT_SCAN_DEBOUNCE_MS);
     }
 
     if (document.readyState === "complete") evaluateAndMaybeReportTechSupport();

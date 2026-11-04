@@ -43,15 +43,29 @@ export async function handleMessage(message: BackgroundRequest, sender: { tab?: 
     case "cancel-sign-in":
       await sync.cancelSignIn();
       return { ok: true };
-    case "stop-protecting":
+    case "stop-protecting": {
+      // A child can't switch their own protection off from the options page; a parent removes the device in Neo.
+      if (sync.isChildMode(await sync.getStateForClient())) return { ok: false, error: "child_mode" };
       await sync.stopProtecting();
       return { ok: true };
+    }
     case "set-server-url":
       return sync.setServerUrl(message.url);
     case "request-host-permission":
       return browser.permissions.request({ origins: ["<all_urls>"] });
     case "check-url":
       return sync.checkUrlOnDemand(message.url);
+    case "check-host":
+      return sync.handleCheckHost(message.hostname, message.url, tabId);
+    case "block-page-shown":
+      return sync.handleBlockPageShown(message.domain);
+    case "request-unblock":
+      return sync.requestUnblock(message.domain, message.reason);
+    case "request-status":
+      return sync.getRequestStatus(message.id, message.domain);
+    case "payment-page-hit":
+      await sync.reportPaymentPage({ domain: message.domain, category: message.category });
+      return { ok: true };
     default:
       return { ok: false, error: "unknown_message" };
   }
