@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 use tauri::image::Image;
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{TrayIcon, TrayIconBuilder};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_notification::NotificationExt;
@@ -40,6 +40,8 @@ struct Inner {
     /// Unix seconds of the newest warning this tray app received.
     last_alert: Option<i64>,
     setup_prompted: bool,
+    /// The service's `policy_status` (Child mode), when enrolled and the service answered.
+    policy: Option<Value>,
 }
 
 struct TrayUi {
@@ -56,7 +58,22 @@ struct TrayUi {
     /// macOS: "Uninstall Neo...", at the end of the menu.
     uninstall: MenuItem<tauri::Wry>,
     uninstall_shown: Mutex<bool>,
+    /// Child mode: "Child mode is on", the time left, the latest request, and the ask submenu.
+    child: ChildMenu,
 }
+
+/// The Child-mode menu entries. They are in the menu only while Child mode is on; `shown` is the
+/// list of entries currently in it (by id), so the menu is only rebuilt when the layout changes.
+struct ChildMenu {
+    status: MenuItem<tauri::Wry>,
+    time: MenuItem<tauri::Wry>,
+    request: MenuItem<tauri::Wry>,
+    ask: Submenu<tauri::Wry>,
+    shown: Mutex<Vec<&'static str>>,
+}
+
+/// Where the Child-mode entries go: after the two status lines.
+const CHILD_MENU_POSITION: usize = 2;
 
 /// Where the permissions item goes: after the two status lines and their separator.
 const PERMS_MENU_POSITION: usize = 3;
@@ -237,6 +254,22 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayUi> {
     let sep2 = PredefinedMenuItem::separator(app)?;
     let perms = MenuItem::with_id(app, "perms", "App permission checks are off: turn on\u{2026}", true, None::<&str>)?;
     let uninstall = MenuItem::with_id(app, "uninstall", "Uninstall Neo\u{2026}", true, None::<&str>)?;
+    let child = ChildMenu {
+        status: MenuItem::with_id(app, "child_status", "Child mode is on", false, None::<&str>)?,
+        time: MenuItem::with_id(app, "child_time", "", false, None::<&str>)?,
+        request: MenuItem::with_id(app, "child_request", "", false, None::<&str>)?,
+        ask: Submenu::with_items(
+            app,
+            "Ask for more time",
+            true,
+            &[
+                &MenuItem::with_id(app, "ask15", "15 more minutes", true, None::<&str>)?,
+                &MenuItem::with_id(app, "ask30", "30 more minutes", true, None::<&str>)?,
+                &MenuItem::with_id(app, "ask60", "1 more hour", true, None::<&str>)?,
+            ],
+        )?,
+        shown: Mutex::new(Vec::new()),
+    };
     let menu = Menu::with_items(app, &[&status, &checkin, &sep1, &setup, &check, &open, &about, &sep2, &stop])?;
     let tray = TrayIconBuilder::with_id("neo")
         .icon(Image::from_bytes(GREY)?)
@@ -257,6 +290,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayUi> {
                 600.0,
             ),
             "uninstall" => open_view(app, "uninstall", "view=uninstall", "Uninstall Neo", 480.0, 320.0),
+            id if logic::ask_minutes(id).is_some() => {
+                if let Some(minutes) = logic::ask_minutes(id) {
+                    ask_for_more_time(app, minutes);
+                }
+            }
             "open" => {
                 let base = {
                     let shared = app.state::<Shared>();
@@ -283,15 +321,16 @@ fn build_tray(app: &AppHandle) -> tauri::Result<TrayUi> {
         perms_shown: Mutex::new(false),
         uninstall,
         uninstall_shown: Mutex::new(false),
+        child,
     })
 }
 
 /// Redraws the menu and icon from what the tray knows.
 fn refresh_tray(app: &AppHandle) {
-    let (up, status, last_alert) = {
+    let (up, status, last_alert, policy) = {
         let shared = app.state::<Shared>();
         let inner = shared.0.lock().unwrap_or_else(|e| e.into_inner());
-        (inner.service_up, inner.status.clone(), inner.last_alert)
+        (inner.service_up, inner.status.clone(), inner.last_alert, inner.policy.clone())
     };
     let ui = app.state::<TrayUi>();
     let now = now_unix();
@@ -326,6 +365,12 @@ fn refresh_tray(app: &AppHandle) {
         Some(PERMS_MENU_POSITION),
     );
     sync_menu_item(&ui.menu, &ui.uninstall, &ui.uninstall_shown, logic::is_macos(status.as_ref()), None);
+    let lines = if enrolled {
+        policy.as_ref().and_then(|p| logic::child_lines(p, now))
+    } else {
+        None
+    };
+    sync_child_menu(&ui.menu, &ui.child, lines.as_ref());
     let (bytes, tip) = match logic::icon_state(up, state, last_warning, now) {
         IconState::Shield => (SHIELD, format!("Neo: {line}")),
         IconState::Grey => (GREY, format!("Neo: {line}")),
@@ -335,6 +380,55 @@ fn refresh_tray(app: &AppHandle) {
         let _ = ui.tray.set_icon(Some(img));
     }
     let _ = ui.tray.set_tooltip(Some(tip));
+}
+
+/// Shows, updates or hides the Child-mode entries. The text of the lines is set every time; the menu
+/// itself is only rebuilt when the set of entries changes.
+fn sync_child_menu(menu: &Menu<tauri::Wry>, c: &ChildMenu, lines: Option<&logic::ChildLines>) {
+    let mut want: Vec<&'static str> = Vec::new();
+    if let Some(l) = lines {
+        let _ = c.status.set_text(&l.status);
+        let _ = c.time.set_text(&l.time);
+        want.extend(["child_status", "child_time"]);
+        if let Some(r) = &l.request {
+            let _ = c.request.set_text(r);
+            want.push("child_request");
+        }
+        want.push("child_ask");
+    }
+    let mut shown = c.shown.lock().unwrap_or_else(|e| e.into_inner());
+    if *shown == want {
+        return;
+    }
+    let items: [(&'static str, &dyn IsMenuItem<tauri::Wry>); 4] = [
+        ("child_status", &c.status),
+        ("child_time", &c.time),
+        ("child_request", &c.request),
+        ("child_ask", &c.ask),
+    ];
+    for (id, item) in items {
+        if shown.contains(&id) {
+            let _ = menu.remove(item);
+        }
+    }
+    let mut pos = CHILD_MENU_POSITION;
+    for (id, item) in items {
+        if want.contains(&id) && menu.insert(item, pos).is_ok() {
+            pos += 1;
+        }
+    }
+    *shown = want;
+}
+
+/// "Ask for more time": the service sends the request; the answer is a toast. Off the menu thread.
+fn ask_for_more_time(app: &AppHandle, minutes: u32) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let reply = ipc::request(&serde_json::json!({ "op": "request", "kind": "more_time", "minutes": minutes }));
+        let (title, body) = logic::ask_result_text(&reply, minutes);
+        let _ = app.notification().builder().title(title).body(body).show();
+        refresh_status(&app);
+    });
 }
 
 /// Adds or removes a menu item so that it is in the menu exactly when `want` (`at`: where to
@@ -358,9 +452,14 @@ fn sync_menu_item(menu: &Menu<tauri::Wry>, item: &MenuItem<tauri::Wry>, shown: &
 /// not to be set up, the first-run window opens.
 fn refresh_status(app: &AppHandle) {
     let reply = ipc::request(&serde_json::json!({ "op": "status" }));
+    // Child mode: only an enrolled computer has a policy to ask about.
+    let policy = (reply["ok"] == true && reply["state"] == "enrolled")
+        .then(|| ipc::request(&serde_json::json!({ "op": "policy_status" })))
+        .filter(|p| p["ok"] == true);
     let open_first_run = {
         let shared = app.state::<Shared>();
         let mut inner = shared.0.lock().unwrap_or_else(|e| e.into_inner());
+        inner.policy = policy;
         if reply["ok"] == true {
             inner.service_up = true;
             let not_enrolled = reply["state"] == "not_enrolled";
@@ -386,6 +485,15 @@ fn refresh_status(app: &AppHandle) {
 fn handle_push(app: &AppHandle, push: Value) {
     match push["push"].as_str() {
         Some("status_changed") => refresh_status(app),
+        Some("notice") => {
+            if let Some((title, body)) = logic::notice_text(&push) {
+                let _ = app.notification().builder().title(title).body(body).show();
+            }
+            // An answer to a request, or a lock, changes the lines in the menu.
+            if matches!(push["kind"].as_str(), Some("request" | "locked")) {
+                refresh_status(app);
+            }
+        }
         Some("warning") => {
             let Some(warning) = logic::parse_warning(&push) else { return };
             let event_id = warning["eventId"].as_str().unwrap_or_default().to_string();

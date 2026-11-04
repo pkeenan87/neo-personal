@@ -6,7 +6,6 @@ mod common;
 use std::sync::atomic::Ordering;
 
 use common::*;
-use neo_agent::agent::Agent;
 use neo_agent::persist::{META_FILE, Meta, QUEUE_FILE};
 use neo_agent::protocol::Request;
 use neo_agent::update::Available;
@@ -228,17 +227,7 @@ fn offline_events_wait_in_the_queue_and_survive_a_restart() {
     // Back online after the backoff: a fresh Agent (a service restart) loads the queue and sends.
     h.server.offline.store(false, Ordering::SeqCst);
     h.clock.advance(120);
-    let again = Agent::new(
-        neo_agent::agent::Deps {
-            probe: Box::new(h.probe.clone()),
-            secrets: Box::new(h.secrets.clone()),
-            notifier: Box::new(h.notifier.clone()),
-            clock: Box::new(h.clock.clone()),
-            transport: neo_agent::agent::DynTransport(h.server.clone()),
-            updater: Box::new(h.updater.clone()),
-        },
-        h.dir.clone(),
-    );
+    let again = h.restart();
     again.tick();
     assert!(h.server.posted_events().iter().filter(|e| e["toolId"] == "anydesk").count() >= 1);
     let queued = std::fs::read_to_string(h.dir.root().join(QUEUE_FILE)).unwrap();

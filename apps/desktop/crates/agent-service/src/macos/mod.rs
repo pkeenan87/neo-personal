@@ -7,7 +7,9 @@
 //! libproc process listing, the Security framework, `getpeereid`, and the daemon entry. The
 //! `desktop-macos` CI job is its first real build.
 
+pub mod actuator;
 pub mod bundles;
+pub mod console;
 pub mod exec;
 pub mod notify;
 pub mod perms;
