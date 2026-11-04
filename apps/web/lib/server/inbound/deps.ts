@@ -8,6 +8,7 @@ import { recordAudit } from "../audit";
 import { expireDueChildRequests } from "../child-requests";
 import { getDb } from "../db";
 import { purgeOldDevices } from "../devices";
+import { purgeExpiredMemory } from "../household-memory";
 import { getMailer, getReceivedMailClient } from "../email/resend";
 import { purgeExpiredReputationCache, purgeOldDeviceSignals } from "../signals/store";
 import { checkCaps, noteCapHit, recordUsage } from "../usage";
@@ -59,6 +60,16 @@ export function createExpireDeps(): ExpireDeps {
         return await pruneScheduleRuns(db, SCHEDULE_RUN_RETENTION_DAYS);
       } catch (err) {
         logger.warn("Schedule run pruning failed", "retention", { errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
+        return 0;
+      }
+    },
+    // Household memory is new (migration 0028): a database that has not run it yet must not break retention.
+    purgeExpiredMemory: async () => {
+      if (!db) return 0;
+      try {
+        return await purgeExpiredMemory();
+      } catch (err) {
+        logger.warn("Household memory purge failed", "retention", { errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
         return 0;
       }
     },

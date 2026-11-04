@@ -45,6 +45,8 @@ export type AuditEventType =
   | "household.spend_cap_changed"
   | "incident.action"
   | "child_request.decided"
+  | "memory.added"
+  | "memory.forgotten"
   | "signin.answered"
   | "signals.flood";
 
