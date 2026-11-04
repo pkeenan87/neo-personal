@@ -42,6 +42,7 @@ export const PRIVACY_COVERAGE: Record<string, { section: string; phrase: string 
   policies: { section: "protection", phrase: "Settings sent to devices." },
   policyBundles: { section: "protection", phrase: "signed by Neo's key" },
   incidentActions: { section: "protection", phrase: "Actions and notifications." },
+  deviceCommands: { section: "protection", phrase: "end a remote-access session" },
   notificationOutbox: { section: "protection", phrase: "wait in a queue" },
   eveSessions: { section: "assistant", phrase: "Neo records who started each chat session" },
   consents: { section: "people", phrase: "Consent records." },

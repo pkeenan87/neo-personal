@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 /** Bump when the policy text changes materially. */
-export const PRIVACY_POLICY_UPDATED = "2026-11-03";
+export const PRIVACY_POLICY_UPDATED = "2026-11-04";
 
 const REPO_URL = "https://github.com/pkeenan87/neo-personal";
 
@@ -159,9 +159,12 @@ function sections(email: string): Section[] {
             invitation), a hash of the secret link, how many times it was sent, who invited, and when it expires or was used.
           </p>
           <p className="mt-3">
-            <strong>Consent records.</strong> When the owner turns on Child mode, Neo records that they did, which member it
-            was for, who gave it, when, and the age band it was set for. Nothing else about the conversation is kept in that
-            record. It lasts as long as the person&apos;s record does and is deleted with it, or with the household.
+            <strong>Consent records.</strong> Before the owner turns on Child or Elder mode they read a notice and confirm it.
+            Neo records that they did, which member it was for, who gave it, when, the version of the notice, and the age
+            band for Child mode. For Elder mode the owner also confirms that they set it up in person with the elder and the
+            elder agreed to the named helpers; Neo records that confirmation and the helpers it covered. Each person&apos;s
+            page has a &ldquo;what is shared&rdquo; summary that the person and the owners can read. Nothing else about the
+            conversation is kept in those records. It lasts as long as the person&apos;s record does and is deleted with it, or with the household.
           </p>
         </>
       ),
@@ -189,12 +192,15 @@ function sections(email: string): Section[] {
             alert and an email with Approve and Deny links. The links only identify the request: the owner must be signed
             in and confirm, and a link works for 24 hours. A request that nobody answers is marked expired. The child&apos;s
             typed words are shown to the owner as quoted text and are never treated as instructions by Neo&apos;s assistant.
-            Answered and expired requests are kept until the person or the household is deleted.
+            Answered and expired requests are deleted after 90 days unless the owner sets a different period.
           </li>
           <li>
             <strong>Actions and notifications.</strong> When something is done about an alert, such as marking a tool as
             expected, allowing a site once, or approving or denying a child&apos;s request, Neo keeps a record of the action
-            and who approved it. Emails and alerts to owners wait in a queue with the destination address encrypted until
+            and who approved it. If an owner asks Neo&apos;s assistant to end a remote-access session, Neo keeps a
+            short-lived request (the program and remote ID from the alert, the device, who asked, and the outcome the
+            device reports). It is sent to that computer inside its signed settings, expires after 10 minutes, and the
+            person at the computer is asked to confirm on screen first, except on a child&apos;s computer. Emails and alerts to owners wait in a queue with the destination address encrypted until
             they are sent.
           </li>
           <li>
@@ -224,7 +230,7 @@ function sections(email: string): Section[] {
             <strong>Household memory.</strong> Only an owner can ask Neo to remember a fact, such as &ldquo;Sam may use the family PC until
             8pm&rdquo;, and each fact is approved by the owner with the exact words shown first. A fact is one short line
             (up to 280 characters) and Neo refuses contact details, links, passwords and codes, and card or bank numbers.
-            Facts are kept for 365 days and are listed and removable by the owner in Settings. Neo&apos;s assistant sees them
+            Facts are kept for 365 days by default, a period the owner can change, and are listed and removable by the owner in Settings. Neo&apos;s assistant sees them
             only when it looks them up, as information, never as instructions.
           </li>
           <li>
@@ -308,25 +314,31 @@ function sections(email: string): Section[] {
             <strong>Removed devices</strong> are deleted 90 days after removal.
           </li>
           <li>
-            <strong>Signal records</strong> a protected device reports are kept for 30 days.
+            <strong>Signal records</strong> a protected device reports are kept for 30 days. The owner can change this.
           </li>
           <li>
-            <strong>Alerts</strong> are deleted 90 days after they are acknowledged, and in any case after 180 days.
+            <strong>Alerts</strong> are deleted 90 days after they are acknowledged (sooner if the owner sets a shorter period), and in any case after 180 days by default.
           </li>
           <li>
-            <strong>Household memory</strong> facts are kept for 365 days, or until the owner removes them.
+            <strong>Household memory</strong> facts are kept for 365 days by default, or until the owner removes them.
           </li>
           <li>
-            <strong>Child requests</strong> and <strong>consent records</strong> are kept until the person or the household is
-            deleted. Neo does not yet delete them on a timer.
+            <strong>Child requests</strong> that have been answered or have expired are deleted after 90 days by default.
+            <strong>Remote-session requests</strong> to a device expire after 10 minutes and the expired record stays with
+            the household.
+          </li>
+          <li>
+            <strong>Household owners can change</strong> how long signals (7 to 365 days), alerts (30 to 1,095), child
+            requests (7 to 365) and household memory (30 to 1,095) are kept, in Settings → Household. A change applies at the
+            next nightly clean-up.
           </li>
           <li>
             <strong>Chat sessions</strong> are kept by the agent runtime under its own rules. Neo&apos;s record of who started
             each session is kept until the account or household is deleted.
           </li>
           <li>
-            <strong>The audit trail</strong>, <strong>action records</strong>, <strong>the notification queue</strong> and{" "}
-            <strong>invitations</strong> are kept until the household is deleted. Neo does not yet delete them on a timer.
+            <strong>Consent records</strong>, <strong>the audit trail</strong>, <strong>action records</strong>,{" "}
+            <strong>the notification queue</strong> and <strong>invitations</strong> are kept until the household is deleted. Neo does not yet delete them on a timer.
           </li>
           <li>
             <strong>Usage and spend records</strong> are kept until the household is deleted.
