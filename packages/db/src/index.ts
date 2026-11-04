@@ -264,6 +264,7 @@ export {
   markOutboxFailed,
   markOutboxSent,
   isRequestAlertKind,
+  isCapExemptAlertKind,
   outboxDestination,
   REQUEST_ALERT_KINDS,
   settleAlertEmail,

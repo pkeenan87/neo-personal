@@ -5,8 +5,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { gateTurn } from "@/agent/lib/usage-gate";
 import { POST as agentPOST } from "@/app/api/agent/route";
 import { GET as spendGET, PUT as spendPUT } from "@/app/api/household/spend-cap/route";
+import { memorySentEmails } from "@/lib/server/email/resend";
 import { memoryAuditLog } from "@/lib/server/audit";
-import { memoryAlertRows, resetMemoryAlerts } from "@/lib/server/memory-alerts";
+import { memoryAlertRows, memorySetThreshold, resetMemoryAlerts } from "@/lib/server/memory-alerts";
 import { memorySetHouseholdTimeZone } from "@/lib/server/memory-members";
 import { setMemoryMembers } from "@/lib/server/memory-state";
 import { evaluateSpendCap, setSpendCapCents, spendGate, spendView } from "@/lib/server/spend-cap";
@@ -84,6 +85,20 @@ describe("thresholds", () => {
     expect(rows[0]!.dedupeKey).toMatch(new RegExp(`^spend_cap:${TENANT}:\\d{4}-\\d{2}:80$`));
     expect(rows[0]!.title).toContain("80%");
     expect(await gateTurn({ tenantId: TENANT, userId: OWNER })).toEqual({ ok: true });
+  });
+
+  it("emails an owner whose threshold is high about the 80% alert exactly once", async () => {
+    memorySentEmails().length = 0;
+    memorySetThreshold(TENANT, OWNER, "high");
+    await setSpendCapCents(TENANT, CAP);
+    await spend(800);
+    await evaluateSpendCap(TENANT);
+    await gateTurn({ tenantId: TENANT, userId: OWNER });
+    const sent = memorySentEmails().filter((m) => m.to === "owner@example.test");
+    expect(alertsOf()).toHaveLength(1);
+    expect(alertsOf()[0]!.severity).toBe("medium");
+    expect(sent).toHaveLength(1);
+    expect(memorySentEmails().some((m) => m.to === "member@example.test")).toBe(false);
   });
 
   it("100% raises one high alert (after the 80% one) and refuses in the eve chat with a templated message", async () => {
