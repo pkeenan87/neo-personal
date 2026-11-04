@@ -46,5 +46,8 @@ GRANT EXECUTE ON FUNCTION public.expire_child_requests(timestamptz) TO app_user;
 -- covers it once created, but grant explicitly in case app_user predates the 0010 migration.
 GRANT SELECT, INSERT, UPDATE, DELETE ON reputation_cache TO app_user;  -- 0010
 
+-- schedule_runs is job-level (counts and digests only, no tenant, no RLS); same reasoning as above.
+GRANT SELECT, INSERT, DELETE ON schedule_runs TO app_user;  -- 0025
+
 -- Verify: both columns must be false.
 SELECT rolname, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = 'app_user';
