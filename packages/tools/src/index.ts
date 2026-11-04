@@ -68,7 +68,7 @@ export {
   type DetectionLists,
 } from "./lists.js";
 // Browser-extension additions (_specs/browser-extension.md): shared list-shape types
-export type { ListBrand, DetectionListsPayload } from "./listsTypes.js";
+export type { ListBrand, DetectionListsPayload, CategoryListsInfo } from "./listsTypes.js";
 export type * from "./email/types.js";
 export type * from "./sms/types.js";
 

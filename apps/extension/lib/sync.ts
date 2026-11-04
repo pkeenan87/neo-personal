@@ -11,6 +11,8 @@ import * as api from "./api.js";
 import { defaultBaseUrl, isValidServerUrl, normalizeBaseUrl } from "./config.js";
 import { matchDownload } from "./detectors/downloads.js";
 import { listsSnapshot } from "./listsSnapshot.js";
+import * as policy from "./policy/sync.js";
+import { blockedPagePath } from "./policy/rules.js";
 import { clientVersion, defaultDeviceName, detectPlatform } from "./platform.js";
 import * as q from "./queue.js";
 import { getState, updateState } from "./state.js";
@@ -125,6 +127,7 @@ export async function stopProtecting(): Promise<void> {
     await api.unenrollSelf(serverUrl, state.token);
   }
   await clearAlarms();
+  await policy.clearEnforcement();
   await updateState(() => ({ ...DEFAULT_STATE }));
   await updateBadge();
 }
@@ -140,7 +143,7 @@ export async function runHeartbeat(): Promise<void> {
   const state = await getState();
   if (!state.token) return;
   const serverUrl = await resolveServerUrl();
-  const result = await api.heartbeat(serverUrl, state.token, clientVersion());
+  const result = await api.heartbeat(serverUrl, state.token, clientVersion(), state.policyApplied);
   if (!result.ok) {
     if (result.status === 401) await disconnect();
     return; // 403 insufficient_scope or a transient error: logged elsewhere, never retried in a loop.
@@ -163,6 +166,7 @@ export async function runHeartbeat(): Promise<void> {
     }
   }
   if (data.listsVersion !== previousListsVersion) await refreshLists();
+  await syncPolicyAfterHeartbeat(data.policyVersion);
   await updateBadge();
 }
 
@@ -177,7 +181,151 @@ export async function refreshLists(): Promise<void> {
   }
   if (result.status === 304) return;
   const lists = result.data;
+  const previousCategories = state.lists?.categoryLists?.version;
   await updateState((s) => ({ ...s, lists, listsVersion: lists.version, listsEtag: result.etag ?? s.listsEtag, listsIsSnapshot: false }));
+  // New category files: download them and refresh what the matcher uses (the policy is applied again).
+  if (lists.categoryLists?.version !== previousCategories) {
+    const ctx = await policyContext();
+    if (ctx) await policy.applyStoredPolicy(ctx);
+  }
+}
+
+// ---- Child mode (policy, enforcement, requests) -------------------------------
+
+async function policyContext(): Promise<policy.PolicyContext | null> {
+  const state = await getState();
+  if (!state.token) return null;
+  return { serverUrl: await resolveServerUrl(), token: state.token, report: (event) => enqueue(event) };
+}
+
+/** `serverVersion`: the heartbeat's `policyVersion` (undefined from an older server, null when it could not be computed). */
+async function syncPolicyAfterHeartbeat(serverVersion: string | null | undefined): Promise<void> {
+  if (serverVersion === undefined) return;
+  const ctx = await policyContext();
+  if (!ctx) return;
+  const state = await getState();
+  const stored = state.policy?.envelope.bundle;
+  const nearExpiry = stored ? Date.parse(stored.expiresAt) - Date.now() < 24 * 60 * 60 * 1000 : false;
+  let outcome: policy.SyncOutcome | undefined;
+  if ((serverVersion !== null && serverVersion !== stored?.policyVersion) || nearExpiry) outcome = await policy.syncPolicy(ctx);
+  else if (stored && state.policyApplied !== stored.policyVersion) await policy.applyStoredPolicy(ctx);
+  if (outcome === "unauthorized") await disconnect();
+}
+
+/** Once a minute: retry what failed, rebuild rules when a one-hour allow ended, and poll while a request is pending. */
+async function policyTick(): Promise<void> {
+  const ctx = await policyContext();
+  if (!ctx) return;
+  const now = Date.now();
+  if ((await policy.pendingRequests(now)).length > 0) {
+    // A parent's answer lands within about a minute (`_specs/v2-m2-child.md` section 4, fast changes).
+    if ((await policy.syncPolicy(ctx)) === "unauthorized") {
+      await disconnect();
+      return;
+    }
+  }
+  const state = await getState();
+  const stored = state.policy?.envelope.bundle;
+  const rulesStale = state.rulesRebuildAt !== null && state.rulesRebuildAt <= now;
+  if (stored && (rulesStale || state.policyApplied !== stored.policyVersion)) await policy.applyStoredPolicy(ctx);
+  // An approved request stops being tracked once its domain is no longer blocked.
+  for (const r of (await getState()).trackedRequests) if (r.settled && !(await policy.checkHost(r.domain)).blocked) await policy.untrackRequest(r.id);
+}
+
+export function isChildMode(state: ExtensionState): boolean {
+  return state.policy?.envelope.bundle.mode === "child";
+}
+
+/**
+ * A content script found a page at `hostname`; if the policy blocks it, send the tab to the block
+ * page (the same `tabs.update` the warning page uses; no `tabs` permission). Fails open.
+ */
+export async function handleCheckHost(hostname: string, pageUrl: string, tabId: number | undefined): Promise<{ blocked: boolean }> {
+  const decision = await policy.checkHost(hostname);
+  if (!decision.blocked || !decision.domain) return { blocked: false };
+  if (tabId !== undefined) {
+    const url = browser.runtime.getURL(`${blockedPagePath(decision.domain, decision.category ?? null)}&u=${encodeURIComponent(pageUrl)}`);
+    try {
+      await browser.tabs.update(tabId, { url });
+    } catch {
+      /* the tab is gone */
+    }
+  }
+  return { blocked: true };
+}
+
+export interface BlockInfo {
+  blocked: boolean;
+  category: string | null;
+  /** A request for this domain that is still pending, so the block page can show its status after a reload. */
+  pendingRequest?: { id: string; expiresAt: string };
+}
+
+/** The block page loaded for `domain`: confirm the policy really blocks it (a web page could forge the URL), and report it once per window. */
+export async function handleBlockPageShown(domain: string): Promise<BlockInfo> {
+  const decision = await policy.checkHost(domain);
+  if (!decision.blocked) return { blocked: false, category: null };
+  const event = policy.webBlockedEvent(decision.domain ?? domain, decision.category, Date.now());
+  const state = await getState();
+  if (event && state.token) await enqueue(event);
+  const pending = (await policy.pendingRequests(Date.now())).find((r) => r.domain === (decision.domain ?? domain));
+  return { blocked: true, category: decision.category ?? null, ...(pending ? { pendingRequest: { id: pending.id, expiresAt: pending.expiresAt } } : {}) };
+}
+
+export type UnblockResult = { ok: true; id: string; status: api.ChildRequestStatus; expiresAt: string } | { ok: false; error: string };
+
+const REASON_MAX = 140;
+
+/** "Ask to unblock": the domain must currently be blocked by this device's policy; the reason is at most 140 characters. */
+export async function requestUnblock(domain: string, reason: string | undefined): Promise<UnblockResult> {
+  const state = await getState();
+  if (!state.token) return { ok: false, error: "not_enrolled" };
+  const text = reason?.trim() ?? "";
+  if (text.length > REASON_MAX) return { ok: false, error: "reason_too_long" };
+  const decision = await policy.checkHost(domain);
+  if (!decision.blocked || !decision.domain) return { ok: false, error: "not_blocked" };
+  const serverUrl = await resolveServerUrl();
+  const result = await api.createUnblockRequest(serverUrl, state.token, decision.domain, text || undefined);
+  if (!result.ok) {
+    if (result.status === 401) await disconnect();
+    return { ok: false, error: result.code ?? (result.networkError ? "offline" : `http_${result.status}`) };
+  }
+  await policy.trackRequest({ id: result.data.id, domain: decision.domain, expiresAt: result.data.expiresAt });
+  void policyTick();
+  return { ok: true, id: result.data.id, status: result.data.status, expiresAt: result.data.expiresAt };
+}
+
+export type RequestStatusResult = { ok: true; status: api.ChildRequestStatus; blocked: boolean } | { ok: false; error: string };
+
+/** Polled by the block page. Once the parent has answered: stop tracking, fetch the new bundle, and say whether the domain is still blocked. */
+export async function getRequestStatus(id: string, domain: string): Promise<RequestStatusResult> {
+  const state = await getState();
+  if (!state.token) return { ok: false, error: "not_enrolled" };
+  const serverUrl = await resolveServerUrl();
+  const result = await api.getRequest(serverUrl, state.token, id);
+  if (!result.ok) {
+    if (result.status === 401) await disconnect();
+    if (result.status === 404) await policy.untrackRequest(id);
+    return { ok: false, error: result.code ?? `http_${result.status}` };
+  }
+  const tracked = state.trackedRequests.find((r) => r.id === id);
+  if (result.data.status === "pending") return { ok: true, status: "pending", blocked: (await policy.checkHost(domain)).blocked };
+  // Answered. Fetch the new bundle once (the policy route allows 120 an hour); if an approval has not unblocked the
+  // domain yet, keep the request tracked so the tick keeps fetching, but do not fetch again on every page poll.
+  if (tracked && !tracked.settled) {
+    const ctx = await policyContext();
+    if (ctx) await policy.syncPolicy(ctx);
+  }
+  const blocked = (await policy.checkHost(domain)).blocked;
+  if (result.data.status === "approved" && blocked && tracked) await policy.settleRequest(id);
+  else await policy.untrackRequest(id);
+  return { ok: true, status: result.data.status, blocked };
+}
+
+export async function reportPaymentPage(input: { domain: string; category: "gift_card" | "crypto" | "wire" | "other" }): Promise<void> {
+  const state = await getState();
+  if (!state.token) return;
+  await enqueue({ id: crypto.randomUUID(), type: "page", detector: "payment_page", observedAt: new Date().toISOString(), domain: input.domain, category: input.category });
 }
 
 /** The bundled snapshot until the first successful fetch (`_specs/browser-extension.md`). */
@@ -464,6 +612,7 @@ export async function handleAlarm(name: string): Promise<void> {
   if (name === TICK_ALARM) {
     await flushQueue();
     await pumpPending();
+    await policyTick();
     await updateBadge();
   }
 }

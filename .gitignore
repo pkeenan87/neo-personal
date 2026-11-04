@@ -21,3 +21,5 @@ apps/web/injection-eval*.json
 # eve build output
 apps/web/.eve/
 apps/web/.output/
+
+scripts/category-lists/.cache/

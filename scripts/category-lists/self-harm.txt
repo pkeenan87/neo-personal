@@ -1,0 +1,8 @@
+# Hand-curated self-harm / pro-ana / suicide-method domains (MIT, Neo project).
+#
+# Deliberately EMPTY. A wrong entry here blocks a support site a child may need, and a missing one
+# only means the parent's own block list (the console's custom block list, `web.block`) is the
+# mechanism. Add a domain only when you can name it with confidence and have checked what it hosts.
+# TODO: review with a clinician or a child-safety organisation before shipping any entries.
+#
+# Format: one hostname per line, lowercase, '#' starts a comment.

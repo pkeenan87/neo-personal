@@ -151,10 +151,13 @@ export interface HeartbeatResponse {
   listsVersion: string;
   /** `_specs/browser-extension.md` "Uninstall signal"; passed to `runtime.setUninstallURL`. */
   uninstallUrl?: string;
+  /** The current policy bundle version (M2); null when the server could not compute it, absent from older servers. */
+  policyVersion?: string | null;
 }
 
-export function heartbeat(serverUrl: string, token: string, clientVersion: string): Promise<ApiResult<HeartbeatResponse>> {
-  return apiFetch(serverUrl, "/api/devices/heartbeat", { method: "POST", token, body: { clientVersion } });
+/** `policyVersion` is the bundle version this device applied (omitted when it has none). */
+export function heartbeat(serverUrl: string, token: string, clientVersion: string, policyVersion?: string | null): Promise<ApiResult<HeartbeatResponse>> {
+  return apiFetch(serverUrl, "/api/devices/heartbeat", { method: "POST", token, body: { clientVersion, ...(policyVersion ? { policyVersion } : {}) } });
 }
 
 export function unenrollSelf(serverUrl: string, token: string): Promise<ApiResult<undefined>> {
@@ -169,6 +172,40 @@ export function fetchLists(serverUrl: string, token: string, etag: string | null
     token,
     headers: etag ? { "if-none-match": etag } : {},
   });
+}
+
+// ---- Policy and child requests (M2, scope `device`) ---------------------------
+
+/** The body is returned unparsed by shape: `verifyPolicyEnvelope` validates it (and checks the signature over the received object). */
+export function fetchPolicy(serverUrl: string, token: string, etag: string | null): Promise<ApiResult<unknown>> {
+  return apiFetch(serverUrl, "/api/devices/policy", { method: "GET", token, headers: etag ? { "if-none-match": etag } : {} });
+}
+
+export type ChildRequestStatus = "pending" | "approved" | "denied" | "expired";
+
+export interface CreateRequestResponse {
+  id: string;
+  status: ChildRequestStatus;
+  expiresAt: string;
+}
+
+export function createUnblockRequest(serverUrl: string, token: string, domain: string, reason?: string): Promise<ApiResult<CreateRequestResponse>> {
+  return apiFetch(serverUrl, "/api/devices/requests", {
+    method: "POST",
+    token,
+    body: { kind: "unblock_site", detail: { domain }, ...(reason ? { reason } : {}) },
+  });
+}
+
+export interface RequestStatusResponse {
+  id: string;
+  kind: string;
+  status: ChildRequestStatus;
+  expiresAt: string;
+}
+
+export function getRequest(serverUrl: string, token: string, id: string): Promise<ApiResult<RequestStatusResponse>> {
+  return apiFetch(serverUrl, `/api/devices/requests/${encodeURIComponent(id)}`, { method: "GET", token });
 }
 
 // ---- Signals --------------------------------------------------------------
