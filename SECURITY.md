@@ -139,6 +139,55 @@ From Phase 1 (raw artifacts) and Phase 2 (mailbox connectors):
 
 Signup is open and each check costs real money. Per-tenant monthly check caps and daily token caps (`USAGE_CAP_MONTHLY_CHECKS`, `USAGE_CAP_DAILY_TOKENS`) are enforced before the agent runs and return HTTP 429 when exceeded. See `_specs/usage-caps.md`. In gateway mode the AI Gateway API key carries a monthly budget; once it is spent the gateway returns HTTP 402 and Neo shows a budget-exhausted message instead of running up cost.
 
+### v2 trust boundaries (protection modes, eve agent, devices)
+
+v2 adds household members without accounts, signed policies that devices enforce, an agent (eve) with tools, and email and SMS entry points (`_specs/v2-architecture.md`, `_specs/v2-m4-hardening.md`). Each list below names only controls that exist in the code, with the file that implements them; what is missing is a residual risk, never a claimed control.
+
+**eve tools and sessions.**
+
+- The tenant comes from the verified caller only (`requireTenantCaller`, `apps/web/agent/lib/tenant.ts`), never from tool input or model output. Database access goes through `tenantScoped()`, and every tool result reaches the model through `wrapToolResult` (`apps/web/agent/lib/tool-io.ts`).
+- eve has no per-session access list, so each session records its creator in `eve_sessions` and the route auth lets back in only the same household and user for continue, stream and control requests (`apps/web/agent/lib/app-session.ts`, `apps/web/lib/server/eve-session-owner.ts`). An unknown session id is denied after a short wait; any error denies. `NEO_EVE_CHAT` must be `true` or nobody is a caller.
+- Acting tools use `always()` approval, and the server re-reads the caller's role from the database (`requireHouseholdAdmin`, `apps/web/lib/server/incident-actions.ts`). The offline evals (`apps/web/agent/evals/`) check this with a scripted, adversarial model.
+- Residual: eve's session storage (Vercel Workflow) is outside our database; we do not encrypt it per household and do not set its retention. The offline evals cover the deterministic layer only; whether a model resists an injection is checked only by the optional live evals (`apps/web/evals/`, `NEO_LIVE_EVALS=1`).
+
+**Policy bundles.**
+
+- Bundles are signed ES256 (`apps/web/lib/server/policy-signer.ts`). With `NEO_POLICY_KMS_ISSUER` the key lives in Vercel KMS and never leaves it. The env-key backend (`NEO_POLICY_SIGNING_KEY`) also exists; only an ephemeral dev key is refused on production and preview, where no signer means a 503 and no bundle. Clients pin public keys at build time and never trust the keys endpoint.
+- The extension (`apps/extension/lib/policy/sync.ts`) rejects a bundle for another `deviceId` and an older `issuedAt` (rollback), reporting `tamper_detected`. The desktop agent (`apps/desktop/crates/agent-core/src/policy.rs`, `agent-service/src/agent/child.rs`) verifies the signature against pinned keys, re-verifies the stored bundle at start, and rejects another device's bundle.
+- Residual: the desktop agent has no `issuedAt` rollback check. A compromised server can sign anything: **signing proves origin, not intent**, so a bundle that is validly signed but wrong (a bug, a bad rule, a malicious operator) is applied by every device it names. Rotation needs clients that carry both keys to ship first (`docs/deployment.md`, rotation runbook).
+
+**Email decision links (child requests).**
+
+- The link carries a random 32-byte token stored only as a SHA-256 hash, compared in constant time, expiring after 24 hours and cleared when the request is decided (`apps/web/lib/server/child-requests.ts`). It only identifies the request: opening the page decides nothing, and a signed-in owner of the same household must confirm.
+- Residual: a forwarded email lets any other signed-in owner of the same household decide.
+
+**Household memory (prompt-injection persistence).** Memory is a persistence channel for injected text by design, so it is constrained rather than trusted.
+
+- Writes are owner-only; the `remember` tool needs `always()` approval that shows the exact text, with hidden characters spelled out (`apps/web/agent/tools/remember.ts`). Content rules refuse contact details, links, credentials and payment data on every write (`apps/web/lib/server/memory-rules.ts`). Entries are 280 characters at most and expire after 365 days (`packages/db/src/household-memory.ts`); owners can list and forget them.
+- Nothing is put in the system prompt. The model sees memory only by calling `recall`, whose result goes through `wrapToolResult`.
+- Residual: the content rules are a blocklist, and an owner can approve text that was injected into the conversation. The approval prompt is the control, and it relies on the owner reading it.
+
+**Twilio SMS (off, mock-only).** `NEO_TWILIO_ENABLED` must be exactly `true`; otherwise every route answers 404 (`apps/web/agent/channels/twilio.ts`). eve checks `X-Twilio-Signature` on every request; unknown numbers get one fixed reply, rate limited per number, and never reach the model. A number maps to a member only through a verified `member_channels` row. Every outbound call goes to a mock, so nothing reaches the network. Residual: no IP allowlisting; no STOP/HELP handling, opt-in records or quiet hours; real signature verification behind the Next rewrite still needs `webhookUrl` configured. Re-review before enabling.
+
+**Category lists.** Upstream commits are pinned and their files sha256-checked on every fetch (`scripts/category-lists/sources.json`, `fetch.mjs`). The extension checks each downloaded file against the lists manifest's sha256 and length before storing it (`apps/extension/lib/policy/categories.ts`). Residual: the manifest is served from our origin and is not signed, so it has the same trust as the server; upstream lists contain mistakes, which show up as false blocks that the allow list and the child's unblock request correct. The licence status of the upstream lists is not fully verified (`_specs/v2-m2-child.md`).
+
+**eve schedules (shadow mode).** A shadow run has no effects object by type, so it cannot reach a mailer, an alert insert or a delete, and `schedule_runs` records counts and a SHA-256 digest of the planned actions, never an address or message content (`apps/web/lib/server/schedules/core.ts`). Residual: the schedule routes are generated by eve and Vercel Cron; nothing in this repository checks the caller (the spec's "cron token only, 404 otherwise" claim is unverified here), and a manual probe of the deployment is still owed.
+
+**Device commands (`end_session`).** Not on `main` yet; see Pending below.
+
+**Consent.** Turning on Child mode records a `monitoring_notice` consent with the owner and the age band (`consents`, `apps/web/lib/server/member-console.ts`). Verifiable parental consent (COPPA) is not built (below).
+
+**Pending (not on `main`; no control is claimed until merged and deployed).** Device commands in signed bundles (`end_session`: bound to the device, deduplicated, 10-minute expiry, the elder confirms on screen); per-household retention settings (M4 slice 1), so child requests and other rows are not yet purged on a timer; the consent and notice screens for Child and Elder mode and the "what is shared" page (M4 slice 2).
+
+### Owner actions
+
+Things only the operator can do or decide:
+
+- **Key rotation.** Follow the runbook in `docs/deployment.md` (add the new key, ship clients carrying both keys, then activate). Until clients ship with the new key, treat a leaked signing key as full compromise of Child and Elder enforcement.
+- **Flags.** `NEO_EVE_CHAT` (eve chat; unset means closed), `NEO_EVE_SCHEDULES` (which jobs run live in eve instead of Inngest; default none, shadow only) and `NEO_TWILIO_ENABLED` (SMS; mock-only, keep off) are all off unless set. Do not turn on `NEO_TWILIO_ENABLED` for real sends before A2P registration and a security review.
+- **COPPA gate.** Verifiable parental consent for minors is deferred. It is acceptable for the maintainer's own household. It must be built before any outside household's children are protected, and the privacy page (`apps/web/app/privacy/page.tsx`) changes with it.
+- **Beta.** The pre-beta gates are in `docs/beta-checklist.md`.
+
 ### Supply chain
 
 - GitHub Actions are pinned to full commit SHAs with a version comment. Workflow token permissions are minimal per job.

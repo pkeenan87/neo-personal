@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 /** Bump when the policy text changes materially. */
-export const PRIVACY_POLICY_UPDATED = "2026-10-05";
+export const PRIVACY_POLICY_UPDATED = "2026-11-03";
 
 const REPO_URL = "https://github.com/pkeenan87/neo-personal";
 
@@ -73,7 +73,7 @@ function sections(email: string): Section[] {
           <li>
             <strong>Technical records.</strong> Our hosting provider keeps standard request logs (IP address, browser,
             timestamps). Neo&apos;s own logs record hashed identifiers and outcome codes, never the content of what you
-            submitted.
+            submitted. Neo also keeps an audit trail of security-relevant changes (who did what, and when, by identifier, never message content).
           </li>
         </ul>
       ),
@@ -140,6 +140,105 @@ function sections(email: string): Section[] {
             what you submit to train AI models.
           </p>
         </>
+      ),
+    },
+    {
+      id: "people",
+      title: "People in your household",
+      body: (
+        <>
+          <p>
+            A household owner can add people who do not have a Neo account, such as a child or a parent, and protect their
+            devices. For each person Neo keeps the name the owner gave them (up to 80 characters), the protection mode
+            (Standard, Elder or Child), a birth year when the owner turns on Child mode, the people the owner named as
+            their helpers, and a helper contact email (stored encrypted). That person never signs in to Neo. Their
+            devices act on the owner&apos;s settings.
+          </p>
+          <p className="mt-3">
+            <strong>Invitations.</strong> When an owner invites someone, Neo keeps the invited email address (for an emailed
+            invitation), a hash of the secret link, how many times it was sent, who invited, and when it expires or was used.
+          </p>
+          <p className="mt-3">
+            <strong>Consent records.</strong> When the owner turns on Child mode, Neo records that they did, which member it
+            was for, who gave it, when, and the age band it was set for. Nothing else about the conversation is kept in that
+            record. It lasts as long as the person&apos;s record does and is deleted with it, or with the household.
+          </p>
+        </>
+      ),
+    },
+    {
+      id: "protection",
+      title: "Child and Elder protection",
+      body: (
+        <ul className="list-disc space-y-2 pl-5">
+          <li>
+            <strong>Settings sent to devices.</strong> The owner&apos;s rules for a person (blocked and allowed sites and
+            categories, app rules, screen-time limits, who gets requests) are saved, and each protected device downloads a
+            copy signed by Neo&apos;s key. Neo keeps the latest signed copy for each device so it does not have to sign it
+            again. The device checks the signature before using it.
+          </li>
+          <li>
+            <strong>What a device reports.</strong> Only the domain or category of a page, never full addresses, page
+            content, keystrokes or screenshots. For Child mode it also reports the domain and category of a blocked site, the
+            name of an app that was installed or blocked, when screen time runs out, and a tamper warning if someone tries
+            to turn protection off. Signal records are kept for 30 days.
+          </li>
+          <li>
+            <strong>Requests from a child.</strong> When a child asks for more time, a site to be unblocked or an app to be
+            allowed, Neo stores what is asked for and the reason the child typed (up to 140 characters). The owner gets an
+            alert and an email with Approve and Deny links. The links only identify the request: the owner must be signed
+            in and confirm, and a link works for 24 hours. A request that nobody answers is marked expired. The child&apos;s
+            typed words are shown to the owner as quoted text and are never treated as instructions by Neo&apos;s assistant.
+            Answered and expired requests are kept until the person or the household is deleted.
+          </li>
+          <li>
+            <strong>Actions and notifications.</strong> When something is done about an alert, such as marking a tool as
+            expected, allowing a site once, or approving or denying a child&apos;s request, Neo keeps a record of the action
+            and who approved it. Emails and alerts to owners wait in a queue with the destination address encrypted until
+            they are sent.
+          </li>
+          <li>
+            <strong>Website category lists.</strong> Child web filtering uses public lists of domain names, shipped as
+            hashed files. They are not collected from you. They come from{" "}
+            <a href="https://github.com/blocklistproject/Lists" rel="noreferrer" className="text-accent hover:text-accent-hover">The Block List Project</a>{" "}
+            (Unlicense) and the{" "}
+            <a href="http://dsi.ut-capitole.fr/blacklists/" rel="noreferrer" className="text-accent hover:text-accent-hover">UT1 Blacklists</a>{" "}
+            by Fabrice Prigent, Université Toulouse Capitole (CC BY-SA 4.0). The lists make mistakes, so the owner can allow
+            a site and the child can ask for one to be unblocked.
+          </li>
+        </ul>
+      ),
+    },
+    {
+      id: "assistant",
+      title: "The assistant, memory and spend",
+      body: (
+        <ul className="list-disc space-y-2 pl-5">
+          <li>
+            <strong>Chat with Neo&apos;s assistant.</strong> Only signed-in household members can open a chat, and only the person
+            who started a chat can continue it. Neo records who started each chat session. The conversation itself is kept
+            by the agent runtime Neo uses (eve, on Vercel Workflow), not by Neo&apos;s own tables, and Neo does not set its
+            retention. It is not encrypted separately for each household.
+          </li>
+          <li>
+            <strong>Household memory.</strong> Only an owner can ask Neo to remember a fact, such as &ldquo;Sam may use the family PC until
+            8pm&rdquo;, and each fact is approved by the owner with the exact words shown first. A fact is one short line
+            (up to 280 characters) and Neo refuses contact details, links, passwords and codes, and card or bank numbers.
+            Facts are kept for 365 days and are listed and removable by the owner in Settings. Neo&apos;s assistant sees them
+            only when it looks them up, as information, never as instructions.
+          </li>
+          <li>
+            <strong>Spend tracking.</strong> Neo counts the tokens each chat and check uses, and an estimated cost per
+            household. An owner can set a monthly spend cap. At 80% and 100% of it, the owner is told, and at 100% chat is
+            paused for the rest of the month. Security alerts and background checks keep running. Usage records are kept
+            until the household is deleted.
+          </li>
+          <li>
+            <strong>Text messages.</strong> Neo&apos;s text message (SMS) channel is not active. It is switched off by
+            default and, in this version, never sends a real message: nothing reaches a phone. If it is ever used, a phone number a member links is stored with a hashed one-time verification code. We will update this page
+            before real text messages are turned on.
+          </li>
+        </ul>
       ),
     },
     {
@@ -210,6 +309,30 @@ function sections(email: string): Section[] {
           </li>
           <li>
             <strong>Signal records</strong> a protected device reports are kept for 30 days.
+          </li>
+          <li>
+            <strong>Alerts</strong> are deleted 90 days after they are acknowledged, and in any case after 180 days.
+          </li>
+          <li>
+            <strong>Household memory</strong> facts are kept for 365 days, or until the owner removes them.
+          </li>
+          <li>
+            <strong>Child requests</strong> and <strong>consent records</strong> are kept until the person or the household is
+            deleted. Neo does not yet delete them on a timer.
+          </li>
+          <li>
+            <strong>Chat sessions</strong> are kept by the agent runtime under its own rules. Neo&apos;s record of who started
+            each session is kept until the account or household is deleted.
+          </li>
+          <li>
+            <strong>The audit trail</strong>, <strong>action records</strong>, <strong>the notification queue</strong> and{" "}
+            <strong>invitations</strong> are kept until the household is deleted. Neo does not yet delete them on a timer.
+          </li>
+          <li>
+            <strong>Usage and spend records</strong> are kept until the household is deleted.
+          </li>
+          <li>
+            <strong>Neo&apos;s background job log</strong> keeps counts and a checksum only, never personal data, for 90 days.
           </li>
           <li>
             <strong>Your account</strong> is kept until you ask us to delete it.
@@ -283,8 +406,10 @@ function sections(email: string): Section[] {
       title: "Children",
       body: (
         <p>
-          Neo is meant for adults and for families where an adult owns the household account. Do not create an account
-          for a child under 13 (or the age of digital consent where you live).
+          Neo is meant for adults and for families where an adult owns the household account. A child does not need an
+          account: the owner adds them as a person and protects their devices, as described above. Do not create an
+          account for a child under 13 (or the age of digital consent where you live). Neo does not yet offer verified
+          parental consent; the owner is the adult who consents for the people they protect.
         </p>
       ),
     },
