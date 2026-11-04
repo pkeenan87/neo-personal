@@ -108,8 +108,7 @@ export function sharedSummary(mode: MemberModeName, deviceKinds: SharedDeviceKin
     });
   }
   const retention = [
-    "Device signals are kept for 30 days, then deleted.",
-    "Alerts and requests stay in the household's history until an owner removes them; owner-set retention limits are planned.",
+    "By default, device signals are deleted after 30 days, alerts after 180 days (90 days once acknowledged), child requests after 90 days and remembered household facts after a year. A household owner can shorten or lengthen these in household settings.",
     "A removed device is deleted 90 days after removal.",
   ];
   return { collected, neverCollected: [...NEVER_COLLECTED], retention };
