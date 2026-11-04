@@ -1,4 +1,5 @@
 import { hashPii, logger } from "@neo/core";
+import { spendGate } from "@/lib/server/spend-cap";
 import { capMessage, checkCaps, noteCapHit } from "@/lib/server/usage";
 
 /** Model id of the canned refusal, so the usage recorder can tell a refused turn from a metered one. */
@@ -26,6 +27,9 @@ export async function gateTurn(caller: { tenantId: string; userId: string }): Pr
       await noteCapHit(caller.tenantId, caller.userId, caps, caps.reason);
       return { ok: false, text: capMessage(caps, caps.reason) };
     }
+    // The household's monthly model spend cap (off by default); the refusal text is templated, never model-written.
+    const spend = await spendGate(caller.tenantId);
+    if (spend.blocked) return { ok: false, text: spend.message };
     return { ok: true };
   } catch (err) {
     logger.error("Usage cap check failed", "eve.chat", {

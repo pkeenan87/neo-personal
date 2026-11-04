@@ -2,7 +2,7 @@
 
 branch: claude/feature/v2-m3-cutover
 plan: `_plans/v2.md` (M3); architecture: `_specs/v2-architecture.md` (§4, §5)
-status: draft, 2026-11-03 (slice 1 built on `claude/feature/v2-m3-schedules`)
+status: draft, 2026-11-03 (slice 1 built on `claude/feature/v2-m3-schedules`); slice 6 built on `claude/feature/v2-m3-spend-cap`
 
 ## Summary
 
@@ -99,6 +99,18 @@ Code for the Twilio SMS and voice channels is added behind a flag. No Twilio acc
 - In mock mode, messages are logged and not sent.
 - The channel is disabled by default.
 
+#### Slice 5: what was built, and the decisions
+Built as migration `0026_member_channels` (journal `when` `1793633106799`); interfaces in `docs/contracts.md` ("M3 slice 5"). **No Twilio account, no A2P, no real sends**: the code path exists behind the flag and is mock-only.
+
+- **Flag.** `NEO_TWILIO_ENABLED` must be exactly `true`. Unset, every `/eve/v1/twilio/*` route answers 404 without running eve's handler (checked per request), and the console's "Connect a phone" routes and section are hidden (404). The credential variables (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`) are listed in `.env.example` and are not used until A2P registration.
+- **Mock-only, unconditionally.** There is no Twilio client. `SmsSender` has one implementation (the mock, which logs a hash of the number), and eve's channel gets `api.fetch = mockTwilioFetch`, so replies, approval prompts and MMS downloads cannot reach the network even if credentials are set. A real sender is a second `SmsSender` implementation plus dropping the `api.fetch` override, after A2P.
+- **Webhook signature.** Always on (eve's built-in check). `TWILIO_AUTH_TOKEN` when set; otherwise a fixed test token in MOCK_MODE off a deployed environment; otherwise no token and every webhook is rejected (401).
+- **Caller auth is `onText`.** eve's Twilio channel has no auth walk: `allowFrom: "*"` admits every number to `onText`, which maps the number to a member only through a verified `member_channels` row (`lookup_member_channel`, security definer, because no tenant is known yet). The tenant, member and role come from that row, never from the message. An unknown or merely claimed number gets "This number isn't connected to Neo." (rate limited per number) and `onText` returns `null`, so eve never starts a session.
+- **Linking a number.** The owner enters an E.164 number on the member page; an unverified row stores an HMAC of a six-digit code (10 minutes). Five wrong codes burn it (the counter is persisted, so a restart or another instance cannot reset it); a new code restarts the counter. A number already verified by anyone is refused with a generic 409. At most 3 numbers per member. Disconnecting deletes the row, so the number stops resolving at once.
+- **Outbox.** `sms` is a legal `notification_outbox.channel` (in 0026) but nothing enqueues one and the drain claims `email` rows only; email delivery is unchanged. The contact envelope (`encryptContact`) is email-only, so SMS destinations and drain dispatch to the mock sender wait for A2P; the drain claims `email` rows only (a behaviour-preserving filter in `claimOutboxRows`) so a stray `sms` row can never break email delivery.
+- **Voice (later).** `onVoice` rejects calls (403) and transcripts are ignored. Voice needs its own spec: consent and recording disclosure, and a spoken-confirmation story for approvals.
+- **Not done.** Inbound STOP/HELP handling, outbound opt-in records, quiet hours and a real sender are A2P work. Sessions started over SMS use eve's default per-number session keying. Behind the Next rewrite eve sees `http://127.0.0.1:4274/...`, so real signature verification will need `webhookUrl` (and `publicBaseUrl` for voice) set to the public URL. Without `DATABASE_URL` the memory twin lives in the Next process while eve is a separate process, so a number verified in the console only resolves in the eve server when the database is on.
+
 ### 6. Per-household monthly model spend cap (Slice 6)
 A cap on the monthly model spend per household is added. It is off by default. If enabled, an alert is sent to the owner when 80% of the cap is reached.
 
@@ -111,6 +123,16 @@ A cap on the monthly model spend per household is added. It is off by default. I
 - The model spend is tracked and updated after each model call.
 - The 80% alert is created and sent via the outbox.
 - The cap is off by default (no alert if the cap is null).
+
+#### Slice 6: what was built
+
+- **Setting.** `tenants.monthly_spend_cap_cents integer null` (migration `0027_spend_cap`; CHECK null or 100 to 1,000,000 cents, so $1 to $10,000). Null is off and is the default for every household. Owners set it on Household settings, "Monthly AI spend cap" (`GET`/`PUT /api/household/spend-cap`, browser session, `requireHouseholdAdmin`); audit `household.spend_cap_changed { from, to }`. The section shows month-to-date spend and percent used.
+- **Spend is an estimate from `usage_events`.** The table stores tokens and model, not cost, so cost is computed (`estimateCostCents` in `@neo/core`, `spend.ts`) from the catalog's `pricing` in `packages/core/src/routing.ts` (USD per million tokens at the AI Gateway global rate; source: the gateway model catalog the routing table already uses). Cache reads count at 0.1x and cache writes at 1.25x of the input price. A model id the catalog does not know is priced at the dearest catalog rate (over-count rather than miss spend). A gateway fallback to a cheaper model is invisible in the row, so the figure errs high. All `usage_events` kinds count, including background triage.
+- **Month.** The calendar month in the household time zone (`tenants.time_zone`, null reads as UTC), `[local midnight on the 1st, local midnight on the 1st of next month)`. The reset time shown to the user is the end of that window.
+- **Enforcement (chat only).** Before a chat turn, after the existing check caps pass: spend at or above 100% of the cap refuses. The old chat answers `429 { error: "spend_cap_exceeded", limitCents, resetAt, message }` with `Retry-After`; the eve chat's `gateTurn` returns the same sentence as the canned refusal. The sentence is a template, never model-written. If the usage store cannot be read the turn fails closed (503 `usage_unavailable` in the old chat, "can't check your usage" in eve), as for the check caps. `POST /api/agent/confirm` (a resumption of a turn that was already allowed) follows the existing precedent: only the daily token cap applies, so an approved action can finish.
+- **Background jobs are exempt.** Triage of forwarded email and device-signal handling never read the spend cap: a household at its cap must keep getting security alerts. Their usage still counts toward the spend, and the cap alerts still fire when their usage crosses a threshold.
+- **Alerts.** New alert kind `spend_cap` (`alerts_kind_check` re-added with every existing kind plus `spend_cap`). At 80% a `medium` alert and at 100% a `high` alert, both templated, owners only (no subject), once per household month each through the dedupe key `spend_cap:<tenantId>:<YYYY-MM>:80|100` (no new table). They are raised right after usage is recorded (`recordUsage`) and again at the chat gate, so a crossing is not delayed to the next turn. They go through `raiseAlert` and the outbox, and are emailed to every owner whatever their alert threshold (like child requests; `isCapExemptAlertKind` also exempts them from the daily email cap). The key does not include the cap, so changing the cap mid-month does not re-alert a threshold already alerted that month.
+- **Not built.** A spend line in `/api/usage`; per-member spend; a hard stop for background jobs; real billing figures from the gateway.
 
 ## Possible Edge Cases
 - **Shadow mode drift**: The eve schedule and Inngest function produce different results. The comparison log should highlight discrepancies.

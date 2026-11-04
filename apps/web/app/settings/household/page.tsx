@@ -5,12 +5,14 @@ import { DevBypassBanner } from "@/components/DevBypassBanner";
 import { HouseholdSettingsView } from "@/components/HouseholdSettings";
 import { MemoryPanel } from "@/components/household/MemoryPanel";
 import { ProtectionMembers } from "@/components/household/ProtectionMembers";
+import { SpendCapSection } from "@/components/household/SpendCapSection";
 import { env } from "@/lib/env";
 import { getThreshold } from "@/lib/server/alerts";
 import { householdDevices } from "@/lib/server/device-enrollment";
 import { listMemoryForConsole } from "@/lib/server/household-memory";
 import { listInvites } from "@/lib/server/household";
 import { listMemberProfiles } from "@/lib/server/member-console";
+import { getSpendCap } from "@/lib/server/spend-cap-settings";
 import { household } from "@/lib/server/verdict-data";
 import { requireSession } from "@/lib/session";
 
@@ -19,7 +21,7 @@ export const dynamic = "force-dynamic";
 
 export default async function HouseholdSettingsPage() {
   const session = await requireSession("/settings/household");
-  const [summary, invites, devices, threshold, protection, memory] = await Promise.all([
+  const [summary, invites, devices, threshold, protection, memory, spendCap] = await Promise.all([
     household(session),
     listInvites(session),
     householdDevices(session),
@@ -28,6 +30,8 @@ export default async function HouseholdSettingsPage() {
     session.role === "owner" ? listMemberProfiles(session).catch(() => null) : Promise.resolve(null),
     // Same for "What Neo remembers": owners only, and the page still renders when it cannot be loaded.
     session.role === "owner" ? listMemoryForConsole(session).catch(() => null) : Promise.resolve(null),
+    // Same owner re-check; a member (or a storage error) gets no spend cap section.
+    session.role === "owner" ? getSpendCap(session).catch(() => null) : Promise.resolve(null),
   ]);
   return (
     <>
@@ -44,6 +48,7 @@ export default async function HouseholdSettingsPage() {
         {memory?.ok ? (
           <MemoryPanel initial={memory.value.memories} max={memory.value.max} people={protection?.ok ? protection.value.members.map((m) => ({ id: m.id, name: m.displayName })) : []} />
         ) : null}
+        {spendCap?.ok ? <SpendCapSection initial={spendCap.value} /> : null}
       </AppShell>
     </>
   );

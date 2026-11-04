@@ -247,6 +247,17 @@ pub struct Heartbeat {
     pub lists_version: String,
     #[serde(default)]
     pub uninstall_url: Option<String>,
+    /// The device's current policy version (`null` if the server could not compute it). A client
+    /// fetches the policy when it differs from the one it applies.
+    #[serde(default)]
+    pub policy_version: Option<String>,
+    /// Whether the household's Neo browser extension is enrolled for this device's member. No server
+    /// sends this yet; an absent value means "unknown" and nothing is reported from it.
+    #[serde(default)]
+    pub extension_enrolled: Option<bool>,
+    /// The server's clock, from the response's `Date` header (unix seconds).
+    #[serde(skip)]
+    pub server_date: Option<i64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -313,6 +324,36 @@ pub enum ListsFetch {
         lists: Box<DetectionLists>,
         etag: Option<String>,
     },
+}
+
+/// `GET /api/devices/policy`
+#[derive(Debug, Clone, PartialEq)]
+pub enum PolicyFetch {
+    /// 304: the stored bundle is current.
+    NotModified { server_date: Option<i64> },
+    /// 200: a signed envelope, exactly as received (it is verified before it is used).
+    Updated {
+        envelope: serde_json::Value,
+        etag: Option<String>,
+        server_date: Option<i64>,
+    },
+}
+
+/// One of this device's own child requests (`GET /api/devices/requests`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceRequest {
+    pub id: String,
+    #[serde(default)]
+    pub kind: String,
+    /// `pending`, `approved`, `denied` or `expired`.
+    pub status: String,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub expires_at: Option<String>,
+    #[serde(default)]
+    pub decided_at: Option<String>,
 }
 
 // ---- Client ------------------------------------------------------------
@@ -394,9 +435,20 @@ impl<T: Transport> ApiClient<T> {
         match resp.status {
             200..=299 | 304 => Ok(resp),
             401 => Err(ApiError::Disconnected),
-            429 => Err(ApiError::RateLimited {
-                retry_after_secs: resp.header("retry-after").and_then(|v| v.trim().parse().ok()),
-            }),
+            429 => {
+                // A request limit (`too_many_pending`, `daily_limit`) is an answer, not a back-off.
+                let (code, message) = error_body(&resp.body);
+                if matches!(code.as_str(), "too_many_pending" | "daily_limit") {
+                    return Err(ApiError::Http {
+                        status: 429,
+                        code,
+                        message,
+                    });
+                }
+                Err(ApiError::RateLimited {
+                    retry_after_secs: resp.header("retry-after").and_then(|v| v.trim().parse().ok()),
+                })
+            }
             status => {
                 let (code, message) = error_body(&resp.body);
                 if status == 403 && code == "insufficient_scope" {
@@ -467,14 +519,63 @@ impl<T: Transport> ApiClient<T> {
 
     /// `POST /api/devices/heartbeat`.
     pub fn heartbeat(&self, client_version: &str) -> Result<Heartbeat, ApiError> {
-        let r = self.request(
-            Method::Post,
-            "/api/devices/heartbeat",
-            Some(json!({ "clientVersion": client_version })),
-            true,
-            &[],
-        )?;
+        self.heartbeat_with(client_version, None)
+    }
+
+    /// `POST /api/devices/heartbeat` reporting the policy version this device applies (hex, at most
+    /// 64 characters; the server refuses anything else, so a bad value is dropped here).
+    pub fn heartbeat_with(&self, client_version: &str, policy_version: Option<&str>) -> Result<Heartbeat, ApiError> {
+        let mut body = json!({ "clientVersion": client_version });
+        if let Some(v) = policy_version
+            .map(str::trim)
+            .filter(|v| !v.is_empty() && v.len() <= 64 && v.bytes().all(|b| b.is_ascii_hexdigit()))
+        {
+            body["policyVersion"] = json!(v);
+        }
+        let r = self.request(Method::Post, "/api/devices/heartbeat", Some(body), true, &[])?;
+        let mut hb: Heartbeat = self.json(&r)?;
+        hb.server_date = r.header("date").and_then(crate::clock::parse_http_date);
+        Ok(hb)
+    }
+
+    /// `GET /api/devices/policy`. `etag` is the stored bundle's `ETag` (`"<policyVersion>"`); pass
+    /// `None` to force a fresh signature (a bundle within a day of expiring).
+    pub fn policy(&self, etag: Option<&str>) -> Result<PolicyFetch, ApiError> {
+        let extra: Vec<(&str, &str)> = etag.map(|e| vec![("If-None-Match", e)]).unwrap_or_default();
+        let r = self.request(Method::Get, "/api/devices/policy", None, true, &extra)?;
+        let server_date = r.header("date").and_then(crate::clock::parse_http_date);
+        if r.status == 304 {
+            return Ok(PolicyFetch::NotModified { server_date });
+        }
+        Ok(PolicyFetch::Updated {
+            envelope: self.json(&r)?,
+            etag: r.header("etag").map(str::to_string),
+            server_date,
+        })
+    }
+
+    /// `POST /api/devices/requests` for `more_time`. Returns the request (the server answers 200 with
+    /// the existing one when an identical request is still pending).
+    pub fn request_more_time(&self, minutes: u32) -> Result<DeviceRequest, ApiError> {
+        let body = json!({ "kind": "more_time", "detail": { "minutes": minutes } });
+        let r = self.request(Method::Post, "/api/devices/requests", Some(body), true, &[])?;
         self.json(&r)
+    }
+
+    /// `GET /api/devices/requests`: this device's own requests, newest first (at most 20), or only
+    /// the open ones.
+    pub fn list_requests(&self, pending_only: bool) -> Result<Vec<DeviceRequest>, ApiError> {
+        let path = if pending_only {
+            "/api/devices/requests?status=pending"
+        } else {
+            "/api/devices/requests"
+        };
+        let r = self.request(Method::Get, path, None, true, &[])?;
+        #[derive(Deserialize)]
+        struct Out {
+            requests: Vec<DeviceRequest>,
+        }
+        Ok(self.json::<Out>(&r)?.requests)
     }
 
     /// `GET /api/signals/lists` with `If-None-Match: <etag>`.

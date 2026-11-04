@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, integer, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import type { ModelFamily, RoutingPreference } from "@neo/core";
 import { users } from "./auth.js";
 
@@ -20,8 +20,12 @@ export const tenants = pgTable("tenants", {
   kind: text("kind").$type<TenantKind>().notNull().default("household"),
   /** IANA time zone name of the household (screen time and downtime, M2); null until set, read as UTC. */
   timeZone: text("time_zone"),
+  /** Monthly model spend cap in cents (_specs/v2-m3-cutover.md section 6); null = off (the default). */
+  monthlySpendCapCents: integer("monthly_spend_cap_cents"),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  check("tenants_monthly_spend_cap_check", sql`${t.monthlySpendCapCents} is null or (${t.monthlySpendCapCents} >= 100 and ${t.monthlySpendCapCents} <= 1000000)`),
+]);
 
 export const memberships = pgTable(
   "memberships",

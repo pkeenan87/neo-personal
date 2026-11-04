@@ -32,6 +32,7 @@ export {
   type RecordCheckInput,
   type UsageCaps,
 } from "./usage.js";
+export { spend, type SpendSettings, type SpendStatus } from "./spend.js";
 export {
   createTenantForUser,
   findTenantForUser,
@@ -197,6 +198,23 @@ export { listIncidentActions, recordIncidentAction, type IncidentActionRow, type
 export { getEveSessionOwner, isEveSessionId, recordEveSession } from "./eve-sessions.js";
 export { insertScheduleRun, listScheduleRuns, pruneScheduleRuns, SCHEDULE_RUN_ERROR_MAX, SCHEDULE_RUN_RETENTION_DAYS, type ScheduleRunInput, type ScheduleRunRow } from "./schedule-runs.js";
 export {
+  CHANNEL_CODE_MAX_ATTEMPTS,
+  CHANNEL_CODE_TTL_MS,
+  MAX_CHANNELS_PER_MEMBER,
+  confirmChannelVerification,
+  generateChannelCode,
+  hashChannelCode,
+  listMemberChannels,
+  lookupMemberChannel,
+  normalizeE164,
+  removeMemberChannel,
+  startChannelVerification,
+  type ConfirmVerificationResult,
+  type MemberChannelPublic,
+  type ResolvedChannelMember,
+  type StartVerificationResult,
+} from "./member-channels.js";
+export {
   PostgresReputationCache,
   SIGNAL_OUTCOMES,
   countDeviceSignalsSince,
@@ -263,6 +281,7 @@ export {
   markOutboxFailed,
   markOutboxSent,
   isRequestAlertKind,
+  isCapExemptAlertKind,
   outboxDestination,
   REQUEST_ALERT_KINDS,
   settleAlertEmail,

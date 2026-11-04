@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize, Serializer};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
+use crate::policy::AppRef;
+
 /// The wire `MAX_SIGNAL_BATCH`.
 pub const MAX_BATCH: usize = 50;
 
@@ -76,6 +78,30 @@ impl TccService {
     }
 }
 
+/// The `reason` of a `tamper_detected` event (Child mode).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TamperReason {
+    BrowserWithoutExtension,
+    VpnApp,
+    ClockChanged,
+    AgentServiceStopped,
+    BadPolicySignature,
+}
+
+impl TamperReason {
+    /// The wire name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TamperReason::BrowserWithoutExtension => "browser_without_extension",
+            TamperReason::VpnApp => "vpn_app",
+            TamperReason::ClockChanged => "clock_changed",
+            TamperReason::AgentServiceStopped => "agent_service_stopped",
+            TamperReason::BadPolicySignature => "bad_policy_signature",
+        }
+    }
+}
+
 /// The detector-specific part of an event (the `detector` discriminant is the serde tag).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "detector", rename_all = "snake_case")]
@@ -119,6 +145,32 @@ pub enum EventBody {
         bundle_id: Option<String>,
         service: TccService,
     },
+    /// Child mode: a new app appeared. Names only, never a path.
+    #[serde(rename_all = "camelCase")]
+    AppInstalled {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signer: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bundle_id: Option<String>,
+    },
+    /// Child mode: an app was closed because the policy blocks it (or it waits for approval).
+    #[serde(rename_all = "camelCase")]
+    AppBlocked {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signer: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        image: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bundle_id: Option<String>,
+    },
+    /// Child mode: the daily budget ran out, or downtime began. Carries nothing but the time.
+    ScreenTimeExhausted {},
+    /// Child mode: protection on the device was weakened.
+    TamperDetected { reason: TamperReason },
 }
 
 impl EventBody {
@@ -128,6 +180,9 @@ impl EventBody {
             EventBody::RemoteAccessTool { .. } | EventBody::UnwantedSoftware { .. } => "software",
             EventBody::RemoteAccessSession { .. } => "remote_session",
             EventBody::TccGrant { .. } => "permission",
+            EventBody::AppInstalled { .. } | EventBody::AppBlocked { .. } => "software",
+            EventBody::ScreenTimeExhausted {} => "usage",
+            EventBody::TamperDetected { .. } => "tamper",
         }
     }
 }
@@ -277,9 +332,76 @@ impl SignalEvent {
     pub fn tool_id(&self) -> Option<&str> {
         match &self.body {
             EventBody::RemoteAccessTool { tool_id, .. } | EventBody::RemoteAccessSession { tool_id, .. } => Some(tool_id),
-            EventBody::UnwantedSoftware { .. } | EventBody::TccGrant { .. } => None,
+            EventBody::UnwantedSoftware { .. }
+            | EventBody::TccGrant { .. }
+            | EventBody::AppInstalled { .. }
+            | EventBody::AppBlocked { .. }
+            | EventBody::ScreenTimeExhausted {}
+            | EventBody::TamperDetected { .. } => None,
         }
     }
+
+    /// `app_installed`. The app is named by `name` and by whichever of `signer`, `image` and
+    /// `bundle_id` the policy can match; each is cleaned to the server's bounds (a path in `image`
+    /// is cut down to its file name, an invalid bundle id is dropped).
+    pub fn app_installed(now: OffsetDateTime, name: &str, app: &AppRef) -> Self {
+        let (name, signer, image, bundle_id) = app_fields(name, app);
+        Self::new(
+            now,
+            EventBody::AppInstalled {
+                name,
+                signer,
+                image,
+                bundle_id,
+            },
+        )
+    }
+
+    /// `app_blocked`, same fields as [`Self::app_installed`].
+    pub fn app_blocked(now: OffsetDateTime, name: &str, app: &AppRef) -> Self {
+        let (name, signer, image, bundle_id) = app_fields(name, app);
+        Self::new(
+            now,
+            EventBody::AppBlocked {
+                name,
+                signer,
+                image,
+                bundle_id,
+            },
+        )
+    }
+
+    /// `screen_time_exhausted`.
+    pub fn screen_time_exhausted(now: OffsetDateTime) -> Self {
+        Self::new(now, EventBody::ScreenTimeExhausted {})
+    }
+
+    /// `tamper_detected`.
+    pub fn tamper_detected(now: OffsetDateTime, reason: TamperReason) -> Self {
+        Self::new(now, EventBody::TamperDetected { reason })
+    }
+}
+
+type AppFields = (String, Option<String>, Option<String>, Option<String>);
+
+/// `name`, `signer`, `image` and `bundle_id` of an app event, each cleaned to the server's bounds.
+fn app_fields(name: &str, app: &AppRef) -> AppFields {
+    let image = app
+        .image
+        .as_deref()
+        .map(|i| i.rsplit(['/', '\\']).next().unwrap_or(i))
+        .and_then(bounded);
+    let bundle_id = app
+        .bundle_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|b| valid_bundle_id(b))
+        .map(str::to_string);
+    let name = bounded(name)
+        .or_else(|| image.clone())
+        .or_else(|| bundle_id.clone())
+        .unwrap_or_else(|| "Unknown app".to_string());
+    (name, app.signer.as_deref().and_then(bounded), image, bundle_id)
 }
 
 fn truncate_secs(t: OffsetDateTime) -> OffsetDateTime {

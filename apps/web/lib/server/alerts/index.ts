@@ -50,6 +50,7 @@ import {
   joinedAlertText,
   leftAlertText,
   mailboxForwardingAlertText,
+  spendCapAlertText,
   verdictAlertText,
 } from "./templates";
 import { createAlertAndEnqueue, createOutboxDrainDeps, drainOutbox, enqueueIfLegacy, type AlertRequestRef } from "./outbox";
@@ -184,6 +185,27 @@ export async function alertBreachDetected(input: {
     kind: BREACH_ALERT_KIND,
     ...text,
     dedupeKey: `breach_detected:${input.addressId}:${input.breachName}`,
+  });
+}
+
+/**
+ * `spend_cap` (_specs/v2-m3-cutover.md section 6): the household's month-to-date model spend reached 80% or 100% of its
+ * cap. Owners only (no subject). One alert per threshold per household month through the dedupe key
+ * `spend_cap:<tenantId>:<YYYY-MM>:<80|100>`; `month` is the month in the household's time zone. Never throws.
+ */
+export async function alertSpendCap(input: {
+  tenantId: string;
+  month: string;
+  percent: 80 | 100;
+  spentCents: number;
+  capCents: number;
+}): Promise<void> {
+  await raiseAlert({
+    tenantId: input.tenantId,
+    subjectUserId: null,
+    kind: "spend_cap",
+    ...spendCapAlertText(input.percent, input.spentCents, input.capCents),
+    dedupeKey: `spend_cap:${input.tenantId}:${input.month}:${input.percent}`,
   });
 }
 

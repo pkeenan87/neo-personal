@@ -59,6 +59,11 @@ pub fn decide(event: &SignalEvent, expected: &[ExpectedTool]) -> Option<WarningK
         EventBody::UnwantedSoftware { .. } => Some(WarningKind::Unwanted),
         // Needs the lists to know the app is a remote-access tool; see `decide_with_lists`.
         EventBody::TccGrant { .. } => None,
+        // Child-mode events never open the scam warning: the service shows its own notices.
+        EventBody::AppInstalled { .. }
+        | EventBody::AppBlocked { .. }
+        | EventBody::ScreenTimeExhausted {}
+        | EventBody::TamperDetected { .. } => None,
     }
 }
 

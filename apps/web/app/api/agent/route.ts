@@ -11,7 +11,8 @@
  *   401       no session
  *   404       unknown conversation (or another tenant's); an attachment that is missing, expired or another tenant's
  *   409       the conversation is waiting on a confirmation (code "confirmation_pending")
- *   429       usage cap: { error: "usage_cap_exceeded", reason, limit, resetAt, message } + Retry-After
+ *   429       usage cap: { error: "usage_cap_exceeded", reason, limit, resetAt, message } + Retry-After;
+ *             or the household's monthly spend cap: { error: "spend_cap_exceeded", limitCents, resetAt, message } + Retry-After
  *   503       usage store unavailable (fail closed), storage unavailable (incl. artifacts), or no model configured
  *
  * Order (docs/contracts.md, _specs/usage-caps.md): auth → validate →
@@ -33,6 +34,7 @@ import { CONVERSATION_ID_RE, getConversationStore, titleFromMessage, toPendingCo
 import { buildUserContent, defaultAttachmentPrompt, getArtifactStore, type ArtifactMeta } from "@/lib/server/artifacts";
 import { jsonError, readJsonObject } from "@/lib/server/http";
 import { capExceededResponse, checkCaps, noteCapHit, type CapCheckResult } from "@/lib/server/usage";
+import { spendCapExceededResponse, spendGate, type SpendGate } from "@/lib/server/spend-cap";
 import { requireApiSession } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -96,8 +98,11 @@ export async function POST(req: Request): Promise<Response> {
 
   // Usage caps: fail closed if the usage store is unavailable.
   let caps: CapCheckResult;
+  let spendGateResult: SpendGate = { blocked: false };
   try {
     caps = await checkCaps(session.tenantId);
+    // The household's monthly model spend cap (off by default): chat only, background jobs are not gated.
+    if (caps.allowed) spendGateResult = await spendGate(session.tenantId);
   } catch (err) {
     logger.error("Usage cap check failed", "api.agent", {
       tenantId: session.tenantId,
@@ -109,6 +114,7 @@ export async function POST(req: Request): Promise<Response> {
     await noteCapHit(session.tenantId, session.userId, caps, caps.reason);
     return capExceededResponse(caps, caps.reason);
   }
+  if (spendGateResult.blocked) return spendCapExceededResponse(spendGateResult);
 
   // Prompt-injection guard on what the user typed (monitor logs; block rejects).
   const scan = scanUserInput(message, conversationId ? { conversationId } : {});

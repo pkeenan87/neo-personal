@@ -42,6 +42,7 @@ GRANT EXECUTE ON FUNCTION public.list_outbox_tenants(integer, integer) TO app_us
 GRANT EXECUTE ON FUNCTION public.list_outlook_connectors(uuid, text, integer) TO app_user;  -- 0023
 GRANT EXECUTE ON FUNCTION public.expire_child_requests(timestamptz) TO app_user;  -- 0024
 GRANT EXECUTE ON FUNCTION public.purge_expired_household_memory(timestamptz) TO app_user;  -- 0028
+GRANT EXECUTE ON FUNCTION public.lookup_member_channel(text, text) TO app_user;  -- 0026
 
 -- reputation_cache is tenant-less (public reputation facts only); ALL TABLES above already
 -- covers it once created, but grant explicitly in case app_user predates the 0010 migration.
