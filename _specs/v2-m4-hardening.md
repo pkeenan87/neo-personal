@@ -16,12 +16,31 @@ M4 hardens the v2 architecture for release. It introduces configurable data rete
 - **UI:** A household settings page (`/settings/retention`) displays the current retention policy and allows the owner to adjust values within safe bounds (e.g., signals min 7 days, max 365 days). Changes are logged in `audit_log`.
 - **Edge case:** If a household has no `retention_settings` row, use defaults. If a value is out of bounds, clamp to min/max and log a warning.
 
+#### Slice 1: what was built
+
+- **Columns on `tenants`, not a `retention_settings` table.** Like the spend cap: four nullable integers with CHECK bounds (migration `0030_retention_settings`), null = default. One row per household already exists, RLS is the existing tenant policy, the settings route reuses the spend-cap shape, and the definer purges join `tenants` they already need. A table would add a second RLS policy and a lookup per purge for no gain.
+- **Settings and defaults.** `signals_days` 30 (7-365), `incidents_days` 180 (30-1095), `child_requests_days` 90 (7-365), `memory_days` 365 (30-1095). Deviation from the draft: the alert default is **180, not 365**, because that is the existing rule (acknowledged alerts also go after 90 days) and defaults must reproduce today's behaviour. An acknowledged alert goes after the lesser of 90 days and the setting. `eve_sessions_days` and `schedule_runs_days` are not settings: `schedule_runs` is a fixed 90 days (the job log is not household data), eve sessions are eve's own.
+- **Child requests** were never deleted before; decided or expired ones now go after the setting (default 90 days by `updated_at`; pending ones stay until `expire_child_requests` closes them).
+- **Memory.** A purge removes entries past `expires_at` or older than the setting; `expires_at` is set from the setting when a fact is added, so a longer setting applies to new facts only.
+- **Out of range is rejected** with 400 and the fields, not clamped (the draft said clamp): the form shows the bounds, and a silent change of a privacy setting is worse than an error. Non-owners see no section (the open question: hidden).
+- **Settings are read by each purge statement**, so a change takes effect on the next run.
+- **Shadow** records read-only counts per kind (`retention_preview`) with the household settings applied. See `docs/contracts.md`.
+- **Not built:** a separate `/settings/retention` page (the section lives on Household settings), per-tenant planned actions in the shadow digest.
+
 ### 2. Consent and notice flow (Slice 2)
 - **Parent-facing consent screen:** before enabling Child or Elder mode, the owner reads and accepts a plain-language screen in the console. Recorded in the existing `consents` table (M2) as `monitoring_notice` with `evidence { mode, textVersion }` (no new kind).
 - **Elder self-consent:** For Elder mode, the elder must confirm their helpers on screen of their own device (via a deep link or QR code) or the owner must attest in person. This is recorded as `elder_self_consent` in `consents` (`type: 'elder_self_consent'`, `method: 'device' | 'owner_attestation'`, `attested_by`, `attested_at`).
-- **'What is shared' page:** A new page (`/privacy/shared`) lists exactly what data is collected, where it is stored, and who can see it. Each member can open this page from their device or the console.
+- **'What is shared' page:** A new page (built at `/settings/household/members/[id]/shared`, see "Slice 2: what was built") lists exactly what data is collected, where it is stored, and who can see it. Each member can open this page from their device or the console.
 - **Visible notice on devices:** Already implemented in M2 (extension and desktop show a "Neo is monitoring" badge). No change.
 - **COPPA:** Verifiable consent for minors is deferred. The current flow (parent consent) is sufficient for Patrick's household. If outside households join, this becomes a gate.
+
+#### Slice 2: what was built
+- Owner decisions: family-first (COPPA verifiable consent deferred); for an elder, the elder's own confirmation is the intent, but this slice ships the owner attestation only.
+- `apps/web/lib/consent-text.ts`: `CONSENT_TEXT_VERSION = "2026-11-04"`, the notice sections (what Neo watches, never collects, who sees alerts, how to turn it off), the attestation sentence and the "what is shared" content. Bump the version when the wording changes.
+- Console: choosing Child or Elder shows the notice and a "I have read this and told <name>" checkbox; Elder adds "I set this up with <name> in person and they agreed to these helpers: ..." (the saved helper names). The Helpers form asks for the attestation again for an Elder whose helpers change.
+- Server (`patchMember`): enabling a mode without the current `consentTextVersion` is 400 `consent_required`; Elder without `elderAttestation` (on enable or helper change) is 400 `attestation_required`. Both modes record `monitoring_notice` `{ mode, textVersion, band? }` through one path; Elder also records `elder_self_consent` `{ method: "owner_attestation", textVersion, helperIds }`. No migration, no new consent kind. Existing tests changed only to send the new field.
+- `/settings/household/members/[id]/shared` (and `GET .../shared`): owners and the member themselves; another member 403, other household 404. Describes collection by mode and enrolled device kinds, never-collected list, owners and helpers by name, retention. Linked from the member page.
+- Not done: the alert-email footer link to the shared page (skipped; touches every outbox template).
 
 ### 3. Privacy page update (Slice 3)
 - Update `/privacy` to reflect v2 data:
@@ -106,6 +125,10 @@ Describe only mitigations that exist; anything missing is a residual risk or a f
 - **Owner decision:** Should the elder self-consent be required for all helpers, or just the primary helper?
 - **Owner decision:** Should the privacy page be translated into other languages? (Currently, English only.)
 - **Owner decision:** Should the evals suite include a live model test (with a small budget) in addition to the mock model?
+
+- **Open (consent slice):** device-side elder confirmation (the elder confirms their helpers on their own device via a deep link or QR, recording `elder_self_consent` `method: "device"`) is a follow-up; until then the owner's attestation is the only method.
+- **Open (consent slice):** COPPA verifiable parental consent is deferred (family-first). If households outside the family join, it becomes a gate before Child mode.
+- **Open (consent slice):** the "what is shared" page's retention lines are static until owner-set retention (slice 1) is enforced.
 
 ## Testing Guidelines
 - **Retention:** Test that the purge job respects the configured thresholds and that changes to settings take effect on the next run.

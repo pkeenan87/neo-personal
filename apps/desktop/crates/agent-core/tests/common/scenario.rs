@@ -103,5 +103,6 @@ pub fn describe(e: &SignalEvent) -> String {
         EventBody::AppBlocked { .. } => "app_blocked".to_string(),
         EventBody::ScreenTimeExhausted {} => "screen_time_exhausted".to_string(),
         EventBody::TamperDetected { reason } => format!("tamper_detected:{}", reason.as_str()),
+        EventBody::CommandResult { .. } => "command_result".to_string(),
     }
 }

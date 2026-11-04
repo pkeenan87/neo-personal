@@ -39,6 +39,7 @@ export function fakeClient(over: Partial<AgentClient> = {}): AgentClient {
     checkUrl: vi.fn(async () => ({ ok: true as const, rating: "no_known_problems" as const, domain: "example.com", reasons: [], checkedAt: "2026-10-01T00:00:00Z" })),
     unenroll: vi.fn(async () => ({ ok: true as const })),
     probePermissions: vi.fn(async () => ({ ok: true as const, fullDiskAccess: true, restarting: false })),
+    commandAnswer: vi.fn(async () => ({ ok: true as const, answered: true })),
     ...over,
   };
 }

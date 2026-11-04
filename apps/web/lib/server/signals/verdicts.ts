@@ -43,6 +43,7 @@ const SUBJECT_TYPE_BY_DETECTOR: Record<SignalDetector, SubjectType> = {
   app_blocked: "software",
   screen_time_exhausted: "software",
   tamper_detected: "software",
+  command_result: "software",
 };
 
 /** Plain-language explanation for one indicator/reason code (client-sent indicator codes, or a server reason code from rules.ts). */

@@ -13,6 +13,7 @@ import {
   auditEvents,
   childRequests,
   memberChannels,
+  deviceCommands,
   consents,
   conversations,
   alerts,
@@ -79,6 +80,7 @@ export const tenantTables = {
   childRequests,
   householdMemory,
   memberChannels,
+  deviceCommands,
 } as const;
 
 /** Any table with a `tenantId` column. */

@@ -1,6 +1,6 @@
 /** Production wiring for the inbound jobs (tests build their own deps). */
 import { logger, runTriage } from "@neo/core";
-import { SCHEDULE_RUN_RETENTION_DAYS, pruneScheduleRuns, purgeOldAlerts, weeklyDigest } from "@neo/db";
+import { SCHEDULE_RUN_RETENTION_DAYS, previewRetention, pruneScheduleRuns, purgeOldAlerts, weeklyDigest, type RetentionPreview } from "@neo/db";
 import { analyzeEmail, EMAIL_ANALYSIS_GUIDANCE } from "@neo/tools";
 import { inboundEnv } from "@/lib/env";
 import { sharedUrlCache } from "../agent-run";
@@ -77,9 +77,24 @@ export function createExpireDeps(): ExpireDeps {
 }
 
 /** The read-only side of the retention job: what it would purge. Never deletes (the shadow run uses only this). */
-export function createExpireReadPorts(): { listExpiredArtifacts(limit: number): Promise<Array<{ id: string; tenantId: string }>> } {
+export function createExpireReadPorts(): {
+  listExpiredArtifacts(limit: number): Promise<Array<{ id: string; tenantId: string }>>;
+  /** Rows the household-data purges would delete now, honouring each household's retention settings; null without a database. */
+  previewPurges?: () => Promise<RetentionPreview | null>;
+} {
   const repo = inboundRepo();
+  const db = getDb();
   return {
+    previewPurges: async () => {
+      if (!db) return null;
+      // Migration 0030: a database that has not run it yet must not break retention.
+      try {
+        return await previewRetention(db);
+      } catch (err) {
+        logger.warn("Retention preview failed", "retention", { errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
+        return null;
+      }
+    },
     listExpiredArtifacts: async (limit) => (repo.artifacts ? (await repo.artifacts.listExpired(limit)).map((a) => ({ id: a.id, tenantId: a.tenantId })) : []),
   };
 }

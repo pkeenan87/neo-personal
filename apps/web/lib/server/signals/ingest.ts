@@ -9,6 +9,7 @@ import { MAX_SIGNAL_BATCH, parseSignalEvent, type SignalEvent } from "@neo/verdi
 import type { SignalIngestResponse, SignalRejectReason, SignalResult } from "@/lib/signal-types";
 import type { DeviceSession } from "@/lib/session";
 import { recordAudit } from "../audit";
+import { applyCommandResult } from "../device-commands";
 import { getDevice } from "../devices";
 import type { Outcome } from "../household";
 import { takeRateSlot } from "../rate-limit";
@@ -73,6 +74,8 @@ function subjectOf(event: SignalEvent): string {
       return "screen_time";
     case "tamper_detected":
       return event.reason;
+    case "command_result":
+      return event.commandId;
     default: {
       const _exhaustive: never = event;
       return (_exhaustive as SignalEvent).detector;
@@ -162,6 +165,32 @@ export async function ingestSignals(session: DeviceSession, deviceId: string, bo
       results.push(rejected("rate_limited"));
       const flood = takeRateSlot("signals-flood", deviceId, 1, DAY_MS, now.getTime());
       if (flood.ok) await recordAudit(session.tenantId, null, "signals.flood", { deviceId });
+      continue;
+    }
+
+    // A device's answer to a command in its bundle is not evidence about the member: it never reaches the policy
+    // engine. It must be for a command of this device (else `invalid`); the signal row is only the dedupe record.
+    if (event.detector === "command_result") {
+      const applied = await applyCommandResult({ tenantId: session.tenantId, deviceId, commandId: event.commandId, outcome: event.outcome, ...(event.detail ? { detail: event.detail } : {}), now });
+      if (applied === "rejected") {
+        results.push(rejected("invalid"));
+        continue;
+      }
+      const { row, duplicate } = await insertDeviceSignal({
+        tenantId: session.tenantId,
+        deviceId,
+        memberId: protectedMember.memberId,
+        userId: device.userId,
+        clientEventId: event.id,
+        type: event.type,
+        detector: event.detector,
+        subject: subjectOf(event),
+        payload: payloadOf(event),
+        observedAt,
+        now,
+      });
+      if (!duplicate) await updateDeviceSignal(session.tenantId, row.id, { outcome: "recorded" });
+      results.push({ id: event.id, status: duplicate || applied === "duplicate" ? "duplicate" : "accepted" });
       continue;
     }
 

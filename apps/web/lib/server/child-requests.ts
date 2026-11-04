@@ -24,6 +24,7 @@ import {
   listChildRequests,
   listMemberRecords,
   markChildRequestExpired,
+  purgeOldChildRequests,
   recordIncidentAction,
   resolveAlert,
   revertChildRequestDecision,
@@ -430,7 +431,14 @@ export async function activeGrantsFor(tenantId: string, memberId: string, now: D
 export async function expireDueChildRequests(now = new Date()): Promise<number> {
   const db = getDb();
   if (!db) return 0;
-  return expireChildRequests(db, now);
+  const expired = await expireChildRequests(db, now);
+  // Then delete the decided and expired ones past each household's retention (migration 0030; a database that has not run it yet must not break the sweep).
+  try {
+    await purgeOldChildRequests(db, now);
+  } catch (err) {
+    logger.warn("Child request purge failed", "retention", { errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
+  }
+  return expired;
 }
 
 // ─── The eve agent's view ──────────────────────────────────────────

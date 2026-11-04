@@ -63,6 +63,24 @@ export const AllowOnceGrantSchema = z.object({
 });
 export type AllowOnceGrant = z.infer<typeof AllowOnceGrantSchema>;
 
+/**
+ * A command for the device (_specs/v2-m3-cutover.md section 4): today only `end_session`. `kind` is a plain
+ * string so a bundle with a kind a client does not know still parses (it is ignored).
+ */
+export const BundleCommandSchema = z.object({
+  id: z.string().min(1).max(64),
+  kind: z.string().min(1).max(32),
+  sessionRef: z.object({
+    toolId: z.string().regex(/^[a-z0-9_-]{1,64}$/),
+    peerId: z.string().min(1).max(64).optional(),
+  }),
+  /** The person at the device must confirm on screen before anything is closed. */
+  requiresConfirmation: z.boolean(),
+  /** The device ignores the command from this moment (10 minutes after it was requested). */
+  expiresAt: Iso,
+});
+export type BundleCommand = z.infer<typeof BundleCommandSchema>;
+
 /** Every section is present for every mode: Standard and Elder devices get the empty form, so clients have one code path. */
 export const PolicyBundleSchema = z.object({
   v: z.literal(POLICY_BUNDLE_VERSION),
@@ -97,6 +115,8 @@ export const PolicyBundleSchema = z.object({
     allowDuringDowntime: z.array(AppRefSchema),
     grants: z.array(ScreenTimeGrantSchema),
   }),
+  /** Pending commands for this device; absent, not empty, when there are none, so a bundle without them keeps its `policyVersion`. */
+  commands: z.array(BundleCommandSchema).optional(),
 });
 export type PolicyBundle = z.infer<typeof PolicyBundleSchema>;
 

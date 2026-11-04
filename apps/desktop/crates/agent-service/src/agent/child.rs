@@ -181,7 +181,7 @@ fn app_key(a: &AppRef) -> String {
     format!("{}|{}|{}", f(&a.bundle_id), f(&a.signer), f(&a.image))
 }
 
-fn platform_of(name: &str) -> Platform {
+pub(super) fn platform_of(name: &str) -> Platform {
     if name == "macos" { Platform::Mac } else { Platform::Windows }
 }
 
@@ -305,22 +305,27 @@ impl Agent {
 
     // ---- requests ---------------------------------------------------------------------------------
 
-    /// Polls the policy and the device's own requests while one is open.
+    /// Polls the policy (and the device's own requests while one is open) every minute while a request
+    /// is open or a command may be on its way (a remote session was seen lately, the heartbeat said a
+    /// command is waiting, or a confirmation is open).
     fn poll_requests(&self, now: OffsetDateTime) {
         let ts = now.unix_timestamp();
-        let Some((base, token)) = ({
+        let (creds, want_requests) = {
             let mut g = self.lock();
-            if !g.child.has_open_request() || ts < g.child.next_poll {
+            let want_requests = g.child.has_open_request();
+            if !(want_requests || g.commands.wants_poll(ts)) || ts < g.child.next_poll {
                 return;
             }
             g.child.next_poll = ts + REQUEST_POLL_SECS;
-            g.creds.as_ref().map(|c| (c.base_url.clone(), c.token.clone()))
-        }) else {
-            return;
+            (g.creds.as_ref().map(|c| (c.base_url.clone(), c.token.clone())), want_requests)
         };
+        let Some((base, token)) = creds else { return };
         let Ok(client) = self.client(&base, Some(&token)) else { return };
-        // The policy first: an approval is in the bundle before the status says so.
+        // The policy first: an approval (or a command) is in the bundle before the status says so.
         self.fetch_policy(&client, now);
+        if !want_requests {
+            return;
+        }
         match client.list_requests(false) {
             Ok(list) => self.note_requests(list),
             Err(ApiError::Disconnected) => self.handle_disconnect(),

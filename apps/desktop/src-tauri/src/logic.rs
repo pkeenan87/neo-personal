@@ -118,6 +118,7 @@ pub fn op_allowed(request: &Value) -> bool {
                 | "check_url"
                 | "unenroll"
                 | "probe_permissions"
+                | "command_answer"
         )
     )
 }
@@ -190,6 +191,40 @@ pub fn parse_warning(push: &Value) -> Option<Value> {
     let mut w = push.clone();
     w.as_object_mut()?.remove("push");
     Some(w)
+}
+
+// ---- Confirmations (`_specs/v2-m3-cutover.md` section 4) ----------------------------------------------
+
+/// A window label for a confirmation: ids are uuids, but never trust the pipe.
+pub fn confirm_label(id: &str) -> String {
+    let clean: String = id.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '-').take(64).collect();
+    format!("confirm-{clean}")
+}
+
+/// The confirmation to show for a `confirm` push, if it is well formed: an id, the one kind this build
+/// knows, and a title and body that are bounded and stripped of control characters (the text is the
+/// service's own, but it travels over a pipe any local process can write to).
+pub fn parse_confirm(push: &Value) -> Option<Value> {
+    if push.get("push").and_then(Value::as_str) != Some("confirm") {
+        return None;
+    }
+    let id = text(push, "id")?;
+    if id.len() > 64 || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
+        return None;
+    }
+    if text(push, "kind") != Some("end_session") {
+        return None;
+    }
+    let clean = |key: &str, max: usize| -> Option<String> {
+        let s: String = push.get(key)?.as_str()?.chars().filter(|c| !c.is_control()).take(max).collect();
+        let s = s.trim().to_string();
+        (!s.is_empty()).then_some(s)
+    };
+    let mut out = serde_json::json!({ "id": id, "kind": "end_session", "title": clean("title", 160)?, "body": clean("body", 200).unwrap_or_default() });
+    if let Some(at) = text(push, "expiresAt") {
+        out["expiresAt"] = Value::String(at.chars().take(40).collect());
+    }
+    Some(out)
 }
 
 // ---- Child mode (`_specs/v2-m2-child.md` section 7) ------------------------------------------------
@@ -541,10 +576,40 @@ mod tests {
         assert!(op_allowed(&json!({"op":"status"})));
         assert!(op_allowed(&json!({"op":"unenroll"})));
         assert!(op_allowed(&json!({"op":"probe_permissions"})));
+        assert!(op_allowed(&json!({"op":"command_answer","id":"c1","answer":"end"})));
         assert!(!op_allowed(&json!({"op":"subscribe"})));
         assert!(!op_allowed(&json!({"op":"rm"})));
         assert!(!op_allowed(&json!({})));
         assert!(!op_allowed(&json!({"op":5})));
+    }
+
+    #[test]
+    fn confirmations_are_validated_and_bounded() {
+        assert_eq!(confirm_label("0f2e-AB/../x"), "confirm-0f2e-ABx");
+        let push = json!({"push":"confirm","id":"c-1","kind":"end_session","title":"Your helper asked to end the remote session from AnyDesk.","body":"End it now?","expiresAt":"2026-11-03T15:02:00Z"});
+        let c = parse_confirm(&push).unwrap();
+        assert_eq!(
+            (c["id"].as_str(), c["kind"].as_str(), c["body"].as_str()),
+            (Some("c-1"), Some("end_session"), Some("End it now?"))
+        );
+        assert!(c.get("push").is_none());
+        assert_eq!(c["expiresAt"], "2026-11-03T15:02:00Z");
+        // Control characters are removed and text is capped.
+        let nasty = json!({"push":"confirm","id":"c2","kind":"end_session","title":"a\u{7}b\nc","body":"x".repeat(1000)});
+        let n = parse_confirm(&nasty).unwrap();
+        assert_eq!(n["title"], "abc");
+        assert_eq!(n["body"].as_str().unwrap().len(), 200);
+        for bad in [
+            json!({"push":"notice","id":"c","kind":"end_session","title":"t"}),
+            json!({"push":"confirm","kind":"end_session","title":"t"}),
+            json!({"push":"confirm","id":"c","kind":"lock_screen","title":"t"}),
+            json!({"push":"confirm","id":"c","kind":"end_session"}),
+            json!({"push":"confirm","id":"c","kind":"end_session","title":"  "}),
+            json!({"push":"confirm","id":"c/../x","kind":"end_session","title":"t"}),
+            json!({"push":"confirm","id":"c".repeat(65),"kind":"end_session","title":"t"}),
+        ] {
+            assert!(parse_confirm(&bad).is_none(), "{bad}");
+        }
     }
 
     #[test]

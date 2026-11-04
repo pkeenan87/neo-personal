@@ -22,8 +22,17 @@ export const tenants = pgTable("tenants", {
   timeZone: text("time_zone"),
   /** Monthly model spend cap in cents (_specs/v2-m3-cutover.md section 6); null = off (the default). */
   monthlySpendCapCents: integer("monthly_spend_cap_cents"),
+  /** Per-household retention in days (_specs/v2-m4-hardening.md section 1); null = the default (see `RETENTION_BOUNDS` in @neo/core). */
+  retentionSignalsDays: integer("retention_signals_days"),
+  retentionIncidentsDays: integer("retention_incidents_days"),
+  retentionChildRequestsDays: integer("retention_child_requests_days"),
+  retentionMemoryDays: integer("retention_memory_days"),
   createdAt: timestamp("created_at", { mode: "date", withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
+  check("tenants_retention_signals_check", sql`${t.retentionSignalsDays} is null or (${t.retentionSignalsDays} >= 7 and ${t.retentionSignalsDays} <= 365)`),
+  check("tenants_retention_incidents_check", sql`${t.retentionIncidentsDays} is null or (${t.retentionIncidentsDays} >= 30 and ${t.retentionIncidentsDays} <= 1095)`),
+  check("tenants_retention_child_requests_check", sql`${t.retentionChildRequestsDays} is null or (${t.retentionChildRequestsDays} >= 7 and ${t.retentionChildRequestsDays} <= 365)`),
+  check("tenants_retention_memory_check", sql`${t.retentionMemoryDays} is null or (${t.retentionMemoryDays} >= 30 and ${t.retentionMemoryDays} <= 1095)`),
   check("tenants_monthly_spend_cap_check", sql`${t.monthlySpendCapCents} is null or (${t.monthlySpendCapCents} >= 100 and ${t.monthlySpendCapCents} <= 1000000)`),
 ]);
 

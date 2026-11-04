@@ -74,6 +74,16 @@ export interface Warning {
   ownerTold: boolean;
 }
 
+/** The `confirm` push: a question the service asks the person before it does something (today: end a remote session). */
+export interface Confirm {
+  id: string;
+  kind: "end_session";
+  title: string;
+  body: string;
+  /** RFC 3339; no answer by then means "keep". */
+  expiresAt?: string;
+}
+
 /** What the UI can ask the service. Every call resolves; failures come back as `{ ok: false }`. */
 export interface AgentClient {
   status(): Promise<Reply<AgentStatus>>;
@@ -85,6 +95,8 @@ export interface AgentClient {
   unenroll(): Promise<Reply<object>>;
   /** macOS: look at Full Disk Access now. `restarting`: the service is restarting to pick up a new grant, so ask again in a moment. */
   probePermissions(): Promise<Reply<PermissionProbe>>;
+  /** Answers a `confirm`: `end` closes the remote-access program, `keep` leaves it. `answered` is false when the question is already over. */
+  commandAnswer(id: string, answer: "end" | "keep"): Promise<Reply<{ answered: boolean }>>;
 }
 
 export interface PermissionProbe {

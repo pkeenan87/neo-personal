@@ -34,6 +34,15 @@ export {
 } from "./usage.js";
 export { spend, type SpendSettings, type SpendStatus } from "./spend.js";
 export {
+  effectiveRetention,
+  getRetentionSettings,
+  previewRetention,
+  purgeOldChildRequests,
+  setRetentionSettings,
+  type RetentionPreview,
+  type StoredRetention,
+} from "./retention.js";
+export {
   createTenantForUser,
   findTenantForUser,
   getHouseholdName,
@@ -324,6 +333,19 @@ export {
   type HouseholdMemoryRow,
 } from "./household-memory.js";
 export { getPolicyBundle, upsertPolicyBundle, type PolicyBundleRow } from "./policy-bundles.js";
+export {
+  DEVICE_COMMAND_TTL_MS,
+  completeDeviceCommand,
+  createDeviceCommand,
+  expireDeviceCommands,
+  failExpiredCommandAction,
+  getDeviceCommand,
+  listExpiredDeviceCommands,
+  listOpenDeviceCommands,
+  markDeviceCommandsDelivered,
+  type CreateDeviceCommandInput,
+  type DeviceCommandRow,
+} from "./device-commands.js";
 export {
   MAX_HELPERS_PER_MEMBER,
   countHouseholdOwners,

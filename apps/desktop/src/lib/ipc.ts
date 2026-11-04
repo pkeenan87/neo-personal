@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AgentClient, AgentError, Shell, Warning } from "./types";
+import type { AgentClient, AgentError, Confirm, Shell, Warning } from "./types";
 
 /** Sends one request through the Rust side to the service pipe. */
 async function request<T>(body: Record<string, unknown>): Promise<T> {
@@ -26,6 +26,7 @@ export function createTauriClient(): AgentClient {
     checkUrl: (url) => request({ op: "check_url", url }),
     unenroll: () => request({ op: "unenroll" }),
     probePermissions: () => request({ op: "probe_permissions" }),
+    commandAnswer: (id, answer) => request({ op: "command_answer", id, answer }),
   };
 }
 
@@ -40,6 +41,11 @@ export const tauriShell: Shell = {
 /** The warning a window was opened for (kept by the Rust side, keyed by event id). */
 export function loadWarning(eventId: string): Promise<Warning | null> {
   return invoke<Warning | null>("get_warning", { eventId });
+}
+
+/** The question a confirm window was opened for (kept by the Rust side, keyed by command id). */
+export function loadConfirm(id: string): Promise<Confirm | null> {
+  return invoke<Confirm | null>("get_confirm", { id });
 }
 
 /** Calls `onUpdate` when the same warning is pushed again (e.g. the owner was told). */

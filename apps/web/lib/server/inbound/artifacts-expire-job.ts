@@ -5,7 +5,8 @@
  * and enrollment codes (revoked devices > 90 days, spent codes > 30 days; _specs/device-enrollment.md),
  * device_signals rows older than 30 days, expired reputation_cache rows, and expired encrypted weekly-digest payloads.
  * It also expires child requests past the end of the child's day and resolves their alerts (_specs/v2-m2-child.md section 8),
- * and deletes household memory past its 365 days (_specs/v2-m3-cutover.md section 3).
+ * and deletes household memory past its expiry (_specs/v2-m3-cutover.md section 3).
+ * Signals, alerts, child requests and memory follow each household's retention settings (_specs/v2-m4-hardening.md section 1; defaults 30 / 180 / 90 / 365 days).
  */
 import { logger } from "@neo/core";
 import type { ArtifactStore } from "@neo/db";
@@ -24,11 +25,11 @@ export interface ExpireDeps {
   artifacts: ExpiredArtifactStore | null;
   /** Delete rejected/failed inbound rows older than this many days, across tenants. */
   purgeOldInbound(olderThanDays: number): Promise<number>;
-  /** Delete old owner alerts across tenants; returns the count. */
+  /** Delete old owner alerts past each household's retention (default 180 days, acknowledged 90); returns the count. */
   purgeOldAlerts(): Promise<number>;
   /** Delete long-revoked devices and spent enrollment codes across tenants; returns the count. */
   purgeOldDevices(): Promise<number>;
-  /** Delete device_signals rows older than 30 days (received_at), across tenants; returns the count. */
+  /** Delete device_signals rows past each household's retention (default 30 days, received_at); returns the count. */
   purgeOldDeviceSignals(): Promise<number>;
   /** Delete expired reputation_cache rows, across households; returns the count. */
   purgeExpiredReputationCache(): Promise<number>;
