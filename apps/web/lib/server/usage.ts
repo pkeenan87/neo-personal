@@ -114,18 +114,23 @@ export async function noteCapHit(tenantId: string, userId: string, caps: CapChec
   }
 }
 
+/** The one friendly sentence shown when a cap is hit (the 429 body, and the eve chat's templated refusal). */
+export function capMessage(caps: CapCheckResult, reason: CapReason): string {
+  const resetAt = capResetAt(caps, reason);
+  return reason === "monthly_checks"
+    ? `Your household has used all of this month's free checks. They reset on ${resetAt.toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        timeZone: "UTC",
+      })}.`
+    : "Your household has hit today's usage limit. It resets at midnight UTC.";
+}
+
 /** 429 response body and headers for a denied cap check (_specs/usage-caps.md). */
 export function capExceededResponse(caps: CapCheckResult, reason: CapReason, now = new Date()): Response {
   const resetAt = capResetAt(caps, reason);
   const retryAfter = Math.max(1, Math.ceil((resetAt.getTime() - now.getTime()) / 1000));
-  const message =
-    reason === "monthly_checks"
-      ? `Your household has used all of this month's free checks. They reset on ${resetAt.toLocaleDateString("en-US", {
-          month: "long",
-          day: "numeric",
-          timeZone: "UTC",
-        })}.`
-      : "Your household has hit today's usage limit. It resets at midnight UTC.";
+  const message = capMessage(caps, reason);
   return Response.json(
     { error: "usage_cap_exceeded", reason, limit: capLimit(caps, reason), resetAt: resetAt.toISOString(), message },
     { status: 429, headers: { "Retry-After": String(retryAfter), "Cache-Control": "no-store" } },

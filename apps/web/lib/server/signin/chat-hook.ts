@@ -47,6 +47,11 @@ export function findEmailAnalyses(messages: readonly MessageParam[]): EmailAnaly
   return found;
 }
 
+/** The email analyses among raw tool outputs (the eve chat reads them off the session stream, not out of messages). */
+export function emailAnalysesFromOutputs(outputs: readonly unknown[]): EmailAnalysis[] {
+  return outputs.filter(isEmailAnalysis);
+}
+
 /** The last `analyze_email` result in `messages` (see `findEmailAnalyses`). */
 export function findEmailAnalysis(messages: readonly MessageParam[]): EmailAnalysis | undefined {
   return findEmailAnalyses(messages).at(-1);

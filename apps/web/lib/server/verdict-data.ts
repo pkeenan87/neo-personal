@@ -44,6 +44,9 @@ import { memoryListMembers, memoryVerdictQueries } from "./verdict-memory";
 
 export const VERDICT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** Who is looking: the part of a session (or an eve caller) the visibility rules read. */
+export type VerdictViewer = Pick<NeoSession, "tenantId" | "userId" | "role">;
+
 export type AccessError = "forbidden" | "not_found";
 export type Result<T> = { ok: true; value: T } | { ok: false; error: AccessError };
 
@@ -127,7 +130,7 @@ export async function verdictSummary(
 }
 
 /** A verdict row visible to this session (tenant + role), or undefined. */
-export async function getVisibleVerdict(session: NeoSession, id: string): Promise<VerdictRow | undefined> {
+export async function getVisibleVerdict(session: VerdictViewer, id: string): Promise<VerdictRow | undefined> {
   if (!VERDICT_ID_RE.test(id)) return undefined;
   const row = await queryGet(session.tenantId, id);
   if (!row) return undefined;
