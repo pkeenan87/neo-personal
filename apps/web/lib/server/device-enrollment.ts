@@ -39,7 +39,7 @@ import {
   toEnrollmentCodeItem,
 } from "./devices";
 import { requireHouseholdAdmin } from "./household-admin";
-import { compileDeviceBundle, currentPolicyVersion, devicePolicyState } from "./policy-bundles";
+import { compileDeviceBundle, currentPolicyInfo, devicePolicyState } from "./policy-bundles";
 import { renderDeviceEnrolledEmail } from "./email/household-email";
 import { getMailer } from "./email/resend";
 import type { Outcome } from "./household";
@@ -285,10 +285,11 @@ export async function heartbeat(
   if (!device) return fail(401, "unauthenticated", "This device is no longer connected to a household.");
   const url = uninstallUrl(origin, deviceId);
   // The current bundle version, computed without signing. A failure here must not fail the check-in.
-  const policyVersion = await currentPolicyVersion(device).catch((err: unknown) => {
+  const info = await currentPolicyInfo(device).catch((err: unknown) => {
     logger.error("Policy version unavailable for heartbeat", "devices", { tenantId: session.tenantId, errorMessage: errText(err) });
     return null;
   });
+  const policyVersion = info?.policyVersion ?? null;
   return {
     ok: true,
     value: {
@@ -298,6 +299,8 @@ export async function heartbeat(
       heartbeatSeconds: HEARTBEAT_SECONDS,
       listsVersion: combinedListsVersion(detectionLists().version),
       policyVersion,
+      // Present only while a command waits for this device (additive): the agent polls its policy every minute.
+      ...(info?.pendingCommand ? { pendingCommand: true } : {}),
       ...(url ? { uninstallUrl: url } : {}),
     },
   };

@@ -292,6 +292,8 @@ pub struct Server {
     pub request_reply: Mutex<Option<(u16, Value)>>,
     /// `extensionEnrolled` in the heartbeat, when set.
     pub extension_enrolled: Mutex<Option<bool>>,
+    /// `pendingCommand: true` in the heartbeat, when set.
+    pub pending_command: AtomicBool,
 }
 
 impl Server {
@@ -355,6 +357,9 @@ impl Server {
         if name == "heartbeat" {
             if let Some(ver) = self.policy_version.lock().unwrap().clone() {
                 v["body"]["policyVersion"] = json!(ver);
+            }
+            if self.pending_command.load(Ordering::SeqCst) {
+                v["body"]["pendingCommand"] = json!(true);
             }
             if let Some(e) = *self.extension_enrolled.lock().unwrap() {
                 v["body"]["extensionEnrolled"] = json!(e);

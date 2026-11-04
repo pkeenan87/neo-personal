@@ -102,6 +102,32 @@ impl TamperReason {
     }
 }
 
+/// The `outcome` of a `command_result`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandOutcome {
+    /// The command was carried out (or there was nothing left to do).
+    Done,
+    /// The person at the computer said no, or did not answer in time.
+    Declined,
+    /// It could not be carried out.
+    Failed,
+    /// The command had expired before it could be acted on.
+    Expired,
+}
+
+impl CommandOutcome {
+    /// The wire name.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CommandOutcome::Done => "done",
+            CommandOutcome::Declined => "declined",
+            CommandOutcome::Failed => "failed",
+            CommandOutcome::Expired => "expired",
+        }
+    }
+}
+
 /// The detector-specific part of an event (the `detector` discriminant is the serde tag).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "detector", rename_all = "snake_case")]
@@ -171,6 +197,14 @@ pub enum EventBody {
     ScreenTimeExhausted {},
     /// Child mode: protection on the device was weakened.
     TamperDetected { reason: TamperReason },
+    /// The answer to a command in the policy bundle (`end_session`): what became of it.
+    #[serde(rename_all = "camelCase")]
+    CommandResult {
+        command_id: String,
+        outcome: CommandOutcome,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+    },
 }
 
 impl EventBody {
@@ -183,6 +217,7 @@ impl EventBody {
             EventBody::AppInstalled { .. } | EventBody::AppBlocked { .. } => "software",
             EventBody::ScreenTimeExhausted {} => "usage",
             EventBody::TamperDetected { .. } => "tamper",
+            EventBody::CommandResult { .. } => "command",
         }
     }
 }
@@ -337,7 +372,8 @@ impl SignalEvent {
             | EventBody::AppInstalled { .. }
             | EventBody::AppBlocked { .. }
             | EventBody::ScreenTimeExhausted {}
-            | EventBody::TamperDetected { .. } => None,
+            | EventBody::TamperDetected { .. }
+            | EventBody::CommandResult { .. } => None,
         }
     }
 
@@ -379,6 +415,21 @@ impl SignalEvent {
     /// `tamper_detected`.
     pub fn tamper_detected(now: OffsetDateTime, reason: TamperReason) -> Self {
         Self::new(now, EventBody::TamperDetected { reason })
+    }
+
+    /// `command_result`. `detail` is a short code (`[a-z0-9_]`, at most 64 characters); anything else is dropped.
+    pub fn command_result(now: OffsetDateTime, command_id: &str, outcome: CommandOutcome, detail: Option<&str>) -> Self {
+        let detail = detail
+            .filter(|d| !d.is_empty() && d.len() <= 64 && d.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'))
+            .map(str::to_string);
+        Self::new(
+            now,
+            EventBody::CommandResult {
+                command_id: command_id.to_string(),
+                outcome,
+                detail,
+            },
+        )
     }
 }
 

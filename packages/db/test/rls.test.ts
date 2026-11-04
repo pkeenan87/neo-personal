@@ -6,7 +6,7 @@ import { tenantScoped } from "../src/tenant.js";
 import { createTenantForUser, findTenantForUser } from "../src/tenants.js";
 import { createTestDb, createUser, type TestDb } from "./helpers.js";
 
-const TENANT_OWNED = ["tenants", "memberships", "conversations", "turns", "verdicts", "artifacts", "audit_events", "usage_events", "inbound_addresses", "inbound_messages", "household_invites", "alerts", "devices", "device_enrollment_codes", "device_signals", "device_expected_tools", "members", "policies", "incident_actions", "notification_outbox", "consents", "child_requests", "policy_bundles", "member_channels"];
+const TENANT_OWNED = ["tenants", "memberships", "conversations", "turns", "verdicts", "artifacts", "audit_events", "usage_events", "inbound_addresses", "inbound_messages", "household_invites", "alerts", "devices", "device_enrollment_codes", "device_signals", "device_expected_tools", "members", "policies", "incident_actions", "notification_outbox", "consents", "child_requests", "policy_bundles", "member_channels", "device_commands"];
 
 describe("RLS", () => {
   let t: TestDb;

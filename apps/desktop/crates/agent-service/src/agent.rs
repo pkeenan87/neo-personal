@@ -51,6 +51,7 @@ const FDA_RELAUNCH_MIN_SECS: i64 = 60;
 const RELAUNCH_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
 
 mod child;
+mod commands;
 
 pub trait Clock: Send + Sync {
     fn now(&self) -> OffsetDateTime;
@@ -159,6 +160,8 @@ struct Inner {
     fda_probed_at: i64,
     /// Child mode: the policy bundle, screen-time ledger and app state.
     child: child::State,
+    /// Commands from the server (`end_session`): which are done, which wait for an answer, when to poll.
+    commands: commands::State,
 }
 
 /// What a scan read that Child mode also needs.
@@ -240,6 +243,7 @@ impl Agent {
             fda: None,
             fda_probed_at: 0,
             child,
+            commands: commands::State::load(&dir),
         };
         Agent {
             deps,
@@ -409,6 +413,7 @@ impl Agent {
             Request::ProbePermissions => self.probe_permissions(),
             Request::PolicyStatus => self.policy_status(),
             Request::RequestMoreTime { minutes } => self.request_more_time(minutes),
+            Request::CommandAnswer { id, end } => self.answer_command(&id, end),
         }
     }
 
@@ -627,6 +632,7 @@ impl Agent {
             g.sign_in = None;
             g.warned.clear();
             self.child_reset(&mut g);
+            self.commands_reset(&mut g);
             self.save_all(&g);
         }
         self.status_changed();
@@ -669,6 +675,7 @@ impl Agent {
         }
         // Child mode runs on what the scan just read; with nothing due it only polls requests.
         self.child_pass(now, &scanned, fast, slow);
+        self.commands_pass(now);
         self.flush(now);
     }
 
@@ -740,6 +747,9 @@ impl Agent {
                 g.meta.member_name = hb.member_name;
                 g.meta.expected_tools = hb.device.expected();
                 g.child.set_extension_enrolled(hb.extension_enrolled);
+                if hb.pending_command {
+                    g.commands.note_pending_hint(ts);
+                }
                 if let Some((lists, etag)) = fetched {
                     if let Ok(text) = serde_json::to_string(&*lists) {
                         let _ = self.dir.write_atomic(LISTS_FILE, &text);
@@ -862,6 +872,10 @@ impl Agent {
         {
             let mut g = self.lock();
             let events = detect::detect(&lists, &mut g.seen, &snap, now, discovery);
+            // A remote session is open: poll the policy every minute for a while, so a request to end it arrives in time.
+            if events.iter().any(|e| matches!(e.body, EventBody::RemoteAccessSession { .. })) {
+                g.commands.note_session(now.unix_timestamp());
+            }
             for e in &events {
                 log::info!("event: {}", describe(e));
                 if let Some(kind) = decide_with_lists(e, &expected, &lists) {
@@ -915,7 +929,9 @@ impl Agent {
             }
             // Child-mode events are never scam warnings (`warn::decide` returns none for them).
             EventBody::AppInstalled { name, .. } | EventBody::AppBlocked { name, .. } => (name.clone(), None, "medium"),
-            EventBody::ScreenTimeExhausted {} | EventBody::TamperDetected { .. } => (String::new(), None, "medium"),
+            EventBody::ScreenTimeExhausted {} | EventBody::TamperDetected { .. } | EventBody::CommandResult { .. } => {
+                (String::new(), None, "medium")
+            }
         };
         Warning {
             event_id: e.id.clone(),
@@ -1032,5 +1048,6 @@ fn describe(e: &SignalEvent) -> String {
         EventBody::AppBlocked { .. } => "app_blocked".to_string(),
         EventBody::ScreenTimeExhausted {} => "screen_time_exhausted".to_string(),
         EventBody::TamperDetected { reason } => format!("tamper_detected {}", reason.as_str()),
+        EventBody::CommandResult { outcome, .. } => format!("command_result {}", outcome.as_str()),
     }
 }

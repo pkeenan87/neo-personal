@@ -8,6 +8,7 @@
 
 pub mod api;
 pub mod clock;
+pub mod commands;
 pub mod detect;
 pub mod enforce;
 pub mod events;

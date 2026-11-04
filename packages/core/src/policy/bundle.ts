@@ -11,6 +11,7 @@ import {
   policyVersionBody,
   type PolicyBundle,
   type AllowOnceGrant,
+  type BundleCommand,
   type ScreenTimeGrant,
 } from "@neo/verdict";
 import { effectivePolicy, type PolicyLayers } from "./defaults.js";
@@ -31,6 +32,8 @@ export interface CompileBundleInput {
   grants: readonly ScreenTimeGrant[];
   /** Approved one-off site allows that have not run out (child requests, `unblock_site` once). Omitted from the bundle when empty. */
   allowOnce?: readonly AllowOnceGrant[];
+  /** Pending commands for this device (`end_session`). Those past `expiresAt` are dropped here; omitted from the bundle when none remain. */
+  commands?: readonly BundleCommand[];
 }
 
 /** Hex SHA-256 of the canonical bundle body, excluding the timestamps and the version itself. */
@@ -81,9 +84,12 @@ export function compileBundle(input: CompileBundleInput): PolicyBundle {
       grants: child ? sortedBy(input.grants.map((g) => ({ minutes: g.minutes, until: g.until })), (g) => `${g.until}|${String(g.minutes).padStart(5, "0")}`) : [],
     },
   };
-  const policyVersion = computePolicyVersion(body);
+  // Commands apply to every mode (an Elder device is the main target). Absent, not empty, so a device without any keeps its version.
+  const live = (input.commands ?? []).filter((c) => Date.parse(c.expiresAt) > now.getTime());
+  const withCommands = live.length > 0 ? { ...body, commands: sortedBy(live.map((c) => ({ ...c, sessionRef: { ...c.sessionRef } })), (c) => c.id) } : body;
+  const policyVersion = computePolicyVersion(withCommands);
   return {
-    ...body,
+    ...withCommands,
     policyVersion,
     issuedAt: now.toISOString(),
     expiresAt: new Date(now.getTime() + POLICY_BUNDLE_TTL_MS).toISOString(),

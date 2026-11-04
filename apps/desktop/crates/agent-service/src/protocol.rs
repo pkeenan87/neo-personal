@@ -16,6 +16,8 @@ pub const MAX_NAME_LEN: usize = 64;
 pub const MAX_URL_LEN: usize = 2048;
 /// Server URLs (advanced setting) are at most this long.
 pub const MAX_SERVER_URL_LEN: usize = 200;
+/// Command ids (the server's uuids) are at most this long.
+pub const MAX_COMMAND_ID_LEN: usize = 64;
 
 /// A validated request.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +48,12 @@ pub enum Request {
     /// Child mode: ask a parent for more screen time today (`minutes` is 5 to 120).
     RequestMoreTime {
         minutes: u32,
+    },
+    /// The person's answer to a `confirm` push (`end_session`): `end` closes the remote-access
+    /// program, `keep` leaves it. An id that is not waiting for an answer does nothing.
+    CommandAnswer {
+        id: String,
+        end: bool,
     },
     Subscribe,
 }
@@ -206,6 +214,15 @@ pub fn parse_request(line: &[u8]) -> Result<Request, ProtocolError> {
                 .ok_or(ProtocolError::Invalid("minutes must be a whole number from 5 to 120"))?;
             Ok(Request::RequestMoreTime { minutes })
         }
+        "command_answer" => {
+            let id = req_string(&obj, "id", MAX_COMMAND_ID_LEN)?;
+            let end = match obj.get("answer").and_then(Value::as_str) {
+                Some("end") => true,
+                Some("keep") => false,
+                _ => return Err(ProtocolError::Invalid("answer must be end or keep")),
+            };
+            Ok(Request::CommandAnswer { id, end })
+        }
         "self_enroll_poll" => Ok(Request::SelfEnrollPoll),
         "enroll_preview" => Ok(Request::EnrollPreview {
             code: req_string(&obj, "code", MAX_CODE_LEN)?,
@@ -276,6 +293,36 @@ mod tests {
             r#"{"op":"request","kind":"more_time","minutes":null}"#,
         ] {
             assert!(matches!(parse(bad), Err(ProtocolError::Invalid(_))), "{bad}");
+        }
+    }
+
+    #[test]
+    fn command_answer_is_end_or_keep_for_an_id() {
+        assert_eq!(
+            parse(r#"{"op":"command_answer","id":"c-1","answer":"end"}"#),
+            Ok(Request::CommandAnswer {
+                id: "c-1".into(),
+                end: true
+            })
+        );
+        assert_eq!(
+            parse(r#"{"op":"command_answer","id":" c-1 ","answer":"keep"}"#),
+            Ok(Request::CommandAnswer {
+                id: "c-1".into(),
+                end: false
+            })
+        );
+        let long = "a".repeat(MAX_COMMAND_ID_LEN + 1);
+        for bad in [
+            r#"{"op":"command_answer"}"#.to_string(),
+            r#"{"op":"command_answer","id":"c-1"}"#.to_string(),
+            r#"{"op":"command_answer","id":"c-1","answer":"yes"}"#.to_string(),
+            r#"{"op":"command_answer","id":"c-1","answer":true}"#.to_string(),
+            r#"{"op":"command_answer","id":"","answer":"end"}"#.to_string(),
+            r#"{"op":"command_answer","id":5,"answer":"end"}"#.to_string(),
+            format!(r#"{{"op":"command_answer","id":"{long}","answer":"end"}}"#),
+        ] {
+            assert!(matches!(parse(&bad), Err(ProtocolError::Invalid(_))), "{bad}");
         }
     }
 

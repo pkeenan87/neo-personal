@@ -19,6 +19,8 @@ pub const POLICY_FILE: &str = "policy.json";
 pub const CHILD_FILE: &str = "child.json";
 /// The service's own journal, for `agent_service_stopped`.
 pub const ALIVE_FILE: &str = "alive.json";
+/// The ids of the server commands already dealt with (`_specs/v2-m3-cutover.md` section 4).
+pub const COMMANDS_FILE: &str = "commands.json";
 
 #[derive(Debug, Clone)]
 pub struct DataDir {

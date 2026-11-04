@@ -43,6 +43,7 @@ export type AuditEventType =
   | "member.channel_removed"
   | "household.time_zone_changed"
   | "incident.action"
+  | "device.command_result"
   | "child_request.decided"
   | "signin.answered"
   | "signals.flood";
