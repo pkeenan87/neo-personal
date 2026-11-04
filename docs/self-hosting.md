@@ -204,6 +204,7 @@ GRANT EXECUTE ON FUNCTION public.purge_expired_reputation_cache() TO app_user;
 -- Migration 0030 (per-household retention: child request purge and the read-only shadow preview).
 GRANT EXECUTE ON FUNCTION public.purge_old_child_requests(timestamptz) TO app_user;
 GRANT EXECUTE ON FUNCTION public.retention_preview(timestamptz) TO app_user;
+GRANT EXECUTE ON FUNCTION public.purge_old_household_records(timestamptz) TO app_user;
 GRANT SELECT, INSERT, UPDATE, DELETE ON reputation_cache TO app_user;  -- tenant-less table
 ```
 
