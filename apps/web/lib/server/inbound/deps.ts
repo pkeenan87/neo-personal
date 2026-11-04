@@ -1,6 +1,6 @@
 /** Production wiring for the inbound jobs (tests build their own deps). */
 import { logger, runTriage } from "@neo/core";
-import { SCHEDULE_RUN_RETENTION_DAYS, previewRetention, pruneScheduleRuns, purgeOldAlerts, weeklyDigest, type RetentionPreview } from "@neo/db";
+import { SCHEDULE_RUN_RETENTION_DAYS, previewRetention, pruneScheduleRuns, purgeOldAlerts, purgeOldHouseholdRecords, weeklyDigest, type RetentionPreview } from "@neo/db";
 import { analyzeEmail, EMAIL_ANALYSIS_GUIDANCE } from "@neo/tools";
 import { inboundEnv } from "@/lib/env";
 import { sharedUrlCache } from "../agent-run";
@@ -70,6 +70,18 @@ export function createExpireDeps(): ExpireDeps {
         return await purgeExpiredMemory();
       } catch (err) {
         logger.warn("Household memory purge failed", "retention", { errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
+        return 0;
+      }
+    },
+    // The household-records purge is new (migration 0031): a database that has not run it yet must not break retention.
+    purgeOldHouseholdRecords: async () => {
+      if (!db) return 0;
+      try {
+        const r = await purgeOldHouseholdRecords(db);
+        logger.info("Household records purged", "retention", { ...r });
+        return r.outbox + r.invites + r.deviceCommands + r.eveSessions + r.usageEvents;
+      } catch (err) {
+        logger.warn("Household records purge failed", "retention", { errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 200) });
         return 0;
       }
     },

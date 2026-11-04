@@ -181,7 +181,7 @@ v2 adds household members without accounts, signed policies that devices enforce
 
 **Consent.** Enabling Child or Elder mode is refused without the current notice version (`consent_required`), and Elder also needs the owner's in-person attestation (`attestation_required`); both are recorded in `consents` (`apps/web/lib/server/member-console.ts`, wording in `apps/web/lib/consent-text.ts`). Residual: the attestation is the owner's word; the elder's own confirmation on their device is not built; verifiable parental consent (COPPA) is not built (below).
 
-**Retention.** Owners set how long signals, alerts, child requests and household memory are kept (`tenants.retention_*_days`, bounds in `packages/core/src/retention.ts`, purges in migration 0030). Residual: nothing deletes consents, usage events, the audit trail, incident actions, the notification outbox, invitations, device commands (they are only marked expired) or `eve_sessions` on a timer; they live until the household is deleted. eve's own session storage is outside our control.
+**Retention.** Owners set how long signals, alerts, child requests and household memory are kept (`tenants.retention_*_days`, bounds in `packages/core/src/retention.ts`, purges in migration 0030). Fixed periods (migration 0031, `purge_old_household_records`): finished notification-outbox rows after 30 days (any after 90), spent invitations after 30, device commands 30 days after expiry, `eve_sessions` after 90 (the chat then fails the owner check closed), usage events after 400. Residual: consents, the audit trail and incident actions are kept until the household is deleted, by decision (`_specs/v2-followups.md` Open Questions). eve's own session storage is outside our control.
 
 ### Owner actions
 

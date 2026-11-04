@@ -38,6 +38,8 @@ export {
   getRetentionSettings,
   previewRetention,
   purgeOldChildRequests,
+  purgeOldHouseholdRecords,
+  type HouseholdRecordsPurged,
   setRetentionSettings,
   type RetentionPreview,
   type StoredRetention,

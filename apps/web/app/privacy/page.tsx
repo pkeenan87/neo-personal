@@ -341,7 +341,22 @@ function sections(email: string): Section[] {
             <strong>the notification queue</strong> and <strong>invitations</strong> are kept until the household is deleted. Neo does not yet delete them on a timer.
           </li>
           <li>
-            <strong>Usage and spend records</strong> are kept until the household is deleted.
+            <strong>Usage and spend records</strong> are kept for 400 days, so the monthly spend cap and a year-over-year view still work.
+          </li>
+          <li>
+            <strong>Email notifications</strong> waiting to be sent are deleted 30 days after they are sent or give up, and in any case after 90 days.
+          </li>
+          <li>
+            <strong>Invitations</strong> are deleted 30 days after they are accepted, revoked or expire.
+          </li>
+          <li>
+            <strong>Remote commands</strong> to a device (such as ending a session) are deleted 30 days after they expire.
+          </li>
+          <li>
+            <strong>Chat sessions</strong> in the new assistant are deleted from our records after 90 days, after which they can no longer be continued.
+          </li>
+          <li>
+            <strong>Consent records and the audit trail</strong> are kept until the household is deleted, as the record that notice was given and of who changed what.
           </li>
           <li>
             <strong>Neo&apos;s background job log</strong> keeps counts and a checksum only, never personal data, for 90 days.

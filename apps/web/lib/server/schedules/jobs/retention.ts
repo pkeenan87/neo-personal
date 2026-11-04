@@ -28,6 +28,7 @@ export const RETENTION_PURGES = [
   "child_requests",
   "schedule_runs",
   "household_memory",
+  "household_records",
 ] as const;
 
 export function retentionDeps(mode: RunMode): RetentionDeps {
