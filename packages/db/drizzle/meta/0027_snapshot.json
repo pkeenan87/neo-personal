@@ -1,6 +1,6 @@
 {
-  "id": "2f93e9ae-2dd6-4b6f-96d9-d415878f54cb",
-  "prevId": "68f7f49a-8668-4893-9f6d-1c19a1352b70",
+  "id": "8cea2146-a2ea-400a-a1b4-b63acb827280",
+  "prevId": "2caf1f88-5e91-45cc-8a6b-09bed8d64bf1",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5860,7 +5860,7 @@
       "checkConstraints": {
         "notification_outbox_channel_check": {
           "name": "notification_outbox_channel_check",
-          "value": "\"notification_outbox\".\"channel\" in ('email')"
+          "value": "\"notification_outbox\".\"channel\" in ('email', 'sms')"
         }
       },
       "isRLSEnabled": false
@@ -6529,6 +6529,191 @@
         "schedule_runs_error_length_check": {
           "name": "schedule_runs_error_length_check",
           "value": "\"schedule_runs\".\"error\" is null or char_length(\"schedule_runs\".\"error\") <= 300"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.member_channels": {
+      "name": "member_channels",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "member_id": {
+          "name": "member_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "channel": {
+          "name": "channel",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "platform_id": {
+          "name": "platform_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "verified_at": {
+          "name": "verified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verification_code_hash": {
+          "name": "verification_code_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verification_expires_at": {
+          "name": "verification_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "verification_attempts": {
+          "name": "verification_attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "member_channels_verified_idx": {
+          "name": "member_channels_verified_idx",
+          "columns": [
+            {
+              "expression": "channel",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "platform_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"member_channels\".\"verified_at\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "member_channels_member_idx": {
+          "name": "member_channels_member_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "channel",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "platform_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "member_channels_tenant_member_idx": {
+          "name": "member_channels_tenant_member_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "member_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "member_channels_tenant_id_tenants_id_fk": {
+          "name": "member_channels_tenant_id_tenants_id_fk",
+          "tableFrom": "member_channels",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "member_channels_member_id_members_id_fk": {
+          "name": "member_channels_member_id_members_id_fk",
+          "tableFrom": "member_channels",
+          "tableTo": "members",
+          "columnsFrom": [
+            "member_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "member_channels_channel_check": {
+          "name": "member_channels_channel_check",
+          "value": "\"member_channels\".\"channel\" in ('sms')"
         }
       },
       "isRLSEnabled": false

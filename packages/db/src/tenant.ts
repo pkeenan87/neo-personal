@@ -12,6 +12,7 @@ import {
   artifacts,
   auditEvents,
   childRequests,
+  memberChannels,
   consents,
   conversations,
   alerts,
@@ -75,6 +76,7 @@ export const tenantTables = {
   eveSessions,
   consents,
   childRequests,
+  memberChannels,
 } as const;
 
 /** Any table with a `tenantId` column. */

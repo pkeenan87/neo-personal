@@ -180,6 +180,13 @@
     {
       "idx": 25,
       "version": "7",
+      "when": 1793633106799,
+      "tag": "0026_member_channels",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
       "when": 1793633166799,
       "tag": "0027_spend_cap",
       "breakpoints": true
