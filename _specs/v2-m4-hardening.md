@@ -30,9 +30,17 @@ M4 hardens the v2 architecture for release. It introduces configurable data rete
 ### 2. Consent and notice flow (Slice 2)
 - **Parent-facing consent screen:** before enabling Child or Elder mode, the owner reads and accepts a plain-language screen in the console. Recorded in the existing `consents` table (M2) as `monitoring_notice` with `evidence { mode, textVersion }` (no new kind).
 - **Elder self-consent:** For Elder mode, the elder must confirm their helpers on screen of their own device (via a deep link or QR code) or the owner must attest in person. This is recorded as `elder_self_consent` in `consents` (`type: 'elder_self_consent'`, `method: 'device' | 'owner_attestation'`, `attested_by`, `attested_at`).
-- **'What is shared' page:** A new page (`/privacy/shared`) lists exactly what data is collected, where it is stored, and who can see it. Each member can open this page from their device or the console.
+- **'What is shared' page:** A new page (built at `/settings/household/members/[id]/shared`, see "Slice 2: what was built") lists exactly what data is collected, where it is stored, and who can see it. Each member can open this page from their device or the console.
 - **Visible notice on devices:** Already implemented in M2 (extension and desktop show a "Neo is monitoring" badge). No change.
 - **COPPA:** Verifiable consent for minors is deferred. The current flow (parent consent) is sufficient for Patrick's household. If outside households join, this becomes a gate.
+
+#### Slice 2: what was built
+- Owner decisions: family-first (COPPA verifiable consent deferred); for an elder, the elder's own confirmation is the intent, but this slice ships the owner attestation only.
+- `apps/web/lib/consent-text.ts`: `CONSENT_TEXT_VERSION = "2026-11-04"`, the notice sections (what Neo watches, never collects, who sees alerts, how to turn it off), the attestation sentence and the "what is shared" content. Bump the version when the wording changes.
+- Console: choosing Child or Elder shows the notice and a "I have read this and told <name>" checkbox; Elder adds "I set this up with <name> in person and they agreed to these helpers: ..." (the saved helper names). The Helpers form asks for the attestation again for an Elder whose helpers change.
+- Server (`patchMember`): enabling a mode without the current `consentTextVersion` is 400 `consent_required`; Elder without `elderAttestation` (on enable or helper change) is 400 `attestation_required`. Both modes record `monitoring_notice` `{ mode, textVersion, band? }` through one path; Elder also records `elder_self_consent` `{ method: "owner_attestation", textVersion, helperIds }`. No migration, no new consent kind. Existing tests changed only to send the new field.
+- `/settings/household/members/[id]/shared` (and `GET .../shared`): owners and the member themselves; another member 403, other household 404. Describes collection by mode and enrolled device kinds, never-collected list, owners and helpers by name, retention. Linked from the member page.
+- Not done: the alert-email footer link to the shared page (skipped; touches every outbox template).
 
 ### 3. Privacy page update (Slice 3)
 - Update `/privacy` to reflect v2 data:
@@ -103,6 +111,10 @@ Describe only mitigations that exist; anything missing is a residual risk or a f
 - **Owner decision:** Should the elder self-consent be required for all helpers, or just the primary helper?
 - **Owner decision:** Should the privacy page be translated into other languages? (Currently, English only.)
 - **Owner decision:** Should the evals suite include a live model test (with a small budget) in addition to the mock model?
+
+- **Open (consent slice):** device-side elder confirmation (the elder confirms their helpers on their own device via a deep link or QR, recording `elder_self_consent` `method: "device"`) is a follow-up; until then the owner's attestation is the only method.
+- **Open (consent slice):** COPPA verifiable parental consent is deferred (family-first). If households outside the family join, it becomes a gate before Child mode.
+- **Open (consent slice):** the "what is shared" page's retention lines are static until owner-set retention (slice 1) is enforced.
 
 ## Testing Guidelines
 - **Retention:** Test that the purge job respects the configured thresholds and that changes to settings take effect on the next run.

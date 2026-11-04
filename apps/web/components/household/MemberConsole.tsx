@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { browserTimeZone } from "@/lib/child-settings-form";
+import { CONSENT_TEXT_VERSION, consentSections, elderAttestationText } from "@/lib/consent-text";
 import type { ChildRequestItem } from "@/lib/child-request-types";
 import { ChildRequestsPanel } from "./ChildRequestsPanel";
 import { ChildSettingsEditor, type ChildPolicyBody } from "./ChildSettingsEditor";
@@ -57,6 +58,9 @@ export function MemberConsole({ initial, requests, smsEnabled }: { initial: Memb
   // Prefilled from the browser; the field only appears after the owner picks Child, so server and client markup agree.
   const [timeZone, setTimeZone] = useState(() => browserTimeZone() ?? "");
   const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null);
+  // The notice read and the Elder attestation ticked; cleared after every save.
+  const [accepted, setAccepted] = useState(false);
+  const [attested, setAttested] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<{ kind: "ok" | "error"; text: string } | null>(null);
 
@@ -64,6 +68,13 @@ export function MemberConsole({ initial, requests, smsEnabled }: { initial: Memb
   const turningElderOff = m.mode === "elder" && mode !== "elder";
   const turningChildOff = m.mode === "child" && mode !== "child";
   const enablingChild = mode === "child" && m.mode !== "child";
+  const enablingElder = mode === "elder" && m.mode !== "elder";
+  const enablingMonitoring = enablingChild || enablingElder;
+  const nameOf = (id: string) => detail.others.find((o) => o.id === id)?.displayName;
+  const savedHelperNames = m.helperMemberIds.map(nameOf).filter((n): n is string => n !== undefined);
+  const helpersChanged = helpers.length !== m.helperMemberIds.length || helpers.some((h) => !m.helperMemberIds.includes(h));
+  const consentBody = enablingMonitoring ? { consentTextVersion: CONSENT_TEXT_VERSION, ...(enablingElder ? { elderAttestation: true } : {}) } : {};
+  const consentReady = !enablingMonitoring || (accepted && (!enablingElder || attested));
   const needsTimeZone = enablingChild && detail.child.timeZone === null;
   const yearValue = birthYear.trim() === "" ? null : Number(birthYear);
   const yearOk = yearValue === null || (Number.isInteger(yearValue) && yearValue >= 1900 && yearValue <= new Date().getFullYear());
@@ -77,6 +88,8 @@ export function MemberConsole({ initial, requests, smsEnabled }: { initial: Memb
       setName(next.member.displayName);
       setRole(next.member.role);
       setMode(next.member.mode);
+      setAccepted(false);
+      setAttested(false);
       setHelpers(next.member.helperMemberIds);
       setBirthYear(next.member.birthYear === null ? "" : String(next.member.birthYear));
       setContact("");
@@ -98,7 +111,7 @@ export function MemberConsole({ initial, requests, smsEnabled }: { initial: Memb
   /** Child mode needs the household time zone first (its own route), then the mode with the birth year. */
   async function onModeSubmit(e: FormEvent) {
     e.preventDefault();
-    if (!enablingChild) return void save("mode", base, "PATCH", { mode }, "Mode saved.");
+    if (!enablingChild) return void save("mode", base, "PATCH", { mode, ...consentBody }, enablingElder ? "Elder mode is on." : "Mode saved.");
     setBusy("mode");
     setMessage(null);
     try {
@@ -112,7 +125,7 @@ export function MemberConsole({ initial, requests, smsEnabled }: { initial: Memb
       return;
     }
     setBusy(null);
-    await save("mode", base, "PATCH", { mode, ...(m.birthYear === null && yearValue !== null ? { birthYear: yearValue } : {}) }, "Child mode is on.");
+    await save("mode", base, "PATCH", { mode, ...consentBody, ...(m.birthYear === null && yearValue !== null ? { birthYear: yearValue } : {}) }, "Child mode is on.");
   }
 
   async function makeCode() {
@@ -224,15 +237,41 @@ export function MemberConsole({ initial, requests, smsEnabled }: { initial: Memb
             )}
             <p className="text-xs text-muted">
               Neo will use the defaults for ages {BAND_TEXT[detail.child.band]}
-              {detail.child.bandAssumed ? " (no birth year yet)" : ""}: you can change every setting afterwards. {m.displayName}&apos;s devices will show that Child mode is on. Turning it on records that you
-              told {m.displayName} about this.
+              {detail.child.bandAssumed ? " (no birth year yet)" : ""}: you can change every setting afterwards. {m.displayName}&apos;s devices will show that Child mode is on.
             </p>
+          </div>
+        )}
+        {enablingMonitoring && (
+          <div className="space-y-3 rounded-xl border border-border p-3" role="group" aria-labelledby="consent-heading">
+            <h3 id="consent-heading" className="text-sm font-semibold">
+              Before you turn on {mode === "child" ? "Child" : "Elder"} mode for {m.displayName}
+            </h3>
+            {consentSections(mode as "child" | "elder", m.displayName).map((section) => (
+              <div key={section.heading} className="space-y-1">
+                <h4 className="text-xs font-semibold">{section.heading}</h4>
+                <ul className="list-disc space-y-1 pl-5 text-xs text-muted">
+                  {section.items.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            <label className="flex min-h-11 items-start gap-3 text-sm">
+              <input type="checkbox" checked={accepted} onChange={(e) => setAccepted(e.target.checked)} className="mt-1" />
+              <span>I have read this and told {m.displayName} about it. Turning it on records that I did.</span>
+            </label>
+            {enablingElder && (
+              <label className="flex min-h-11 items-start gap-3 text-sm">
+                <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} className="mt-1" />
+                <span>{elderAttestationText(m.displayName, savedHelperNames)}</span>
+              </label>
+            )}
           </div>
         )}
         {m.mode === "elder" && m.helperMemberIds.length === 0 && (
           <p className="text-sm text-amber-800 dark:text-amber-200">No helpers are set. Only owners will be told when something looks wrong.</p>
         )}
-        <button type="submit" disabled={busy !== null || mode === m.mode || (enablingChild && (!yearOk || (m.birthYear === null && yearValue === null) || (needsTimeZone && timeZone.trim() === "")))} className={primary}>
+        <button type="submit" disabled={busy !== null || mode === m.mode || (enablingChild && (!yearOk || (m.birthYear === null && yearValue === null) || (needsTimeZone && timeZone.trim() === ""))) || !consentReady} className={primary}>
           {busy === "mode" ? "Saving…" : "Save mode"}
         </button>
       </form>
@@ -293,7 +332,7 @@ export function MemberConsole({ initial, requests, smsEnabled }: { initial: Memb
       )}
 
       <form
-        onSubmit={submit("helpers", base, "PATCH", { helperMemberIds: helpers }, "Helpers saved.")}
+        onSubmit={submit("helpers", base, "PATCH", { helperMemberIds: helpers, ...(m.mode === "elder" && helpersChanged ? { elderAttestation: true } : {}) }, "Helpers saved.")}
         className="space-y-3 rounded-2xl border border-border bg-surface p-5 shadow-sm"
       >
         <fieldset className="space-y-1">
@@ -310,7 +349,18 @@ export function MemberConsole({ initial, requests, smsEnabled }: { initial: Memb
             </label>
           ))}
         </fieldset>
-        <button type="submit" disabled={busy !== null} className={primary}>
+        {m.mode === "elder" && helpersChanged && (
+          <label className="flex min-h-11 items-start gap-3 text-sm">
+            <input type="checkbox" checked={attested} onChange={(e) => setAttested(e.target.checked)} className="mt-1" />
+            <span>
+              {elderAttestationText(
+                m.displayName,
+                helpers.map(nameOf).filter((n): n is string => n !== undefined),
+              )}
+            </span>
+          </label>
+        )}
+        <button type="submit" disabled={busy !== null || (m.mode === "elder" && helpersChanged && !attested)} className={primary}>
           {busy === "helpers" ? "Saving…" : "Save helpers"}
         </button>
       </form>
@@ -379,6 +429,12 @@ export function MemberConsole({ initial, requests, smsEnabled }: { initial: Memb
           {busy === "policy" ? "Saving…" : "Save limits"}
         </button>
       </form>
+
+      <p className="text-sm">
+        <Link href={`/settings/household/members/${encodeURIComponent(m.id)}/shared`} className="text-accent hover:underline">
+          What Neo shares about {m.displayName}
+        </Link>
+      </p>
 
       <section aria-labelledby="policy-summary" className="rounded-2xl border border-border bg-surface p-5 shadow-sm">
         <h2 id="policy-summary" className="mb-2 text-sm font-semibold">

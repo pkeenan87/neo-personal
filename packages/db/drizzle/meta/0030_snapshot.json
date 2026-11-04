@@ -1,6 +1,6 @@
 {
-  "id": "e606efe1-bc75-43f5-89c8-dc61429094a1",
-  "prevId": "89fd86a0-9aa9-4662-81da-1d1b43b3908b",
+  "id": "f98b52f7-1e79-4fc7-950e-62567ab36886",
+  "prevId": "d6d8a20e-cada-4868-9acf-ae52513d8e37",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -5696,7 +5696,7 @@
       "checkConstraints": {
         "incident_actions_kind_check": {
           "name": "incident_actions_kind_check",
-          "value": "\"incident_actions\".\"kind\" in ('mark_expected', 'allow_once', 'approve_request', 'deny_request')"
+          "value": "\"incident_actions\".\"kind\" in ('mark_expected', 'allow_once', 'approve_request', 'deny_request', 'end_session')"
         },
         "incident_actions_requested_by_check": {
           "name": "incident_actions_requested_by_check",
@@ -6903,6 +6903,190 @@
         "member_channels_channel_check": {
           "name": "member_channels_channel_check",
           "value": "\"member_channels\".\"channel\" in ('sms')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.device_commands": {
+      "name": "device_commands",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "device_id": {
+          "name": "device_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alert_id": {
+          "name": "alert_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "kind": {
+          "name": "kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "payload": {
+          "name": "payload",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requires_confirmation": {
+          "name": "requires_confirmation",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'pending'"
+        },
+        "requested_by": {
+          "name": "requested_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "result": {
+          "name": "result",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "device_commands_tenant_device_idx": {
+          "name": "device_commands_tenant_device_idx",
+          "columns": [
+            {
+              "expression": "tenant_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "device_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "device_commands_tenant_id_tenants_id_fk": {
+          "name": "device_commands_tenant_id_tenants_id_fk",
+          "tableFrom": "device_commands",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "device_commands_device_id_devices_id_fk": {
+          "name": "device_commands_device_id_devices_id_fk",
+          "tableFrom": "device_commands",
+          "tableTo": "devices",
+          "columnsFrom": [
+            "device_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "device_commands_alert_id_alerts_id_fk": {
+          "name": "device_commands_alert_id_alerts_id_fk",
+          "tableFrom": "device_commands",
+          "tableTo": "alerts",
+          "columnsFrom": [
+            "alert_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "device_commands_requested_by_users_id_fk": {
+          "name": "device_commands_requested_by_users_id_fk",
+          "tableFrom": "device_commands",
+          "tableTo": "users",
+          "columnsFrom": [
+            "requested_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "device_commands_kind_check": {
+          "name": "device_commands_kind_check",
+          "value": "\"device_commands\".\"kind\" in ('end_session')"
+        },
+        "device_commands_status_check": {
+          "name": "device_commands_status_check",
+          "value": "\"device_commands\".\"status\" in ('pending', 'delivered', 'confirmed', 'declined', 'done', 'failed', 'expired')"
         }
       },
       "isRLSEnabled": false

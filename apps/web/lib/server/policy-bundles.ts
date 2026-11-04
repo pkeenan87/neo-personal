@@ -13,7 +13,8 @@ import type { DevicePolicyState } from "@/lib/household-types";
 import type { DeviceSession } from "@/lib/session";
 import { activeGrantsFor } from "./child-requests";
 import { getDb } from "./db";
-import { getDevice, getPolicyBundle, upsertPolicyBundle } from "./devices";
+import { listBundleCommands, markCommandsDelivered } from "./device-commands";
+import { getDevice, getPolicyBundle, recordHeartbeat, upsertPolicyBundle } from "./devices";
 import { memoryHouseholdTimeZone, memoryMemberPolicyVersions, memoryMemberRecords, memoryProtection } from "./memory-members";
 import { ifNoneMatchHits } from "./if-none-match";
 import { getPolicySigningService, type PolicySigningService } from "./policy-signer";
@@ -59,12 +60,20 @@ export async function compileDeviceBundle(device: DeviceRef, now = new Date()): 
   // site allows (`web.allowOnce`). Only a Child device's bundle carries them, and one that has run
   // out is simply absent, so a grant ending changes the version like any other policy change.
   const running = base.mode === "child" ? await activeGrantsFor(device.tenantId, memberId, now) : { grants: [], allowOnce: [] };
-  return compileBundle({ device: { id: device.id }, member: { id: memberId }, layers: base, birthYear, timeZone, now, grants: running.grants, allowOnce: running.allowOnce });
+  // Commands for this device (end_session) go into every mode's bundle; a pending one changes the version and arms the device's fast poll.
+  const commands = await listBundleCommands(device.tenantId, device.id, now);
+  return compileBundle({ device: { id: device.id }, member: { id: memberId }, layers: base, birthYear, timeZone, now, grants: running.grants, allowOnce: running.allowOnce, commands });
 }
 
 /** The current `policyVersion` for a device, computed without signing. */
 export async function currentPolicyVersion(device: DeviceRef, now = new Date()): Promise<string> {
   return (await compileDeviceBundle(device, now)).policyVersion;
+}
+
+/** The current `policyVersion` and whether a command is waiting for the device (the heartbeat's `pendingCommand`). */
+export async function currentPolicyInfo(device: DeviceRef, now = new Date()): Promise<{ policyVersion: string; pendingCommand: boolean }> {
+  const bundle = await compileDeviceBundle(device, now);
+  return { policyVersion: bundle.policyVersion, pendingCommand: (bundle.commands?.length ?? 0) > 0 };
 }
 
 /**
@@ -131,10 +140,16 @@ export async function servePolicy(session: DeviceSession, ifNoneMatch: string | 
     }
     return { ok: false, status: 503, code: "policy_signing_unavailable", message: "Policy signing is not configured on this server." };
   }
+  // A policy fetch is contact: while a remote session is open the agent polls every minute, and ending the
+  // session needs a device seen in the last ten minutes (the heartbeat alone is hourly).
+  await recordHeartbeat({ tenantId: session.tenantId, deviceId: session.deviceId, now }).catch(() => undefined);
   const bundle = await compileDeviceBundle(device, now);
   if (ifNoneMatchHits(ifNoneMatch, bundle.policyVersion)) return { ok: true, status: 304, policyVersion: bundle.policyVersion };
   try {
-    return { ok: true, status: 200, envelope: await signedEnvelope(device, bundle, signer, now), policyVersion: bundle.policyVersion };
+    const envelope = await signedEnvelope(device, bundle, signer, now);
+    // The device has its commands once a 200 is on the way (a 304 carries no bundle).
+    if (bundle.commands?.length) await markCommandsDelivered(session.tenantId, bundle.commands.map((c) => c.id));
+    return { ok: true, status: 200, envelope, policyVersion: bundle.policyVersion };
   } catch (err) {
     logger.error("Policy signing failed", "policy", { tenantId: session.tenantId, errorMessage: (err instanceof Error ? err.message : String(err)).slice(0, 300) });
     return { ok: false, status: 503, code: "policy_signing_failed", message: "The policy could not be signed. Try again shortly." };

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { WEB_CATEGORIES } from "./policy.js";
 
 /** `SignalEvent.type`, fixed per detector (see `_specs/signals.md`, Events table). */
-export const SIGNAL_TYPES = ["page", "software", "remote_session", "permission", "usage", "tamper"] as const;
+export const SIGNAL_TYPES = ["page", "software", "remote_session", "permission", "usage", "tamper", "command"] as const;
 export type SignalType = (typeof SIGNAL_TYPES)[number];
 
 /** `SignalEvent.detector`, the discriminant of `SignalEventSchema`. */
@@ -23,6 +23,8 @@ export const SIGNAL_DETECTORS = [
   "app_blocked",
   "screen_time_exhausted",
   "tamper_detected",
+  // The result of a command the server sent in the policy bundle (_specs/v2-m3-cutover.md section 4).
+  "command_result",
 ] as const;
 export type SignalDetector = (typeof SIGNAL_DETECTORS)[number];
 
@@ -91,6 +93,10 @@ export const TAMPER_REASONS = [
   "bad_policy_signature",
 ] as const;
 export type TamperReason = (typeof TAMPER_REASONS)[number];
+
+/** `outcome` of a `command_result`: what became of a command the device was sent. */
+export const COMMAND_OUTCOMES = ["done", "declined", "failed", "expired"] as const;
+export type CommandOutcome = (typeof COMMAND_OUTCOMES)[number];
 
 /** Maximum events accepted in one `POST /api/signals` batch. */
 export const MAX_SIGNAL_BATCH = 50;
@@ -334,6 +340,22 @@ const TamperDetectedEvent = z
   .strict();
 
 /**
+ * A device's answer to a command in its policy bundle (`end_session`). `detail` is a short machine
+ * code the agent chooses (`not_running`, `protected`, ...); the server shows only codes it knows.
+ */
+const CommandResultEvent = z
+  .object({
+    id: IdSchema,
+    type: z.literal("command"),
+    detector: z.literal("command_result"),
+    observedAt: ObservedAtSchema,
+    commandId: IdSchema,
+    outcome: z.enum(COMMAND_OUTCOMES),
+    detail: z.string().regex(/^[a-z0-9_]{1,64}$/).optional(),
+  })
+  .strict();
+
+/**
  * Discriminated union on `detector`. Every variant is `.strict()`: unknown
  * keys are rejected. This is the single source of truth for the client and
  * server shape of a signal event; the server layers freshness, registrable-
@@ -355,6 +377,7 @@ export const SignalEventSchema = z.discriminatedUnion("detector", [
   AppBlockedEvent,
   ScreenTimeExhaustedEvent,
   TamperDetectedEvent,
+  CommandResultEvent,
 ]);
 
 export type SignalEvent = z.infer<typeof SignalEventSchema>;

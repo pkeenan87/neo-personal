@@ -255,6 +255,10 @@ pub struct Heartbeat {
     /// sends this yet; an absent value means "unknown" and nothing is reported from it.
     #[serde(default)]
     pub extension_enrolled: Option<bool>,
+    /// `true` while a command (`end_session`) waits for this device in its policy bundle; absent otherwise.
+    /// The agent then polls the policy every minute instead of waiting for the next heartbeat.
+    #[serde(default)]
+    pub pending_command: bool,
     /// The server's clock, from the response's `Date` header (unix seconds).
     #[serde(skip)]
     pub server_date: Option<i64>,

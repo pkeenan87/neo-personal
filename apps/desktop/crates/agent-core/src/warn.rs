@@ -63,7 +63,8 @@ pub fn decide(event: &SignalEvent, expected: &[ExpectedTool]) -> Option<WarningK
         EventBody::AppInstalled { .. }
         | EventBody::AppBlocked { .. }
         | EventBody::ScreenTimeExhausted {}
-        | EventBody::TamperDetected { .. } => None,
+        | EventBody::TamperDetected { .. }
+        | EventBody::CommandResult { .. } => None,
     }
 }
 

@@ -58,8 +58,41 @@ Two processes, one installer.
 Files in `C:\ProgramData\Neo\` (ACL: SYSTEM and Administrators only, inherited): `device.bin` (token and server URL,
 DPAPI machine scope), `agent.json` (names for the tray, last check-in, expected tools, list ETag), `seen.json`,
 `queue.json`, `cursors.json`, `lists.json`, `logs\`, `updates\` (a downloaded MSI while it is checked and installed), and in Child
-mode `policy.json`, `child.json` and `alive.json` (see "Child mode" below).
+mode `policy.json`, `child.json` and `alive.json` (see "Child mode" below), and `commands.json` (see "Ending a remote session").
 These are local working state; none of it is sent.
+
+### Ending a remote session (server command)
+
+The owner can ask, from the incident chat, for a remote session on a computer to be ended (spec `_specs/v2-m3-cutover.md`
+section 4, "Slice 4: what was built"). This is the second thing the service can **do** to a computer, and it works in every
+mode, Elder and Standard included (the Child-mode gate does not apply).
+
+```
+ chat: end_session ─► device_commands row ─► signed bundle  commands: [{ id, kind, sessionRef, requiresConfirmation, expiresAt }]
+ agent (poll every 60 s while a session is active or ended < 10 min ago / pendingCommand / a prompt is open) ─► verify ─► new id, unexpired?
+     requiresConfirmation ─► push "confirm" ─► tray window: [End the session] [Keep it] ─► IPC command_answer
+                              no answer in 2 minutes ─► declined          no tray subscribed ─► failed (tray_unavailable)
+     End (or no confirmation needed) ─► close the tool's processes (same guards as app blocking) ─► POST /api/signals command_result
+```
+
+- **Code.** `neo-agent-core::commands` (pure, tested on Linux: confirm, decline, timeout, expiry, duplicates, which processes)
+  and `neo-agent` `agent/commands.rs` (the wiring). The OS call is `Actuator::terminate`, the same as app blocking.
+- **Which programs.** The running processes whose image name is one of the tool's `processNames` / session-evidence `process`
+  names in the detection lists (or whose macOS bundle id is one of the tool's), minus everything `protected_reason` protects.
+  On Windows AnyDesk and TeamViewer often run a SYSTEM service in session 0: it is never closed, so ending a session closes the
+  person's client process; a computer where only the service is running answers `protected`. **Verify on real hardware** that
+  closing the client drops the session and that the service does not bring it back.
+- **Watching a session.** A session is reported once and has no end signal, so `SessionWatch` follows the tool's programs: the one-minute policy poll stays on while any of them runs (no fixed cap) and for 10 minutes after the last sign (a tool the lists give no programs for: 30 minutes from the report). The server only accepts a request for a device seen within 2 minutes; the 5-minute `outbox-sweep` expires unanswered commands and marks the incident (`get_incident` `endSessionRequests`).
+- **Once only.** Handled command ids are kept in `commands.json` (200 ids, 24 hours), so a restart or a replayed old bundle does
+  nothing. `unenroll` and a 401 delete it.
+- **Results** (`command_result` signal `detail`): `closed`, `not_running` (done), `protected`, `close_failed`, `not_supported`,
+  `tray_unavailable` (failed), `kept`, `no_answer` (declined). The server stores only these codes.
+- **Pipe/push additions.** Push `{ push: "confirm", id, kind: "end_session", title, body, expiresAt }` and `{ push: "confirm_done", id }`
+  (close the window); op `command_answer { id, answer: "end" | "keep" }` → `{ ok, answered }` (`answered: false` when the question is
+  already over). The tray's web view may send `command_answer` (`logic::op_allowed`); the window is `view=confirm` in `src/main.tsx`
+  (`ConfirmView`). The prompt is on-screen like any other button: whoever has the mouse can answer it.
+- **Trying it on Linux.** `cargo test -p neo-agent --test commands` drives the service with a fake probe, a recording actuator and
+  a fake server (`pending_command` in `tests/common`).
 
 ### Pipe protocol details
 

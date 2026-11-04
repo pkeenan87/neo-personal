@@ -1,9 +1,10 @@
 import { StrictMode, useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { createTauriClient, loadWarning, onWarningUpdate, tauriShell } from "./lib/ipc";
-import type { Warning } from "./lib/types";
+import { createTauriClient, loadConfirm, loadWarning, onWarningUpdate, tauriShell } from "./lib/ipc";
+import type { Confirm, Warning } from "./lib/types";
 import { AboutView } from "./views/AboutView";
 import { CheckLinkView } from "./views/CheckLinkView";
+import { ConfirmView } from "./views/ConfirmView";
 import { EnrollView } from "./views/EnrollView";
 import { PermissionsView } from "./views/PermissionsView";
 import { StopView } from "./views/StopView";
@@ -26,8 +27,19 @@ function WarningWindow({ eventId }: { eventId: string }) {
   return warning ? <WarningView warning={warning} shell={tauriShell} /> : null;
 }
 
+/** Loads the question this window was opened for. */
+function ConfirmWindow({ id }: { id: string }) {
+  const [confirm, setConfirm] = useState<Confirm | null>(null);
+  useEffect(() => {
+    void loadConfirm(id).then(setConfirm);
+  }, [id]);
+  return confirm ? <ConfirmView confirm={confirm} client={client} shell={tauriShell} /> : null;
+}
+
 function App() {
   switch (params.get("view")) {
+    case "confirm":
+      return <ConfirmWindow id={params.get("id") ?? ""} />;
     case "warning":
       return <WarningWindow eventId={params.get("event") ?? ""} />;
     case "check":

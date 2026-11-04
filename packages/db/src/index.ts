@@ -334,6 +334,19 @@ export {
 } from "./household-memory.js";
 export { getPolicyBundle, upsertPolicyBundle, type PolicyBundleRow } from "./policy-bundles.js";
 export {
+  DEVICE_COMMAND_TTL_MS,
+  completeDeviceCommand,
+  createDeviceCommand,
+  expireDeviceCommands,
+  failExpiredCommandAction,
+  getDeviceCommand,
+  listExpiredDeviceCommands,
+  listOpenDeviceCommands,
+  markDeviceCommandsDelivered,
+  type CreateDeviceCommandInput,
+  type DeviceCommandRow,
+} from "./device-commands.js";
+export {
   MAX_HELPERS_PER_MEMBER,
   countHouseholdOwners,
   createMemberWithoutAccount,
