@@ -50,6 +50,11 @@ jobs:
 
       # The eve agent bundle (apps/web/agent) is built by its own bundler, which catches imports
       # `next build` doesn't (_specs/v2-followups.md slice A). Runs after turbo built the packages' dist.
+      # The eve CLI requires Node 24 (what Vercel builds with); the rest of the job stays on 22.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+
       - name: eve build
         run: pnpm --filter @neo/web exec eve build
 
