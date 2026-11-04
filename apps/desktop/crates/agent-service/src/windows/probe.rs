@@ -18,6 +18,8 @@ use windows::core::PWSTR;
 use windows_registry::{Key, LOCAL_MACHINE, USERS};
 
 use neo_agent_core::detect::ExeHint;
+use neo_agent_core::enforce::Exclusions;
+use neo_agent_core::ledger::Console;
 use neo_agent_core::lists::PathEnv;
 use neo_agent_core::snapshot::{EventLogRecord, ExeFacts, ProcessInfo, ServiceInfo, UninstallEntry};
 
@@ -225,6 +227,32 @@ impl SystemProbe for WindowsProbe {
                 signer: v.signer,
             }
         })
+    }
+
+    fn clocks(&self) -> crate::clocks::Clocks {
+        super::clocks::read()
+    }
+
+    fn console(&self) -> Console {
+        super::session::console()
+    }
+
+    fn exclusions(&self) -> Exclusions {
+        // Neo's own directory: the folder this service runs from holds `neo-agent.exe` and `neo.exe`.
+        let own_dirs = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_string_lossy().to_string()))
+            .into_iter()
+            .collect();
+        Exclusions {
+            own_pids: crate::probe::own_pids(),
+            windir: std::env::var("SystemRoot").or_else(|_| std::env::var("windir")).unwrap_or_default(),
+            own_dirs,
+        }
+    }
+
+    fn process_facts(&self, procs: &mut [ProcessInfo]) {
+        super::session::fill_process_facts(procs);
     }
 }
 

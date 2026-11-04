@@ -57,7 +57,8 @@ Two processes, one installer.
 
 Files in `C:\ProgramData\Neo\` (ACL: SYSTEM and Administrators only, inherited): `device.bin` (token and server URL,
 DPAPI machine scope), `agent.json` (names for the tray, last check-in, expected tools, list ETag), `seen.json`,
-`queue.json`, `cursors.json`, `lists.json`, `logs\`, `updates\` (a downloaded MSI while it is checked and installed).
+`queue.json`, `cursors.json`, `lists.json`, `logs\`, `updates\` (a downloaded MSI while it is checked and installed), and in Child
+mode `policy.json`, `child.json` and `alive.json` (see "Child mode" below).
 These are local working state; none of it is sent.
 
 ### Pipe protocol details
@@ -80,11 +81,58 @@ contract):
   updates in place; no second window or toast opens.
 - **Error codes**: `request_too_large`, `invalid_json`, `invalid_request`, `unknown_op`, `not_enrolled`,
   `already_enrolled`, `invalid_code`, `invalid_server_url`, `server_unreachable`, `rate_limited`, `device_limit`,
-  `disconnected`, `no_sign_in`, `storage_failed`, `server_error`. The tray adds `agent_unavailable` when the service is
+  `disconnected`, `no_sign_in`, `storage_failed`, `server_error`, and for Child mode `not_child_mode`, `too_many_pending`, `daily_limit`. The tray adds `agent_unavailable` when the service is
   not running.
 - An oversize request is answered once and the connection is closed. At most 32 connections are served at once.
 - The pipe's DACL is SYSTEM full access and INTERACTIVE read/write (remote clients refused, first instance claimed with
   `FILE_FLAG_FIRST_PIPE_INSTANCE` so nothing can squat the name).
+
+### Child mode
+
+On a computer that belongs to a member in Child mode (spec `_specs/v2-m2-child.md` section 7, with the decisions and the
+"verify on real hardware" list under "Slice 5: what was built"), the service also **acts**, for the first time: it closes
+programs and locks the session. Everything else the agent does only watches and tells.
+
+```
+ heartbeat ──► policyVersion differs? ──► GET /api/devices/policy ──► verify ES256 (pinned keys) ──► policy.json
+ fast scan (5 s) ─► block list / apps waiting for approval ─► notice ─► Actuator::terminate ─► app_blocked
+                 └► console state + trusted clock ─► ledger ─► warn / lock / screen_time_exhausted
+ slow scan (60 s) ─► new app? ─► app_installed (+ held if apps.requireApproval)
+ tray ─► "Ask for more time" ─► IPC request ─► POST /api/devices/requests ─► poll every 60 s ─► approved: new bundle
+```
+
+- **Where the code is.** The rules are pure and tested on Linux in `neo-agent-core` (`policy`, `enforce`, `ledger`, `clock`,
+  `tamper`). `neo-agent` has `agent/child.rs` (the wiring) and two traits: `Actuator` (`terminate`, `lock_session`;
+  `windows/actuator.rs`, `macos/actuator.rs`, a recording fake in `tests/common`) and the new methods of `SystemProbe`
+  (`clocks`, `console`, `exclusions`, `process_facts`). Nothing in the agent decides what to close anywhere else.
+- **Never closed.** System processes (Windows: session 0, SYSTEM-owned, under `%WINDIR%`; macOS: `/System`, `/usr` except
+  `/usr/local`, root-owned, Apple-signed), Neo itself, anything in `apps.approved`, and `screenTime.allowDuringDowntime` apps
+  during downtime. A fact the probe could not read protects the process.
+- **Without a bundle** (a new device, or the server cannot sign) nothing is enforced and nothing about Child mode is shown. A
+  bundle past its `expiresAt` is still enforced. A bundle that fails verification is kept out, the last valid one stays, and the
+  parent is told (`bad_policy_signature`).
+- **The policy key** is compiled in: `NEO_POLICY_PUBKEYS` (a JSON array of JWKs with `kid`), default the production key. It is
+  not the update key. To rotate, ship a build that lists both keys before the old one stops signing. Self-hosters build with their
+  own (see `docs/self-hosting.md`).
+- **Time.** Screen time uses the server's `Date` header plus a monotonic clock, not the wall clock; moving the clock is reported
+  as `clock_changed` and does not move midnight. Budgets reset at local midnight in the household's time zone (a bundled tz
+  database, so Windows needs none). Sleep is not use.
+- **Files** (in the data directory): `policy.json` (the verified envelope, verified again when read), `child.json` (the day's
+  ledger, the app inventory, apps waiting for approval, the newest trusted time), `alive.json` (written each minute; a gap of more
+  than ten awake minutes on the same boot is reported as `agent_service_stopped` at the next start). `unenroll` and a 401 delete all
+  three.
+- **Tray.** While Child mode is on the menu gains "Child mode is on", the time left (and a downtime that is near), the newest
+  request in words, and "Ask for more time" (15 minutes, 30 minutes, 1 hour). Blocked apps, warnings and the lock arrive as
+  `notice` pushes and are shown as notifications; with no tray the service uses its message-box fallback.
+- **Trying it on Linux.** `cargo test -p neo-agent --test child` drives the whole service with a fake probe, a recording
+  actuator, a fake server and a throwaway signing key made from a label in `tests/common/mod.rs`. For a real server, run the
+  dev service (`--dev-pipe`) against `pnpm dev` with `MOCK_MODE`: its ephemeral policy key is not the one the agent trusts, so
+  build the agent with `NEO_POLICY_PUBKEYS` set to the key from `GET /api/devices/policy/keys` of that server. The dev service
+  closes and locks nothing (`NullActuator`).
+- **The cross-language vector** (`crates/agent-core/tests/fixtures/policy-vector.json`) is regenerated with
+  `pnpm --filter @neo/verdict build && node apps/desktop/ci/gen-policy-vector.mjs`. It uses a new throwaway key each time and
+  stores only the public half; the tests do not depend on which key it is. Regenerate it if `canonicalJson` ever changes (it must
+  not: that would invalidate every stored signature).
 
 ### Updates
 
@@ -110,6 +158,7 @@ Set these when building; none is read at run time, so a local user cannot redire
 | `NEO_BASE_URL` | `neo-agent` | `https://www.neoshield.dev` |
 | `NEO_DESKTOP_UPDATE_URL` | `neo-agent` | the `desktop-latest` release's `latest.json` |
 | `NEO_DESKTOP_UPDATE_PUBKEY` | `neo-agent` | unset: updates are off. The base64 of the `.pub` file (the same value as `plugins.updater.pubkey` in a Tauri config). |
+| `NEO_POLICY_PUBKEYS` | `neo-agent` | the production policy key. A JSON array of P-256 JWKs, each with a `kid`; the keys the agent trusts for Child-mode policy bundles. Set but empty counts as unset. Not the update key. |
 | `NEO_ALLOW_UNSIGNED_UPDATE` | `neo-agent` | unset. CI only. |
 | `NEO_TRASH_GRACE_SECS` | `neo-agent` (macOS) | 600. CI only: how long `/Applications/Neo.app` may be missing before the daemon unenrolls and removes itself. A release refuses it. |
 | `TAURI_NEO_AGENT_EXE` | the WiX fragment | none; **required** to build the MSI: the absolute path of `neo-agent.exe`. |
@@ -172,6 +221,9 @@ code. Dev mode stores the token unencrypted, shows no message-box fallback and i
 CI is the real build, but you can type-check `cfg(windows)` code on Linux: take an official `rustc` and the
 `rust-std-<version>-x86_64-pc-windows-msvc` tarball from `static.rust-lang.org/dist`, put both in one sysroot, and run
 `RUSTC=<sysroot>/bin/rustc cargo check -p neo-agent --lib --no-default-features --target x86_64-pc-windows-msvc`
+(add `--tests` to check the test code too). The same sysroot with the `rust-std-<version>-aarch64-apple-darwin` tarball checks
+the macOS target, except that `libsqlite3-sys` (bundled SQLite) needs a C compiler for macOS, so the Mac-only files
+(`macos/probe.rs`, `procs.rs`, `codesign.rs`) are only compiled by the `desktop-macos` job.
 (`--no-default-features` leaves out the HTTP client, whose TLS library needs a C toolchain for Windows). A distro `rustc`
 refuses the official standard library as "incompatible". This catches wrong signatures and missing `windows` crate
 features; it cannot run anything.

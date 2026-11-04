@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use neo_agent_core::api::UreqTransport;
 
+use crate::actuator::NullActuator;
 use crate::agent::{Agent, Deps, DynTransport, NullNotifier, SystemClock};
 use crate::config;
 use crate::net::UreqDownloader;
@@ -13,6 +14,15 @@ use crate::persist::DataDir;
 use crate::probe::DevProbe;
 use crate::secrets::{FileSecretStore, PlainProtector};
 use crate::update::{Installer, StandardUpdater, UpdateError};
+
+/// The pinned policy keys of this build (`NEO_POLICY_PUBKEYS`, else the production key).
+fn policy_keys() -> Vec<neo_agent_core::policy::TrustedKey> {
+    let keys = neo_agent_core::policy::parse_trusted_keys(config::POLICY_PUBKEYS);
+    if keys.is_empty() {
+        log::error!("no usable policy key is compiled in; Child-mode policy will not be applied");
+    }
+    keys
+}
 
 fn transport() -> DynTransport {
     DynTransport(Arc::new(UreqTransport::new(&format!("neo-agent/{}", config::VERSION))))
@@ -54,6 +64,8 @@ pub fn dev_agent(data_dir: &Path, snapshot: Option<PathBuf>) -> Arc<Agent> {
                 downloader: UreqDownloader::default(),
                 installer: NoInstaller,
             }),
+            actuator: Box::new(NullActuator),
+            policy_keys: policy_keys(),
         },
         dir,
     ))
@@ -83,6 +95,8 @@ pub fn windows_agent(data_dir: &Path) -> Arc<Agent> {
                     log_path: dir.logs_dir().join("msi-update.log"),
                 },
             }),
+            actuator: Box::new(crate::windows::actuator::WindowsActuator),
+            policy_keys: policy_keys(),
         },
         dir,
     ))
@@ -115,6 +129,8 @@ pub fn macos_agent(data_dir: &Path) -> Arc<Agent> {
                     log_path: dir.logs_dir().join("pkg-update.log"),
                 },
             }),
+            actuator: Box::new(crate::macos::actuator::MacActuator),
+            policy_keys: policy_keys(),
         },
         dir,
     ))

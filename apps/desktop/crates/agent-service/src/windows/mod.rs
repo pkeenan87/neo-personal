@@ -3,7 +3,9 @@
 //! was written on; the `desktop-windows` CI job is the first real build.
 
 pub mod acl;
+pub mod actuator;
 pub mod authenticode;
+pub mod clocks;
 pub mod dpapi;
 pub mod eventlog;
 pub mod installer;
@@ -11,6 +13,7 @@ pub mod notify;
 pub mod pipe;
 pub mod probe;
 pub mod service;
+pub mod session;
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;

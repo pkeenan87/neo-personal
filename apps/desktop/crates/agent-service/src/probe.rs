@@ -4,7 +4,11 @@
 use std::io;
 use std::path::PathBuf;
 
+use crate::clocks::Clocks;
+
 use neo_agent_core::detect::ExeHint;
+use neo_agent_core::enforce::Exclusions;
+use neo_agent_core::ledger::Console;
 use neo_agent_core::lists::PathEnv;
 use neo_agent_core::snapshot::{
     AppBundle, EventLogRecord, ExeFacts, ProcessInfo, ServiceInfo, Snapshot, TccSnapshot, UnifiedLogRecord, UninstallEntry,
@@ -63,6 +67,46 @@ pub trait SystemProbe: Send + Sync {
     fn tcc(&self) -> Option<TccSnapshot> {
         None
     }
+
+    // ---- Child mode (`_specs/v2-m2-child.md` section 7). Defaults: nothing to enforce. ---------
+
+    /// The monotonic clocks (see [`crate::clocks`]).
+    fn clocks(&self) -> Clocks {
+        crate::clocks::read()
+    }
+    /// What the console session is doing: signed in, locked, idle. The default is "nobody there", so
+    /// no screen time is counted and nothing is locked.
+    fn console(&self) -> Console {
+        Console::default()
+    }
+    /// Who the service is, so it never closes itself, the tray app or the operating system.
+    fn exclusions(&self) -> Exclusions {
+        Exclusions {
+            own_pids: own_pids(),
+            ..Exclusions::default()
+        }
+    }
+    /// Fills `session_id`, `system_owned` and `apple_signed` for the few processes the policy might
+    /// close (looking them up for every process on every pass would be wasteful). A fact that cannot
+    /// be read stays `None`, which protects the process.
+    fn process_facts(&self, _procs: &mut [ProcessInfo]) {}
+}
+
+/// The service's own process id and its parent's.
+pub fn own_pids() -> Vec<u32> {
+    #[cfg(unix)]
+    {
+        // SAFETY: getppid has no preconditions.
+        let ppid = unsafe { libc::getppid() };
+        let mut pids = vec![std::process::id()];
+        if ppid > 0 {
+            pids.push(ppid as u32);
+        }
+        pids
+    }
+    // Windows: the parent is the service control manager, which is in session 0 and so protected anyway.
+    #[cfg(not(unix))]
+    vec![std::process::id()]
 }
 
 /// Linux development probe: reads a [`Snapshot`] from a JSON file on every call (edit the file to

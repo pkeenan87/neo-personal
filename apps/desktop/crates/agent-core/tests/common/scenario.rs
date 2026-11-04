@@ -98,5 +98,10 @@ pub fn describe(e: &SignalEvent) -> String {
                 .unwrap_or_default();
             format!("tcc_grant:{svc}:{}", bundle_id.as_deref().unwrap_or("none"))
         }
+        // The scenario replays only detect-side events; the Child-mode ones come from enforcement.
+        EventBody::AppInstalled { .. } => "app_installed".to_string(),
+        EventBody::AppBlocked { .. } => "app_blocked".to_string(),
+        EventBody::ScreenTimeExhausted {} => "screen_time_exhausted".to_string(),
+        EventBody::TamperDetected { reason } => format!("tamper_detected:{}", reason.as_str()),
     }
 }

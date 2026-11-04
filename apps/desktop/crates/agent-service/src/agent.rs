@@ -15,12 +15,14 @@ use neo_agent_core::api::{
 use neo_agent_core::detect::{self, ExeHint};
 use neo_agent_core::events::{EventBody, SignalEvent};
 use neo_agent_core::lists::{CompiledLists, DetectionLists};
+use neo_agent_core::policy::TrustedKey;
 use neo_agent_core::queue::EventQueue;
 use neo_agent_core::snapshot::Snapshot;
 use neo_agent_core::state::{Cursors, History, SeenState};
 use neo_agent_core::warn::{ExpectedTool, WarningKind, decide_with_lists};
 use time::Duration;
 
+use crate::actuator::Actuator;
 use crate::config;
 use crate::hub::Hub;
 use crate::persist::{CURSORS_FILE, DataDir, LISTS_FILE, META_FILE, Meta, QUEUE_FILE, SEEN_FILE};
@@ -47,6 +49,8 @@ const FDA_REPROBE_SECS: i64 = 300;
 const FDA_RELAUNCH_MIN_SECS: i64 = 60;
 /// The relaunch waits this long so the reply to the tray is written first.
 const RELAUNCH_DELAY: std::time::Duration = std::time::Duration::from_secs(1);
+
+mod child;
 
 pub trait Clock: Send + Sync {
     fn now(&self) -> OffsetDateTime;
@@ -92,6 +96,10 @@ pub struct Deps {
     pub clock: Box<dyn Clock>,
     pub transport: DynTransport,
     pub updater: Box<dyn Updater>,
+    /// Closes programs and locks the session (Child mode).
+    pub actuator: Box<dyn Actuator>,
+    /// The pinned policy public keys (`config::POLICY_PUBKEYS`); with none, no policy is accepted.
+    pub policy_keys: Vec<TrustedKey>,
 }
 
 #[derive(Debug, Clone)]
@@ -149,6 +157,16 @@ struct Inner {
     fda: Option<bool>,
     /// Unix seconds of the last Full Disk Access probe.
     fda_probed_at: i64,
+    /// Child mode: the policy bundle, screen-time ledger and app state.
+    child: child::State,
+}
+
+/// What a scan read that Child mode also needs.
+#[derive(Default)]
+struct ScanOut {
+    processes: Vec<neo_agent_core::snapshot::ProcessInfo>,
+    uninstall_entries: Vec<neo_agent_core::snapshot::UninstallEntry>,
+    app_bundles: Vec<neo_agent_core::snapshot::AppBundle>,
 }
 
 pub struct Agent {
@@ -208,6 +226,7 @@ impl Agent {
         let lists_json: Option<DetectionLists> = dir.read_string(LISTS_FILE).and_then(|s| serde_json::from_str(&s).ok());
         let lists = CompiledLists::compile(&lists_json.unwrap_or_else(builtin_lists));
         let meta: Meta = dir.read_json(META_FILE);
+        let child = child::State::load(&dir, &deps.policy_keys);
         let inner = Inner {
             meta,
             creds,
@@ -220,6 +239,7 @@ impl Agent {
             warned: HashMap::new(),
             fda: None,
             fda_probed_at: 0,
+            child,
         };
         Agent {
             deps,
@@ -387,6 +407,8 @@ impl Agent {
             Request::CheckUrl { url } => self.check_url(&url),
             Request::Unenroll => self.unenroll(),
             Request::ProbePermissions => self.probe_permissions(),
+            Request::PolicyStatus => self.policy_status(),
+            Request::RequestMoreTime { minutes } => self.request_more_time(minutes),
         }
     }
 
@@ -604,6 +626,7 @@ impl Agent {
             g.queue = EventQueue::default();
             g.sign_in = None;
             g.warned.clear();
+            self.child_reset(&mut g);
             self.save_all(&g);
         }
         self.status_changed();
@@ -640,9 +663,12 @@ impl Agent {
         let fast = due.contains(&Task::Fast) || discovery;
         let slow = due.contains(&Task::Slow) || discovery;
         let eventlog = due.contains(&Task::EventLog) || discovery;
+        let mut scanned = ScanOut::default();
         if fast || slow || eventlog {
-            self.scan(now, fast, slow, eventlog, discovery);
+            scanned = self.scan(now, fast, slow, eventlog, discovery);
         }
+        // Child mode runs on what the scan just read; with nothing due it only polls requests.
+        self.child_pass(now, &scanned, fast, slow);
         self.flush(now);
     }
 
@@ -692,8 +718,13 @@ impl Agent {
                 return;
             }
         };
-        match client.heartbeat(config::VERSION) {
+        let applied = self.applied_policy_version();
+        match client.heartbeat_with(config::VERSION, applied.as_deref()) {
             Ok(hb) => {
+                if let Some(d) = hb.server_date {
+                    self.sync_server_time(d);
+                }
+                let policy_changed = hb.policy_version.as_deref().is_some_and(|v| Some(v) != applied.as_deref());
                 let mut fetched = None;
                 if list_version.as_deref() != Some(hb.lists_version.as_str()) {
                     match client.lists(etag.as_deref()) {
@@ -708,6 +739,7 @@ impl Agent {
                 g.meta.household_name = Some(hb.household_name);
                 g.meta.member_name = hb.member_name;
                 g.meta.expected_tools = hb.device.expected();
+                g.child.set_extension_enrolled(hb.extension_enrolled);
                 if let Some((lists, etag)) = fetched {
                     if let Ok(text) = serde_json::to_string(&*lists) {
                         let _ = self.dir.write_atomic(LISTS_FILE, &text);
@@ -722,6 +754,9 @@ impl Agent {
                 }
                 self.save_meta(&g);
                 drop(g);
+                if policy_changed {
+                    self.fetch_policy(&client, now);
+                }
                 self.status_changed();
             }
             Err(ApiError::Disconnected) => self.handle_disconnect(),
@@ -733,7 +768,7 @@ impl Agent {
     }
 
     /// Reads the sources that are due, runs detection, queues the events and warns.
-    fn scan(&self, now: OffsetDateTime, fast: bool, slow: bool, eventlog: bool, discovery: bool) {
+    fn scan(&self, now: OffsetDateTime, fast: bool, slow: bool, eventlog: bool, discovery: bool) -> ScanOut {
         let probe = &*self.deps.probe;
         let (lists, mut cursors, expected) = {
             let g = self.lock();
@@ -854,6 +889,11 @@ impl Agent {
         for w in &warnings {
             self.dispatch(w);
         }
+        ScanOut {
+            processes: snap.processes,
+            uninstall_entries: snap.uninstall_entries,
+            app_bundles: snap.app_bundles,
+        }
     }
 
     fn warning_for(&self, e: &SignalEvent, kind: WarningKind, lists: &CompiledLists, meta: &Meta, expected: &[ExpectedTool]) -> Warning {
@@ -873,6 +913,9 @@ impl Agent {
                 service = Some(svc.as_str());
                 (app.clone(), None, "critical")
             }
+            // Child-mode events are never scam warnings (`warn::decide` returns none for them).
+            EventBody::AppInstalled { name, .. } | EventBody::AppBlocked { name, .. } => (name.clone(), None, "medium"),
+            EventBody::ScreenTimeExhausted {} | EventBody::TamperDetected { .. } => (String::new(), None, "medium"),
         };
         Warning {
             event_id: e.id.clone(),
@@ -985,5 +1028,9 @@ fn describe(e: &SignalEvent) -> String {
         EventBody::RemoteAccessSession { tool_id, .. } => format!("remote_access_session {tool_id}"),
         EventBody::UnwantedSoftware { reason, .. } => format!("unwanted_software {reason:?}"),
         EventBody::TccGrant { service, .. } => format!("tcc_grant {service:?}"),
+        EventBody::AppInstalled { .. } => "app_installed".to_string(),
+        EventBody::AppBlocked { .. } => "app_blocked".to_string(),
+        EventBody::ScreenTimeExhausted {} => "screen_time_exhausted".to_string(),
+        EventBody::TamperDetected { reason } => format!("tamper_detected {}", reason.as_str()),
     }
 }

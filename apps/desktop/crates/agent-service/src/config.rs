@@ -32,6 +32,21 @@ pub const UPDATE_URL: &str = match option_env!("NEO_DESKTOP_UPDATE_URL") {
 /// base64 of the `.pub` file). Updates are off when it was not compiled in.
 pub const UPDATE_PUBKEY: Option<&str> = option_env!("NEO_DESKTOP_UPDATE_PUBKEY");
 
+/// The production policy signing key (ES256, Vercel KMS), a JSON array of JWKs: the public half of
+/// what `GET https://www.neoshield.dev/api/devices/policy/keys` lists. A public key, so it is
+/// committed. When production's key rotates, ship a build that carries both keys *before* the old
+/// one stops signing (a bundle is accepted if any listed `kid` verifies it).
+pub const DEFAULT_POLICY_PUBKEYS: &str = r#"[{"kty":"EC","crv":"P-256","x":"0ojX1kmT6Ht_uoanKK_FVPm1ktljxrXFiaEWq0VrWv8","y":"m-16LQgFFpXgb3VqxCn5VNGZEaMaUiHmx8Wcf8ODF_A","kid":"3bfde89a-dfd5-41e2-875f-0c86ebe4c3ad","alg":"ES256","use":"sig"}]"#;
+
+/// `NEO_POLICY_PUBKEYS` at build time replaces the policy keys (self-hosters, who sign with their own
+/// P-256 key, and CI). A JSON array of JWKs, each with its `kid`. Separate from the update key above:
+/// the two keys sign different things and rotate independently.
+pub const POLICY_PUBKEYS: &str = match option_env!("NEO_POLICY_PUBKEYS") {
+    // Set but empty (a copied `.env.example`) is unset: an agent with no key would apply no policy.
+    Some(k) if !k.is_empty() => k,
+    _ => DEFAULT_POLICY_PUBKEYS,
+};
+
 /// Build-time switch for CI: when this agent is itself unsigned, accept an unsigned update MSI.
 /// Release builds never set it; a signed agent always requires the same signer.
 pub const ALLOW_UNSIGNED_UPDATE: bool = option_env!("NEO_ALLOW_UNSIGNED_UPDATE").is_some();

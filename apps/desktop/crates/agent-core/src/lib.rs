@@ -7,10 +7,15 @@
 //! ([`warn`]) and the HTTP client ([`api`]). Time is always passed in (`now`), never read.
 
 pub mod api;
+pub mod clock;
 pub mod detect;
+pub mod enforce;
 pub mod events;
+pub mod ledger;
 pub mod lists;
+pub mod policy;
 pub mod queue;
 pub mod snapshot;
 pub mod state;
+pub mod tamper;
 pub mod warn;
