@@ -26,6 +26,7 @@ import {
   setHouseholdTimeZone,
   tenantScoped,
   updateMember,
+  type ConsentKind,
   type Member,
   type MemberPatch,
   type MemberRole,
@@ -50,11 +51,13 @@ import {
   type HouseholdTimeZoneResponse,
   type MemberDetailResponse,
   type MemberListResponse,
+  type MemberSharedResponse,
   type MemberModeName,
   type MemberProfile,
   type MemberRoleName,
   type NotifySeverity,
 } from "@/lib/member-types";
+import { CONSENT_TEXT_VERSION, sharedSummary } from "@/lib/consent-text";
 import { describePolicy, maskEmail } from "@/lib/policy-summary";
 import { recordAudit } from "./audit";
 import { deviceStatus, listDevices } from "./devices";
@@ -62,7 +65,7 @@ import { currentPolicyVersion, devicePolicyState } from "./policy-bundles";
 import { getDb } from "./db";
 import { renderChildModeOffEmail, renderElderModeOffEmail } from "./email/household-email";
 import { getMailer } from "./email/resend";
-import { requireHouseholdAdmin, type HouseholdActor } from "./household-admin";
+import { currentHouseholdRole, requireHouseholdAdmin, type HouseholdActor } from "./household-admin";
 import type { Outcome } from "./household";
 import { memoryAlertOwners } from "./memory-alerts";
 import {
@@ -109,7 +112,7 @@ interface Store {
   create(input: { displayName: string; role: CreatableMemberRole; birthYear: number | null; contact: string | null }): Promise<Rec>;
   timeZone(): Promise<string | null>;
   setTimeZone(timeZone: string): Promise<void>;
-  recordConsent(memberId: string, grantedBy: string, evidence: Record<string, unknown>): Promise<void>;
+  recordConsent(memberId: string, kind: ConsentKind, grantedBy: string, evidence: Record<string, unknown>): Promise<void>;
 }
 
 const fromMember = (m: Member): Rec => ({
@@ -144,8 +147,8 @@ function storeFor(tenantId: string): Store {
       setTimeZone: async (timeZone) => {
         await setHouseholdTimeZone(db, tenantId, timeZone);
       },
-      recordConsent: async (memberId, grantedBy, evidence) => {
-        await recordConsent(tdb, { memberId, kind: "monitoring_notice", grantedBy, evidence });
+      recordConsent: async (memberId, kind, grantedBy, evidence) => {
+        await recordConsent(tdb, { memberId, kind, grantedBy, evidence });
       },
     };
   }
@@ -174,7 +177,7 @@ function storeFor(tenantId: string): Store {
     create: async (input) => toRec(memoryCreateMemberWithoutAccount(tenantId, input)),
     timeZone: async () => memoryHouseholdTimeZone(tenantId),
     setTimeZone: async (timeZone) => memorySetHouseholdTimeZone(tenantId, timeZone),
-    recordConsent: async (memberId, grantedBy, evidence) => memoryRecordConsent({ tenantId, memberId, kind: "monitoring_notice", grantedBy, evidence }),
+    recordConsent: async (memberId, kind, grantedBy, evidence) => memoryRecordConsent({ tenantId, memberId, kind, grantedBy, evidence }),
   };
 }
 
@@ -316,6 +319,9 @@ const PatchSchema = z
     birthYear: z.number().int().nullable().optional(),
     // A blank string is absent; an explicit null clears the stored address.
     contact: z.string().max(300).nullable().optional(),
+    // Turning on Child or Elder mode: the consent text version the owner read, and (Elder) the owner's attestation.
+    consentTextVersion: text(40),
+    elderAttestation: z.boolean().nullish().transform((v) => v ?? undefined),
   })
   .strict();
 
@@ -398,8 +404,13 @@ export async function patchMember(actor: HouseholdActor, id: string, body: Recor
       if (input.mode !== "standard" && current.role === "owner" && (await store.ownerCount()) <= 1) {
         return fail(409, "last_owner", "The only owner has to stay in Standard mode.");
       }
+      // The owner read the current notice. Checked last so the field-level errors above come first.
+      if (input.mode !== "standard" && input.consentTextVersion !== CONSENT_TEXT_VERSION) {
+        return fail(400, "consent_required", `Read and accept the notice about ${input.mode === "child" ? "Child" : "Elder"} mode first.`);
+      }
       patch.mode = input.mode;
     }
+    const enablingMode = patch.mode !== undefined && patch.mode !== "standard" ? patch.mode : undefined;
     let helpersChange: { added: number; removed: number } | undefined;
     if (input.helperMemberIds !== undefined) {
       const ids = [...new Set(input.helperMemberIds.map((h) => h.toLowerCase()))];
@@ -413,6 +424,13 @@ export async function patchMember(actor: HouseholdActor, id: string, body: Recor
         patch.helperMemberIds = ids;
         helpersChange = { added, removed };
       }
+    }
+    // Elder mode needs the owner's attestation that the elder agreed to these helpers, when it starts and
+    // whenever the helpers change afterwards.
+    const finalMode = patch.mode ?? current.mode;
+    const elderAttest = finalMode === "elder" && (enablingMode === "elder" || helpersChange !== undefined);
+    if (elderAttest && input.elderAttestation !== true) {
+      return fail(400, "attestation_required", `Confirm that ${current.displayName} agreed to these helpers before saving.`);
     }
     if (input.contact !== undefined) {
       if (current.userId !== null) return fail(400, "has_account", "This person has an account, so Neo emails their account address.");
@@ -431,10 +449,22 @@ export async function patchMember(actor: HouseholdActor, id: string, body: Recor
     if (Object.keys(patch).length === 0) return { ok: true, value: await detail(store, all, current, actor.tenantId) };
 
     // The household acknowledges the monitoring before it starts. Appended first: if the update below
-    // fails the notice stays on record, which is harmless, whereas Child mode without one is not.
-    if (consentBand !== undefined) {
-      await store.recordConsent(current.id, actor.userId, { mode: "child", band: consentBand });
+    // fails the notice stays on record, which is harmless, whereas a mode without one is not.
+    if (enablingMode !== undefined) {
+      await store.recordConsent(current.id, "monitoring_notice", actor.userId, {
+        mode: enablingMode,
+        textVersion: CONSENT_TEXT_VERSION,
+        ...(consentBand !== undefined ? { band: consentBand } : {}),
+      });
       await recordAudit(actor.tenantId, actor.userId, "member.consent_recorded", { memberId: current.id, kind: "monitoring_notice" });
+    }
+    if (elderAttest) {
+      await store.recordConsent(current.id, "elder_self_consent", actor.userId, {
+        method: "owner_attestation",
+        textVersion: CONSENT_TEXT_VERSION,
+        helperIds: patch.helperMemberIds ?? current.helperMemberIds,
+      });
+      await recordAudit(actor.tenantId, actor.userId, "member.consent_recorded", { memberId: current.id, kind: "elder_self_consent" });
     }
 
     let updated: Rec | undefined;
@@ -456,6 +486,40 @@ export async function patchMember(actor: HouseholdActor, id: string, body: Recor
     const fresh = await store.list();
     return { ok: true, value: await detail(store, fresh, fresh.find((m) => m.id === current.id) ?? updated, actor.tenantId) };
   });
+}
+
+// ─── GET shared ────────────────────────────────────────────────────
+
+/**
+ * The "what is shared" description for one member (_specs/v2-m4-hardening.md section 2): what Neo
+ * collects given their mode and enrolled device kinds, who sees alerts, and retention. Visible to
+ * owners and to the member themselves; another member is 403, an id outside the household 404.
+ */
+export async function getMemberShared(actor: HouseholdActor, id: string): Promise<Outcome<MemberSharedResponse>> {
+  if (!UUID_RE.test(id)) return NOT_FOUND;
+  const store = storeFor(actor.tenantId);
+  const all = await store.list();
+  const rec = all.find((m) => m.id === id.toLowerCase());
+  if (!rec) return NOT_FOUND;
+  const isOwner = (await currentHouseholdRole(actor)) === "owner";
+  const isSelf = rec.userId !== null && rec.userId === actor.userId;
+  if (!isOwner && !isSelf) return fail(403, "forbidden", "Only a household owner or this person can see this.");
+  const devices = await memberDevices(actor.tenantId, rec);
+  const summary = sharedSummary(rec.mode, devices.map((d) => d.kind), rec.userId !== null);
+  const names = new Map(all.map((m) => [m.id, m.displayName]));
+  return {
+    ok: true,
+    value: {
+      member: { id: rec.id, displayName: rec.displayName, mode: rec.mode, hasAccount: rec.userId !== null },
+      viewerIsOwner: isOwner,
+      collected: summary.collected,
+      neverCollected: summary.neverCollected,
+      owners: all.filter((m) => m.role === "owner").map((m) => m.displayName),
+      helpers: rec.helperMemberIds.map((h) => names.get(h)).filter((n): n is string => n !== undefined),
+      retention: summary.retention,
+      consentTextVersion: CONSENT_TEXT_VERSION,
+    },
+  };
 }
 
 // ─── PUT policy ────────────────────────────────────────────────────

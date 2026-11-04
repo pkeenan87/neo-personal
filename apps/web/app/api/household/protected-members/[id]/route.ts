@@ -6,8 +6,10 @@
  * GET → { member, contactHint, others, notify, policySummary, isLastOwner }.
  * PATCH { displayName?, role?, mode?, birthYear?, helperMemberIds?, contact? } → the same body. Blank strings
  * and nulls mean "no change"; `contact: null` clears the helper address and `birthYear: null` the birth year.
- * Turning Child mode on needs a birth year and the household time zone (400 `birth_year_required`,
- * `time_zone_required`) and records a `monitoring_notice` consent; turning it off emails every owner.
+ * Turning Child or Elder mode on needs `consentTextVersion` (the current text; 400 `consent_required`) and, for Elder,
+ * `elderAttestation: true` (400 `attestation_required`; also needed whenever an Elder's helpers change). It records a
+ * `monitoring_notice` (and `elder_self_consent`) consent. Child also needs a birth year and the household time zone (400 `birth_year_required`,
+ * `time_zone_required`); turning a mode off emails every owner.
  * 400 `invalid`, `invalid_name`, `invalid_birth_year`, `invalid_helper`, `invalid_email`, `has_account`; 403
  * `forbidden` (the owner check re-reads the database); 404 `not_found`; 409 `last_owner`, `owner_role`.
  */

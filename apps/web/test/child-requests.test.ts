@@ -29,6 +29,7 @@ import { POST as signalsPOST } from "@/app/api/signals/route";
 import type { ChildRequestItem } from "@/lib/child-request-types";
 import type { CreateEnrollmentCodeResponse, EnrollDeviceResponse } from "@/lib/household-types";
 import type { MemberDetailResponse } from "@/lib/member-types";
+import { CONSENT_TEXT_VERSION } from "@/lib/consent-text";
 import { createDeviceRequest } from "@/lib/server/child-request-intake";
 import {
   DECISION_TOKEN_TTL_MS,
@@ -106,7 +107,7 @@ async function enrolledChild(name: string, birthYear: number, mode: "child" | "s
   expect(created.status).toBe(201);
   const memberId = ((await created.json()) as MemberDetailResponse).member.id;
   if (mode === "child") {
-    expect((await PATCH(json(`/api/household/protected-members/${memberId}`, "PATCH", { mode: "child" }), params(memberId))).status).toBe(200);
+    expect((await PATCH(json(`/api/household/protected-members/${memberId}`, "PATCH", { mode: "child", consentTextVersion: CONSENT_TEXT_VERSION }), params(memberId))).status).toBe(200);
   }
   const code = ((await (await memberCodesPOST(post(`/api/household/protected-members/${memberId}/enrollment-codes`, {}), params(memberId))).json()) as CreateEnrollmentCodeResponse).code;
   signedOut();
