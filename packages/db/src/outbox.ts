@@ -52,6 +52,14 @@ export function isRequestAlertKind(kind: string | undefined): boolean {
   return kind !== undefined && (REQUEST_ALERT_KINDS as readonly string[]).includes(kind);
 }
 
+/**
+ * Alerts that bypass the daily email cap and are not counted by it: a child's requests, and the household's
+ * spend cap alerts (owners are emailed at 80% whatever their threshold; _specs/v2-m3-cutover.md section 6).
+ */
+export function isCapExemptAlertKind(kind: string | undefined): boolean {
+  return isRequestAlertKind(kind) || kind === "spend_cap";
+}
+
 export function utcDayStart(at: Date): Date {
   return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate()));
 }
@@ -65,7 +73,7 @@ export function utcDayStart(at: Date): Date {
  */
 export function decideEnqueue(alert: Pick<AlertRow, "severity"> & { kind?: string }, plan: Pick<AlertEnqueuePlan, "cap">, rows: OutboxRowInput[], capRows: () => OutboxRowInput[], admittedToday: number): EnqueueDecision {
   if (rows.length === 0) return { status: "skipped", rows: [], capped: false };
-  if (alert.severity !== "critical" && !isRequestAlertKind(alert.kind) && admittedToday >= plan.cap) return { status: "skipped", rows: capRows(), capped: true };
+  if (alert.severity !== "critical" && !isCapExemptAlertKind(alert.kind) && admittedToday >= plan.cap) return { status: "skipped", rows: capRows(), capped: true };
   return { status: "pending", rows, capped: false };
 }
 

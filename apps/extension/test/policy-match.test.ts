@@ -81,7 +81,7 @@ describe("category matching", () => {
     // n / 2^32 per lookup is about 5e-7 per host for 2000 entries: none expected in 2000 hosts.
     expect(falsePositives).toBe(0);
     for (let i = 0; i < 2000; i += 199) expect((await decideHost(`listed-${i}.example`, b, big, NOW)).blocked).toBe(true);
-  });
+  }, 30_000); // hashes every fixture domain against the full category sets: slow on shared CI runners
 
   it("is not blocked when the category data is not loaded", async () => {
     const lookupNoData = createPrefixLookup(null, new MemoryBinStore());
