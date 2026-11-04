@@ -21,6 +21,7 @@ import { POST as CREATE } from "@/app/api/household/protected-members/route";
 import { PUT as TIME_ZONE } from "@/app/api/household/time-zone/route";
 import type { CreateEnrollmentCodeResponse, EnrollDeviceResponse, HeartbeatResponse } from "@/lib/household-types";
 import type { MemberDetailResponse } from "@/lib/member-types";
+import { CONSENT_TEXT_VERSION } from "@/lib/consent-text";
 import { householdDevices } from "@/lib/server/device-enrollment";
 import { getMemberDetail } from "@/lib/server/member-console";
 import { POLICY_LIMIT, devicePolicyState, servePolicy } from "@/lib/server/policy-bundles";
@@ -135,7 +136,7 @@ beforeAll(async () => {
   as(fx.owner);
   expect((await TIME_ZONE(json("/api/household/time-zone", "PUT", { timeZone: "America/New_York" }))).status).toBe(200);
   sam = await addMember({ displayName: "Sam", role: "child", birthYear: thisYear - 12 });
-  const turnedOn = await PATCH(json(`/api/household/protected-members/${sam}`, "PATCH", { mode: "child" }), params(sam));
+  const turnedOn = await PATCH(json(`/api/household/protected-members/${sam}`, "PATCH", { mode: "child", consentTextVersion: CONSENT_TEXT_VERSION }), params(sam));
   expect(turnedOn.status).toBe(200);
   gran = await addMember({ displayName: "Gran", role: "elder" });
   samDevice = await enrollFor(sam);

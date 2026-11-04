@@ -91,6 +91,20 @@ export interface MemberDeviceItem {
 /** POST /api/household/protected-members { displayName, role, birthYear?, contact? } → 201 MemberDetailResponse */
 export type CreatableMemberRole = Exclude<MemberRoleName, "owner">;
 
+/** What the "what is shared" page shows for one member (_specs/v2-m4-hardening.md section 2). A description, never a data dump. */
+export interface MemberSharedResponse {
+  member: { id: string; displayName: string; mode: MemberModeName; hasAccount: boolean };
+  /** True when the viewer is an owner (else the member themselves). */
+  viewerIsOwner: boolean;
+  collected: { heading: string; items: string[] }[];
+  neverCollected: string[];
+  /** Who sees alerts about this member, by name. */
+  owners: string[];
+  helpers: string[];
+  retention: string[];
+  consentTextVersion: string;
+}
+
 /** PUT /api/household/time-zone { timeZone } → { timeZone } */
 export interface HouseholdTimeZoneResponse {
   timeZone: string | null;

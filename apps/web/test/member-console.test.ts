@@ -11,6 +11,7 @@ import type { Session } from "next-auth";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { GET, PATCH } from "@/app/api/household/protected-members/[id]/route";
 import { PUT as POLICY } from "@/app/api/household/protected-members/[id]/policy/route";
+import { CONSENT_TEXT_VERSION } from "@/lib/consent-text";
 import { patchMember } from "@/lib/server/member-console";
 import { memorySentEmails } from "@/lib/server/email/resend";
 import { createEveFixture, type EveFixture, type Person } from "./helpers/eve-db";
@@ -279,7 +280,7 @@ describe("PUT policy", () => {
 
   it("describes an Elder member's effective policy in plain words", async () => {
     as(fx.owner);
-    await patch(fx.kid.memberId, { mode: "elder" });
+    await patch(fx.kid.memberId, { mode: "elder", consentTextVersion: CONSENT_TEXT_VERSION, elderAttestation: true });
     const d = await detail(await policy(fx.kid.memberId, { helpersNotifyAt: "medium" }));
     expect(d.notify.helpersNotifyAt).toBe("medium");
     expect(d.policySummary.join("\n")).toMatch(/Elder mode/);
@@ -296,7 +297,7 @@ describe("mode changes", () => {
     await t.update(memberships, { role: "owner" }, eq(memberships.userId, fx.kid.userId));
     try {
       as(fx.owner);
-      const on = await patch(fx.kid.memberId, { mode: "elder" });
+      const on = await patch(fx.kid.memberId, { mode: "elder", consentTextVersion: CONSENT_TEXT_VERSION, elderAttestation: true });
       expect(on.status).toBe(200);
       expect((await detail(on)).member.mode).toBe("elder");
       expect(memorySentEmails()).toHaveLength(0);
@@ -327,7 +328,7 @@ describe("mode changes", () => {
     await t.update(memberships, { role: "owner" }, eq(memberships.userId, fx.kid.userId));
     try {
       as(fx.owner);
-      const res = await patch(fx.owner.memberId, { mode: "elder" });
+      const res = await patch(fx.owner.memberId, { mode: "elder", consentTextVersion: CONSENT_TEXT_VERSION, elderAttestation: true });
       expect(res.status).toBe(200);
       await patch(fx.owner.memberId, { mode: "standard" });
     } finally {
