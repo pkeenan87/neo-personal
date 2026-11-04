@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { AppShell } from "@/components/AppShell";
 import { DevBypassBanner } from "@/components/DevBypassBanner";
 import { MemberConsole } from "@/components/household/MemberConsole";
-import { env } from "@/lib/env";
+import { env, twilioEnabled } from "@/lib/env";
 import { listHouseholdRequests } from "@/lib/server/child-requests";
 import { getMemberDetail } from "@/lib/server/member-console";
 import { requireSession } from "@/lib/session";
@@ -24,7 +24,7 @@ export default async function MemberProtectionPage({ params }: { params: Promise
       {env().DEV_AUTH_BYPASS ? <DevBypassBanner /> : null}
       <AppShell active="settings">
         {/* Keyed so another member never reuses this form's state. */}
-        <MemberConsole key={found.value.member.id} initial={found.value} {...(requests?.ok ? { requests: requests.value.requests } : {})} />
+        <MemberConsole key={found.value.member.id} initial={found.value} smsEnabled={twilioEnabled()} {...(requests?.ok ? { requests: requests.value.requests } : {})} />
       </AppShell>
     </>
   );

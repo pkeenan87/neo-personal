@@ -44,7 +44,7 @@ export const incidentActions = pgTable(
   ],
 );
 
-export const OUTBOX_CHANNELS = ["email"] as const;
+export const OUTBOX_CHANNELS = ["email", "sms"] as const;
 export type OutboxChannel = (typeof OUTBOX_CHANNELS)[number];
 
 export const notificationOutbox = pgTable(

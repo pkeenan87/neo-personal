@@ -163,6 +163,8 @@ export async function claimOutboxRows(db: Db, tenantId: string, opts: { now?: Da
       .where(
         and(
           eq(notificationOutbox.tenantId, tenantId),
+          // The drain sends email; an `sms` row (the type exists, nothing enqueues one yet) is never emailed.
+          eq(notificationOutbox.channel, "email"),
           isNull(notificationOutbox.sentAt),
           lt(notificationOutbox.attempts, OUTBOX_MAX_ATTEMPTS),
           or(isNull(notificationOutbox.leaseUntil), lt(notificationOutbox.leaseUntil, now)),
