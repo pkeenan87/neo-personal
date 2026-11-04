@@ -69,6 +69,7 @@ export async function becomeAppUser(client: PGlite): Promise<void> {
     grant execute on function public.expire_device_commands(timestamptz) to app_user;
     grant execute on function public.purge_expired_household_memory(timestamptz) to app_user;
     grant execute on function public.lookup_member_channel(text, text) to app_user;
+    grant execute on function public.purge_old_household_records(timestamptz) to app_user;
     set role app_user;
   `);
 }

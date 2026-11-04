@@ -30,23 +30,40 @@ The desktop agent already reads `extensionEnrolled` from the heartbeat and repor
 - `docs/contracts.md`: change the "not sent by any server yet" note to say the server sends it for desktop agents with a member, and add a v2 changelog line.
 
 ### Slice C: timed purges for the rest of the household data (`claude/feature/retention-purges`)
-New migration `0031_retention_purges`: `SECURITY DEFINER` functions in the style of `purge_old_child_requests` (0030). Each takes `p_now`, deletes and returns a count, `REVOKE ALL … FROM PUBLIC` and `GRANT EXECUTE … TO app_user`.
+New migration `0031_retention_purges`. It contains functions only and makes no schema change. It adds one `SECURITY DEFINER` function, `purge_old_household_records(p_now timestamptz) RETURNS TABLE (kind text, n integer)`, in the style of `purge_old_child_requests` and `retention_preview` (0030):
+- `SET search_path = pg_catalog, public`;
+- `REVOKE ALL … FROM PUBLIC`;
+- `GRANT EXECUTE … TO app_user` inside the same `DO` block as 0030.
 
-| Data | Rule |
-|---|---|
-| `outbox` | delivered or permanently failed rows older than 30 days |
-| invitations | accepted, revoked or expired rows older than 30 days |
-| `device_commands` | acknowledged or expired rows older than 30 days |
-| `eve_sessions` | rows not used for 90 days |
-| `usage_events` | older than 400 days (the spend cap reads the current month; 13 months keeps a year-over-year view) |
+It deletes across households and returns one row per kind:
 
-- Not purged, by decision:
-  - `consents`: proof that notice and consent were given; it must outlive the monitoring.
-  - `audit_log`: the record of who changed what.
-  - Both are listed under Open Questions.
-- Add each purge to `RETENTION_PURGES` (`apps/web/lib/server/schedules/jobs/retention.ts`) and to `runArtifactsExpire`'s purge list, so both runners plan it.
-- The privacy page and `SECURITY.md` list the new periods.
-- **Deployment order:** the migration must run on production before this PR merges, because the job calls the new functions. This PR stays open until the owner asks for the migration.
+| kind | table | deleted when |
+|---|---|---|
+| `outbox` | `notification_outbox` | `created_at < p_now - 30 days` and finished (`sent_at is not null` or `attempts >= 5`, the outbox's max attempts), or `created_at < p_now - 90 days` whatever its state |
+| `invites` | `household_invites` | `coalesce(accepted_at, revoked_at, expires_at) < p_now - 30 days` |
+| `device_commands` | `device_commands` | `expires_at < p_now - 30 days` and (`completed_at is null` or `completed_at < p_now - 30 days`) |
+| `eve_sessions` | `eve_sessions` | `created_at < p_now - 90 days`. The table has no last-used column, so a chat older than 90 days can no longer be continued, because the owner check fails closed |
+| `usage_events` | `usage_events` | `created_at < p_now - 400 days`. The spend cap reads only the current month, and 13 months keeps a year-over-year view |
+
+Not purged, by decision:
+- `consents`: proof that notice and consent were given; it must outlive the monitoring.
+- `audit_events`: the record of who changed what.
+- Both are under Open Questions.
+
+Code:
+- `packages/db/src/retention.ts`:
+  - `export interface HouseholdRecordsPurged { outbox; invites; deviceCommands; eveSessions; usageEvents }` (numbers);
+  - `export async function purgeOldHouseholdRecords(db, now = new Date())`, which parses the rows as `previewRetention` does;
+  - export both from `packages/db/src/index.ts`.
+- `apps/web/lib/server/inbound/artifacts-expire-job.ts`:
+  - optional dep `purgeOldHouseholdRecords?(): Promise<number>`, the total;
+  - step `purge-household-records` after `purge-household-memory`;
+  - result field `householdRecordsPurged?`.
+- `apps/web/lib/server/inbound/deps.ts`: wire it like `purgeExpiredMemory`. With no database it returns 0. If the call throws, it logs `logger.warn("Household records purge failed", "retention", …)` and returns 0, so a database without migration 0031 doesn't break retention. It logs the per-kind counts with `logger.info`.
+- `apps/web/lib/server/schedules/jobs/retention.ts`: add `"household_records"` to `RETENTION_PURGES`.
+- The privacy page and `SECURITY.md` state the new periods.
+
+**Deployment:** the code is safe to merge before the migration (it logs a warning and returns 0). Until the migration runs on production, nothing is purged.
 
 ### Slice D: eve chat attachments (`claude/feature/eve-chat-attachments`)
 `/chat-v2` gets the old chat's attachments: an `.eml` file or a screenshot.
@@ -68,7 +85,7 @@ New migration `0031_retention_purges`: `SECURITY DEFINER` functions in the style
   - With no extension, or only a revoked one, it gets `false`.
   - An extension in another household doesn't count.
   - Extension heartbeats don't carry the field.
-- **Purges:** each new function deletes only rows past its rule and returns the count, and both runners plan it.
+- **Purges:** `purge_old_household_records` deletes only rows past each rule, keeps the rest, returns per-kind counts, and is callable by the app role. Both runners plan `household_records`.
 
 ## Open Questions
 - **Consents and audit log retention:** kept indefinitely for now, as the safer option for proving consent and accountability. If owners need deletion, add per-household settings with a floor (for example, a consent kept at least a year after monitoring ends).
@@ -81,4 +98,4 @@ New migration `0031_retention_purges`: `SECURITY DEFINER` functions in the style
   - after the extension is removed → `false`;
   - an extension enrolled for another member → `false`;
   - the extension's own heartbeat has no `extensionEnrolled`.
-- **Slice C:** database tests with the functions against Postgres in the `packages/db` test style: a row past the rule is deleted, a row inside it is kept. Add the job-plan test for the new purge names.
+- **Slice C:** in `packages/db/test/household-records-purge.test.ts` (PGlite, app role), for each kind seed one row past the rule and one inside it (rows inserted as the migration owner), call `purgeOldHouseholdRecords` as `app_user`, and check the counts and the survivors. The job-plan test includes `household_records`.

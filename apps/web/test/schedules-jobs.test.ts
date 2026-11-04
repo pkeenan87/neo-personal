@@ -111,19 +111,20 @@ describe("retention", () => {
       expireChildRequests: vi.fn(async () => 7),
       pruneScheduleRuns: vi.fn(async () => 8),
       purgeExpiredMemory: vi.fn(async () => 9),
+      purgeOldHouseholdRecords: vi.fn(async () => 10),
       purgeArtifact: vi.fn(async () => undefined),
     };
     const live = await runRetention({ runner: "inngest", deps: { mode: "live", read, effects }, steps: inlineSteps, record: recorder().record });
 
     expect(shadow.digest).toBe(live.digest);
-    expect(shadow.actions).toBe(2 + 9);
+    expect(shadow.actions).toBe(2 + 10);
     expect(effects.purgeArtifact).toHaveBeenCalledWith("a1", T1);
     expect(effects.purgeArtifact).toHaveBeenCalledWith("a2", T2);
     expect(effects.purgeOldInbound).toHaveBeenCalledWith(90);
-    for (const fn of [effects.purgeOldAlerts, effects.purgeOldDevices, effects.purgeOldDeviceSignals, effects.purgeExpiredReputationCache, effects.purgeWeeklyDigestPayloads, effects.expireChildRequests, effects.pruneScheduleRuns, effects.purgeExpiredMemory]) {
+    for (const fn of [effects.purgeOldAlerts, effects.purgeOldDevices, effects.purgeOldDeviceSignals, effects.purgeExpiredReputationCache, effects.purgeWeeklyDigestPayloads, effects.expireChildRequests, effects.pruneScheduleRuns, effects.purgeExpiredMemory, effects.purgeOldHouseholdRecords]) {
       expect(fn).toHaveBeenCalledTimes(1);
     }
-    expect(live.counts).toMatchObject({ artifactsPurged: 2, childRequestsExpired: 7, scheduleRunsPruned: 8, householdMemoryPurged: 9 });
+    expect(live.counts).toMatchObject({ artifactsPurged: 2, childRequestsExpired: 7, scheduleRunsPruned: 8, householdMemoryPurged: 9, householdRecordsPurged: 10 });
   });
 
   it("shadow reports what the per-household settings would purge, read-only", async () => {
@@ -132,7 +133,7 @@ describe("retention", () => {
     const shadow = await runRetention({ runner: "eve", deps: { mode: "shadow", read: { ...read, previewPurges }, effects: tripwire() } as never, steps: inlineSteps, record: rec.record });
     expect(previewPurges).toHaveBeenCalledTimes(1);
     expect(shadow.counts).toMatchObject({ artifactsExpired: 2, wouldPurgeSignals: 3, wouldPurgeAlerts: 4, wouldPurgeChildRequests: 2, wouldPurgeHouseholdMemory: 1 });
-    expect(shadow.actions).toBe(2 + 9 + 4);
+    expect(shadow.actions).toBe(2 + 10 + 4);
     // Live plans the same actions, so the digests stay comparable.
     const effects = {
       purgeOldInbound: vi.fn(async () => 0), purgeOldAlerts: vi.fn(async () => 0), purgeOldDevices: vi.fn(async () => 0), purgeOldDeviceSignals: vi.fn(async () => 0),

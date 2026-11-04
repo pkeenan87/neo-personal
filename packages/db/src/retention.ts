@@ -86,3 +86,25 @@ export async function purgeOldChildRequests(db: Db, now = new Date()): Promise<n
   const res = await db.execute(sql`select public.purge_old_child_requests(${now.toISOString()}::timestamptz) as n`);
   return Number((res as unknown as { rows: Array<{ n: number | string }> }).rows[0]?.n ?? 0);
 }
+/** Per-kind counts from the household-records purge (migration 0031). Fixed periods: outbox 30/90 days, invites 30 days, device commands 30 days, eve sessions 90 days, usage events 400 days. Consents and audit events are never purged. */
+export interface HouseholdRecordsPurged {
+  outbox: number;
+  invites: number;
+  deviceCommands: number;
+  eveSessions: number;
+  usageEvents: number;
+}
+
+/** Household-records purge across households (`purge_old_household_records`): fixed periods per kind; consents and audit events are never purged. Returns per-kind counts. */
+export async function purgeOldHouseholdRecords(db: Db, now = new Date()): Promise<HouseholdRecordsPurged> {
+  const res = await db.execute(sql`select kind, n from public.purge_old_household_records(${now.toISOString()}::timestamptz)`);
+  const out: HouseholdRecordsPurged = { outbox: 0, invites: 0, deviceCommands: 0, eveSessions: 0, usageEvents: 0 };
+  for (const r of (res as unknown as { rows: Array<{ kind: string; n: number | string }> }).rows) {
+    if (r.kind === "outbox") out.outbox = Number(r.n);
+    else if (r.kind === "invites") out.invites = Number(r.n);
+    else if (r.kind === "device_commands") out.deviceCommands = Number(r.n);
+    else if (r.kind === "eve_sessions") out.eveSessions = Number(r.n);
+    else if (r.kind === "usage_events") out.usageEvents = Number(r.n);
+  }
+  return out;
+}
