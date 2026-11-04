@@ -53,6 +53,13 @@ M4 hardens the v2 architecture for release. It introduces configurable data rete
   - Twilio is not active in M4 (SMS/voice deferred).
 - Keep it as the existing page; add a test that lists the data categories the page must mention, so new tables without a privacy entry fail CI.
 
+#### Slice 3: what was built
+- `apps/web/app/privacy/page.tsx` (updated 2026-11-03): three new sections, "People in your household" (members without accounts, invitations, consent records), "Child and Elder protection" (signed settings, what a device reports, child requests and the typed reason, actions and the notification queue, category list sources and licences) and "The assistant, memory and spend" (eve chat, household memory, spend tracking, SMS not active), plus new retention lines and an audit-trail sentence.
+- The numbers on the page are read from code (after slices 1 and 2 merged): signals 30 days, alerts 180 days (90 after acknowledgement), child requests 90 days, household memory 365 days, each owner-changeable within bounds (`packages/core/src/retention.ts`, migration 0030); artifacts 30 days, removed devices 90 days, schedule runs 90 days. Still no timed purge for consents, usage events, the audit trail, incident actions, the notification outbox, invitations, device commands (only marked expired) or `eve_sessions`; the page says they are kept until the household is deleted.
+- Eve chat content is stored by eve on Vercel Workflow, outside our database; the page says Neo does not set its retention.
+- CI guard: `apps/web/test/privacy-tenant-tables.test.tsx` (now including `deviceCommands`) maps every key of `tenantTables` to a privacy-page section and phrase. A new tenant table fails CI until the map (and the page) cover it. Tables, by section: `collect` conversations, turns, verdicts, monitoredAddresses, breachObservations, auditEvents, inboundAddresses, inboundMessages, devices, deviceEnrollmentCodes, deviceExpectedTools; `use` memberships, digestDeliveries, accountHardeningAnswers, signinEvents, knownSigninDevices, the four outlook tables; `retention` artifacts, alerts, deviceSignals; `people` members, householdInvites, consents; `protection` policies, policyBundles, incidentActions, notificationOutbox, childRequests; `assistant` usageEvents, eveSessions, householdMemory, memberChannels.
+- Also described as built: consent records (slice 2), the `end_session` request and its device table `device_commands` (M3 slice 4), owner-set retention (slice 1).
+
 ### 4. SECURITY.md threat-model update (Slice 4)
 Describe only mitigations that exist; anything missing is a residual risk or a follow-up, never a claimed control.
 - **eve tools and sessions:** tenant from the verified caller only (`requireTenantCaller`), DB through `tenantScoped()`, every result through `wrapToolResult`; per-session owner check (`eve_sessions`, M1) on continue/stream/control routes; acting tools `always()` + a DB role re-check. Residual: eve's session storage (Vercel Workflow) is not encrypted per tenant by us.
@@ -63,6 +70,10 @@ Describe only mitigations that exist; anything missing is a residual risk or a f
 - **Category lists:** pinned upstream commits, sha256-checked at build, served from our origin, sha256-checked by the extension against the lists manifest. Residual: the manifest itself is not signed (same trust as the server); upstream lists can contain mistakes (false positives → allow lists).
 - **Household memory:** a prompt-injection persistence channel by design — mitigated by owner-only writes with `always()` approval showing the exact text, server-side content rules, no automatic injection into the system prompt (only via `recall` → `wrapToolResult`), retention and forget. Residual: an owner can approve injected text.
 - **eve schedule shadow runner:** read-only by type (no effects object), records counts/digests only (no PII) in `schedule_runs`; cron routes only reachable with Vercel's cron token (probed: 404 otherwise).
+
+#### Slice 4: what was built
+- `SECURITY.md`: a "v2 trust boundaries" section and an "Owner actions" list. Each control cites its file. Corrections to the draft above, found while verifying against code: the env-key signing backend (`NEO_POLICY_SIGNING_KEY`) exists beside KMS, so "key never in env" is true only for KMS; the desktop agent verifies signature, pinned keys and `deviceId` but has no `issuedAt` rollback check (the extension has one); the email token is single-use in that it is cleared when the request is decided; nothing in the repository enforces "cron routes only reachable with Vercel's token", so that is listed as unverified, with a probe in the beta checklist; `end_session`, consent and owner-set retention have since merged and are described as built, with the desktop rollback gap, the missing timed purges and the unverified cron token kept as residual risks.
+- Added as requested: household memory as an injection-persistence channel with its controls and residual, and "signing proves origin, not intent".
 
 ### 5. Evals (Slice 5)
 - **Offline evals (run in CI, no network, no real model):** the safety properties that do not depend on the model's prose. A scripted, adversarial "model" drives the real tool definitions against an in-memory Postgres (PGlite).
@@ -91,6 +102,9 @@ Describe only mitigations that exist; anything missing is a residual risk or a f
   - Monitor usage and incidents.
   - Collect feedback.
 - No code changes.
+
+#### Slice 6: what was built
+- `docs/beta-checklist.md`: operator gates (COPPA, pinned policy key in client builds, hardware verification list from the M2 spec, store releases, list licences, cron probe, flags) and a 14-step household onboarding including Chromebook and Family Link (unverified), notification checks, spend cap, retention as it is today, and how to report problems. Items that depend on unmerged work are marked pending.
 
 ## Possible Edge Cases
 - A household changes retention settings while a purge is in progress: the purge uses the settings at the start of the run.
