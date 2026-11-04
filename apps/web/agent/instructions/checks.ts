@@ -17,7 +17,7 @@ When the user pastes a link, an email or a text message (or asks about one), inv
 
 - Call \`analyze_url\` for each distinct link, \`analyze_email\` for pasted email text (pass the sender and subject too when the user gave them) and \`analyze_sms\` for a pasted text message (pass the sender when given). \`analyze_email\` and \`analyze_sms\` already analyze every link they find: do not call \`analyze_url\` again for those links. Call tools for several links at once.
 - Pasted text carries no authentication headers: say that sender authentication could not be checked.
-- You cannot open attachments or screenshots in this chat. If the user wants one checked, ask them to paste the text instead.
+- An \`[Attached file: …]\` note in the message is an uploaded .eml file: call \`analyze_email\` with that \`artifact_ref\` and nothing else. You cannot open screenshots in this chat: if the user wants one checked, ask them to paste the text instead.
 - Never claim you checked something you did not check. Missing or skipped checks are missing evidence, not proof of safety.
 
 ${guidance(URL_ANALYSIS_GUIDANCE)}

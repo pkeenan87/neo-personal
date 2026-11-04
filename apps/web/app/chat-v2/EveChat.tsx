@@ -2,8 +2,10 @@
 
 import { openInteractions } from "eve/events";
 import { useEveAgent, type EveMessagePart } from "eve/react";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { MessageContent } from "@/components/MessageContent";
+import { uploadArtifacts } from "@/lib/agent-client";
+import { attachmentNote } from "@/lib/attachments";
 import { PLAYBOOK_ENTRIES, playbookPrompt } from "@/lib/playbooks";
 
 const FIRST_QUESTION = "What happened with this alert? Please explain it simply.";
@@ -58,6 +60,11 @@ export function EveChat({ incidentId, resumeSessionId = null }: { incidentId?: s
   const busy = agent.status === "busy";
   const lastId = agent.messages.at(-1)?.id;
 
+  const [file, setFile] = useState<File | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [attachError, setAttachError] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
   // A new incident chat opens by asking about the alert (once, even under React strict mode).
   useEffect(() => {
     if (!incidentId || resumeSessionId || started.current) return;
@@ -72,10 +79,36 @@ export function EveChat({ incidentId, resumeSessionId = null }: { incidentId?: s
     void agent.send(FIRST_QUESTION, { clientContext: { incidentId } });
   }
 
+  async function sendMessage(text: string, input: HTMLInputElement) {
+    if (!file) {
+      if (text) {
+        void agent.send(text, context);
+        input.value = "";
+      }
+      return;
+    }
+    setUploading(true);
+    setAttachError(null);
+    try {
+      const [uploaded] = await uploadArtifacts([file]);
+      if (!uploaded || uploaded.kind !== "eml") {
+        setAttachError("Only .eml email files can be checked here. For a screenshot, paste the text instead.");
+        return;
+      }
+      void agent.send((text || "Please check this email.") + "\n\n" + attachmentNote(uploaded), context);
+      setFile(null);
+      input.value = "";
+    } catch (err) {
+      setAttachError(err instanceof Error ? err.message : "The file couldn't be uploaded.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   return (
     <div className="mx-auto w-full max-w-2xl px-4 py-6">
       <h1 className="mb-1 text-lg font-semibold tracking-tight">{incidentId ? "Ask Neo about this alert" : "Ask Neo"}</h1>
-      <p className="mb-4 text-sm text-muted">Neo can look at this and explain it. It can close an alert, but only after you press Approve, and it never changes anything on a device.</p>
+      <p className="mb-4 text-sm text-muted">Neo can look at this and explain it. It can close an alert, but only after you press Approve, and it never changes anything on a device. You can attach an .eml email file for Neo to check.</p>
       {!incidentId && agent.messages.length === 0 && (
         <div className="mb-4">
           <p className="mb-2 text-sm font-medium">Something already happened?</p>
@@ -143,21 +176,49 @@ export function EveChat({ incidentId, resumeSessionId = null }: { incidentId?: s
           )}
         </div>
       )}
+      {file && (
+        <p className="mt-3 flex items-center gap-2 text-sm" data-testid="eve-attachment">
+          <span className="truncate">{file.name}</span>
+          <button type="button" onClick={() => setFile(null)} aria-label={`Remove ${file.name}`} className="min-h-11 rounded-lg px-2 underline">
+            Remove
+          </button>
+        </p>
+      )}
+      {attachError && <p role="alert" className="mt-2 text-sm text-red-700 dark:text-red-300">{attachError}</p>}
       <form
         className="mt-4 flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
           const input = e.currentTarget.elements.namedItem("message") as HTMLInputElement;
           const text = input.value.trim();
-          if (text && !resuming) {
-            void agent.send(text, context);
-            input.value = "";
+          if (!resuming && !uploading) {
+            void sendMessage(text, input);
           }
         }}
       >
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".eml,message/rfc822"
+          className="hidden"
+          onChange={(e) => {
+            setFile(e.target.files?.[0] ?? null);
+            setAttachError(null);
+            e.target.value = "";
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileInput.current?.click()}
+          disabled={resuming || uploading}
+          aria-label="Attach an .eml file"
+          className="min-h-11 rounded-xl border border-border px-3 text-sm disabled:opacity-50"
+        >
+          Attach .eml
+        </button>
         <input name="message" disabled={resuming} aria-label="Message" className="min-h-11 flex-1 rounded-xl border border-border bg-surface px-3 text-sm" />
-        <button type="submit" disabled={resuming} className="min-h-11 rounded-xl bg-accent px-4 text-sm font-medium text-accent-fg disabled:opacity-50">
-          Send
+        <button type="submit" disabled={resuming || uploading} className="min-h-11 rounded-xl bg-accent px-4 text-sm font-medium text-accent-fg disabled:opacity-50">
+          {uploading ? "Uploading…" : "Send"}
         </button>
       </form>
     </div>
