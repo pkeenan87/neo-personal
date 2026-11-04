@@ -8,7 +8,7 @@ import { optionalInput, wrappedModelOutput } from "../lib/tool-io";
 
 /** The text in quotes with hidden characters (zero-width, direction overrides) spelled out, so the owner approves what is really stored. */
 const visible = (text: string): string =>
-  JSON.stringify(text).replace(/[\p{Cf}\p{Zl}\p{Zp}\p{Co}]/gu, (c) => `\\u${c.codePointAt(0)!.toString(16).padStart(4, "0")}`);
+  JSON.stringify(typeof text === "string" ? text : "").replace(/[\p{Cf}\p{Zl}\p{Zp}\p{Co}]/gu, (c) => `\\u${c.codePointAt(0)!.toString(16).padStart(4, "0")}`);
 
 const inputSchema = z
   .object({

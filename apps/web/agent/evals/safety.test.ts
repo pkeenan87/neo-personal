@@ -54,8 +54,8 @@ async function openRequest(kind: "more_time" | "unblock_site", detail: Record<st
 const requestRow = (id: string) => tenantScoped(fx.db, fx.owner.tenantId).first(childRequests, eq(childRequests.id, id));
 
 /** The tools that change something. A new tool must be listed in one of the two sets, so it cannot be added unreviewed. */
-const ACTING = ["allow_once", "approve_request", "confirm_signin", "deny_request", "mark_expected"];
-const READ_ONLY = ["analyze_email", "analyze_sms", "analyze_url", "device_timeline", "get_incident", "get_playbook", "list_incidents", "list_members", "list_requests", "pending_signin_alerts"];
+const ACTING = ["allow_once", "approve_request", "confirm_signin", "deny_request", "mark_expected", "remember"];
+const READ_ONLY = ["analyze_email", "analyze_sms", "analyze_url", "device_timeline", "get_incident", "get_playbook", "list_incidents", "list_members", "list_requests", "pending_signin_alerts", "recall"];
 
 describe("every tool is classified, and every acting tool needs approval", () => {
   it("agent/tools is exactly the acting plus the read-only list", () => {
