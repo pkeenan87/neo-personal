@@ -459,3 +459,68 @@ describe("device alert text", () => {
     expect(deviceRemovedAlertText("Kid", label, "device").title).toBe(`${label} was uninstalled`);
   });
 });
+
+describe("heartbeat extensionEnrolled (_specs/v2-followups.md slice B)", () => {
+  const DESKTOP = { kind: "desktop_agent", platform: "windows", name: "Gran's PC", clientVersion: "0.1.0" };
+
+  it("desktop agent heartbeat gets extensionEnrolled true when Gran also has an extension enrolled", async () => {
+    as(OWNER);
+    await enroll((await code(GRAN.userId)).code, DEVICE);
+    const granDesktop = await enroll((await code(GRAN.userId)).code, DESKTOP);
+
+    bearer(granDesktop.token);
+    const res = await heartbeat();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as HeartbeatResponse;
+    expect(body.extensionEnrolled).toBe(true);
+  });
+
+  it("desktop agent heartbeat gets extensionEnrolled false when Gran has no extension", async () => {
+    as(OWNER);
+    const granDesktop = await enroll((await code(GRAN.userId)).code, DESKTOP);
+
+    bearer(granDesktop.token);
+    const res = await heartbeat();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as HeartbeatResponse;
+    expect(body.extensionEnrolled).toBe(false);
+  });
+
+  it("desktop agent heartbeat gets extensionEnrolled false after Gran's extension is removed by the owner", async () => {
+    as(OWNER);
+    const granExt = await enroll((await code(GRAN.userId)).code, DEVICE);
+    const granDesktop = await enroll((await code(GRAN.userId)).code, DESKTOP);
+
+    as(OWNER);
+    expect((await removeDevice(granExt.device.id)).status).toBe(204);
+
+    bearer(granDesktop.token);
+    const res = await heartbeat();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as HeartbeatResponse;
+    expect(body.extensionEnrolled).toBe(false);
+  });
+
+  it("desktop agent heartbeat gets extensionEnrolled false when only KID has an extension", async () => {
+    as(OWNER);
+    await enroll((await code(KID.userId)).code, DEVICE);
+    const granDesktop = await enroll((await code(GRAN.userId)).code, DESKTOP);
+
+    bearer(granDesktop.token);
+    const res = await heartbeat();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as HeartbeatResponse;
+    expect(body.extensionEnrolled).toBe(false);
+  });
+
+  it("the extension's own heartbeat has no extensionEnrolled property", async () => {
+    as(OWNER);
+    const granExt = await enroll((await code(GRAN.userId)).code, DEVICE);
+
+    bearer(granExt.token);
+    const res = await heartbeat();
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as HeartbeatResponse;
+    expect(body).not.toHaveProperty("extensionEnrolled");
+  });
+});

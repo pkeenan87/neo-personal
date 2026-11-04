@@ -142,6 +142,11 @@ export interface HeartbeatResponse {
   /** Present (`true`) only while a command (`end_session`) waits for this device; the bundle then carries it (_specs/v2-m3-cutover.md section 4). */
   pendingCommand?: true;
   /**
+   * Present only on a desktop agent's heartbeat when it has a member; whether that member has an active Neo
+   * browser extension (_specs/v2-followups.md slice B); the agent reports browser_without_extension on false.
+   */
+  extensionEnrolled?: boolean;
+  /**
    * `<origin>/uninstalled?d=...&s=...` (_specs/browser-extension.md "Uninstall"), passed to
    * `runtime.setUninstallURL`. Absent only when `AUTH_SECRET` is unset on a production
    * deployment (lib/server/uninstall.ts).
