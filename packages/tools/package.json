@@ -31,7 +31,7 @@
     "@neo/verdict": "workspace:*",
     "postal-mime": "4.2.0",
     "tldts": "7.4.19",
-    "undici": "8.12.3",
+    "undici": "8.12.4",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -40,6 +40,6 @@
     "eslint": "^10.14.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.1",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   }
 }
