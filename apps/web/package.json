@@ -26,7 +26,7 @@
     "@vercel/kms": "0.3.8",
     "ai": "7.0.159",
     "drizzle-orm": "^0.45.4",
-    "eve": "1.0.0-rc.1",
+    "eve": "1.0.0-rc.6",
     "inngest": "4.26.2",
     "lucide-react": "1.65.0",
     "next": "16.4.3",
