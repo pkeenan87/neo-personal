@@ -24,10 +24,10 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.94",
+    "@ai-sdk/anthropic": "4.0.97",
     "@anthropic-ai/sdk": "0.137.0",
     "@neo/verdict": "workspace:*",
-    "ai": "7.0.159",
+    "ai": "7.0.163",
     "zod": "4.6.7"
   },
   "devDependencies": {
@@ -36,6 +36,6 @@
     "eslint": "^10.14.0",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.72.1",
-    "vitest": "^5.0.5"
+    "vitest": "^5.1.0"
   }
 }
