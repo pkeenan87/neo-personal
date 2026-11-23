@@ -24,18 +24,18 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "4.0.94",
+    "@ai-sdk/anthropic": "4.0.106",
     "@anthropic-ai/sdk": "0.137.0",
     "@neo/verdict": "workspace:*",
-    "ai": "7.0.159",
+    "ai": "7.0.177",
     "zod": "4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
-    "eslint": "^10.14.0",
+    "eslint": "^10.15.0",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.72.1",
-    "vitest": "^5.0.5"
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.1"
   }
 }
